@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "COLLECTION_ALREADY_EXISTS",
+    "message": "A collection with this name already exists",
+    "request_id": "19fb613e32a-a773b11c",
+    "details": {"name": "company-handbook"}
+  }
+}

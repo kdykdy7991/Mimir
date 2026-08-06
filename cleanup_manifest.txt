@@ -1,0 +1,24 @@
+SKDY RAG cleanup manifest — 2026-08-05 (live-state pass)
+Deleted orphaned residue (verified zero references):
+
+bm25-stub    data/db/bm25/default.json
+bm25-stub    data/db/bm25/test.json
+upload-dir   data/uploads/测试rag用例
+upload-file  data/uploads/default/关于下发《浙江时空道宇科技有限公司考勤管理办法（2025 版）》的通知.pdf
+upload-file  data/uploads/default/c.pdf
+upload-file  data/uploads/default/gamma.pdf
+upload-file  data/uploads/default/a.pdf
+upload-file  data/uploads/default/delta.pdf
+upload-file  data/uploads/default/beta.pdf
+upload-file  data/uploads/default/b.pdf
+upload-file  data/uploads/default/sample.pdf
+upload-file  data/uploads/test/nq_0000_Law & Order_ Special Victims Unit.pdf
+upload-dir   data/uploads/alpha_coll
+upload-dir   data/uploads/beta_coll
+image-file   data/images/qwen3.6_35b_a3b_score.png
+image-file   data/images/_default/32ad269612a0e585_0_0.jpeg
+image-file   data/images/default/32ad269612a0e585_0_0.jpeg
+image-file   data/images/32ad269612a0e585/32ad269612a0e585_0_0.jpeg
+image-dir    data/images/default
+image-dir    data/images/_default
+image-dir    data/images/32ad269612a0e585

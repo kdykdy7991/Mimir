@@ -1,0 +1,14 @@
+{
+  "document": {
+    "id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+    "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+    "filename": "q2-roadmap.pdf",
+    "size_bytes": 524288,
+    "status": "pending",
+    "chunk_count": 0,
+    "image_count": 0,
+    "created_at": "2026-07-31T08:23:11.234Z",
+    "updated_at": "2026-07-31T08:23:11.234Z"
+  },
+  "task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f"
+}

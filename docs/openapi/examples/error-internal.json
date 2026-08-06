@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "An unexpected error occurred. Please try again later.",
+    "request_id": "19fb613e340-99aabbcc",
+    "details": {}
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "status": "ok",
+  "dependencies": [
+    {"name": "chroma", "status": "ok", "detail": null},
+    {"name": "bm25", "status": "ok", "detail": null}
+  ]
+}

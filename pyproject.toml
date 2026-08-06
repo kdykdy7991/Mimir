@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skdy-rag-server"
+version = "0.1.0"
+description = "SKDY RAG Server - Pluggable multi-stage RAG framework with MCP protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "mcp>=1.0.0",
+    "openai>=1.0.0",
+    "chromadb>=0.4.0",
+    "markitdown>=0.1.0",
+    "pymupdf>=1.24.0",
+    "langchain-text-splitters>=0.2.0",
+    "streamlit>=1.30.0",
+    "pandas>=2.0.0",
+    # Web API (M1): FastAPI 与 Pydantic 已用于 web_api 适配层
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+# 本地推理后端：仅当 embedding.provider 选 sentence_transformers/huggingface，
+# 或 rerank.backend 选 cross_encoder 时才需要。OpenAI 兼容后端无需安装。
+local = [
+    "sentence-transformers>=2.5.0",
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+]
+
+[project.scripts]
+skdy-rag = "main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (may require local services)",
+    "e2e: End-to-end tests (full pipeline)",
+    "slow: Tests that take longer to run",
+    "network: Tests that require network access",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

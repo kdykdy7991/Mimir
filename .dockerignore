@@ -1,0 +1,19 @@
+# 运行数据与本地环境不进镜像
+data/
+logs/
+cache/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# 前端（本地 npm run dev 运行；如需容器化前端另建镜像）
+web/node_modules/
+web/.next/
+
+# 测试与文档
+tests/
+docs/
+*.md

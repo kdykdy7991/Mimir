@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "DOCUMENT_NOT_FOUND",
+    "message": "Document does not exist",
+    "request_id": "19fb613e329-298ecef1",
+    "details": {"document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f"}
+  }
+}

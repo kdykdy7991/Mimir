@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "UNSUPPORTED_MEDIA_TYPE",
+    "message": "file content-type 'text/plain' is not allowed; expected one of ['application/pdf']",
+    "request_id": "19fb613e3ff-abcdef01",
+    "details": {
+      "received_content_type": "text/plain",
+      "allowed_content_types": ["application/pdf"]
+    }
+  }
+}

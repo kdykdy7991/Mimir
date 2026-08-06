@@ -1,0 +1,52 @@
+{
+  "scenarios": [
+    {
+      "name": "typical_noise_scenario",
+      "description": "Mixed: page header, page footer, blank lines, trailing whitespace.",
+      "input": "Page 1 of 10\n\nReal content starts here.\n\n\n\n  \n  Real content continues.\n\n\n- 2 -",
+      "expected_after_rule": "Real content starts here.\n\nReal content continues."
+    },
+    {
+      "name": "excessive_whitespace",
+      "description": "Lots of consecutive blank lines and trailing spaces — should collapse to single blank lines.",
+      "input": "First paragraph.   \n\n\n\n\n\nSecond paragraph.   \n   \nThird paragraph.",
+      "expected_after_rule": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+    },
+    {
+      "name": "page_header_footer",
+      "description": "Pure page header + footer + clean body — headers/footers must be stripped.",
+      "input": "Document Title | Confidential   \n\nThis is the body of the document with the actual content.\n\n- 5 -",
+      "expected_after_rule": "This is the body of the document with the actual content."
+    },
+    {
+      "name": "format_markers",
+      "description": "HTML comment and Markdown image — both should be stripped.",
+      "input": "Before image.\n\n<!-- TODO: add caption later -->\n\n![alt text](http://example.com/img.png)\n\nAfter image.",
+      "expected_after_rule": "Before image.\n\nAfter image."
+    },
+    {
+      "name": "code_blocks_preserved",
+      "description": "Markdown code fences must keep their internal whitespace and newlines intact.",
+      "input": "Intro line.\n\n```python\ndef foo():\n    if True:\n        return 42\n```\n\nOutro line.",
+      "expected_after_rule": "Intro line.\n\n```python\ndef foo():\n    if True:\n        return 42\n```\n\nOutro line."
+    },
+    {
+      "name": "markdown_structure_preserved",
+      "description": "Headings, lists, blockquotes, bold/italic should not be touched.",
+      "input": "# Heading\n\n- item 1\n- item 2\n\n> A quote.\n\n**bold** and *italic*.",
+      "expected_after_rule": "# Heading\n\n- item 1\n- item 2\n\n> A quote.\n\n**bold** and *italic*."
+    },
+    {
+      "name": "clean_text_unchanged",
+      "description": "Already clean text — must not be over-cleaned.",
+      "input": "This is perfectly clean text.\n\nIt has reasonable paragraphs and no noise.",
+      "expected_after_rule": "This is perfectly clean text.\n\nIt has reasonable paragraphs and no noise."
+    },
+    {
+      "name": "ocr_errors",
+      "description": "OCR noise: weird ligatures, ligature 'fi' as a single char, broken punctuation.",
+      "input": "The quick brown fox jumps over the lazy dog.\n\nThé quïck brøwn føx jumps øver the lazy døg.",
+      "expected_after_rule": "The quick brown fox jumps over the lazy dog.\n\nThé quïck brøwn føx jumps øver the lazy døg."
+    }
+  ]
+}

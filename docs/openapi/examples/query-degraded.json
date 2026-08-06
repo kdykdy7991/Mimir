@@ -1,0 +1,34 @@
+{
+  "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "answer": null,
+  "citations": [
+    {
+      "index": 1,
+      "chunk_id": "d2c3v4b5n6m7",
+      "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+      "document_name": "employee-handbook.pdf",
+      "page": 12,
+      "text": "员工年假标准：…",
+      "scores": {
+        "dense": 0.81,
+        "sparse": null,
+        "fusion": 0.031,
+        "rerank": null
+      },
+      "images": []
+    }
+  ],
+  "diagnostics": {
+    "duration_ms": 96,
+    "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "dense_count": 20,
+    "sparse_count": null,
+    "fused_count": 15,
+    "reranked_count": null,
+    "degraded": true,
+    "degraded_reasons": [
+      "sparse backend unavailable; dense-only fallback",
+      "rerank timeout; using fused ranking"
+    ]
+  }
+}

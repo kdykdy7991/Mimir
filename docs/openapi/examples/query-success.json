@@ -1,0 +1,52 @@
+{
+  "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "answer": null,
+  "citations": [
+    {
+      "index": 1,
+      "chunk_id": "d2c3v4b5n6m7",
+      "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+      "document_name": "employee-handbook.pdf",
+      "page": 12,
+      "text": "员工年假标准：入职满 1 年不满 10 年，每年 5 天；满 10 年不满 20 年，每年 10 天；满 20 年及以上，每年 15 天。",
+      "scores": {
+        "dense": 0.81,
+        "sparse": 8.2,
+        "fusion": 0.031,
+        "rerank": 0.91
+      },
+      "images": []
+    },
+    {
+      "index": 2,
+      "chunk_id": "e3f4a5b6c7d8",
+      "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+      "document_name": "employee-handbook.pdf",
+      "page": 13,
+      "text": "年假申请需提前 3 个工作日通过 OA 提交，跨年度年假须经 HRBP 审批。",
+      "scores": {
+        "dense": 0.78,
+        "sparse": 7.5,
+        "fusion": 0.034,
+        "rerank": 0.85
+      },
+      "images": [
+        {
+          "id": "img-001",
+          "url": "/api/v1/images/img-001",
+          "caption": "年假申请流程图"
+        }
+      ]
+    }
+  ],
+  "diagnostics": {
+    "duration_ms": 128,
+    "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "dense_count": 20,
+    "sparse_count": 20,
+    "fused_count": 15,
+    "reranked_count": 2,
+    "degraded": false,
+    "degraded_reasons": []
+  }
+}

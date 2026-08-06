@@ -1,0 +1,22 @@
+{
+  "id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+  "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+  "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+  "status": "failed",
+  "progress": {
+    "stage": "embed",
+    "current": 32,
+    "total": 100,
+    "percent": 32,
+    "message": "Embedding chunks"
+  },
+  "attempt": 0,
+  "error": {
+    "code": "UPSTREAM_ERROR",
+    "message": "Embedding provider failed",
+    "details": {"provider": "openai", "status_code": 502}
+  },
+  "created_at": "2026-07-31T08:23:11.234Z",
+  "updated_at": "2026-07-31T08:24:01.500Z",
+  "finished_at": "2026-07-31T08:24:01.500Z"
+}

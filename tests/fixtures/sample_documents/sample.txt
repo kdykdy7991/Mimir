@@ -1,0 +1,29 @@
+# Sample Document for Testing
+
+This is a minimal sample document used for testing the SKDY RAG Server.
+
+## Section 1: Introduction
+
+This document serves as a fixture for unit and integration tests.
+
+## Section 2: Key Concepts
+
+- **RAG**: Retrieval-Augmented Generation
+- **MCP**: Model Context Protocol
+- **BM25**: Best Matching 25 algorithm for keyword search
+- **Embedding**: Vector representation of text for semantic search
+
+## Section 3: Configuration
+
+The system supports multiple LLM providers including OpenAI, Azure, and Ollama.
+Embedding models can be switched between cloud services and local models.
+
+## Section 4: Retrieval
+
+The retrieval pipeline uses hybrid search combining:
+1. Dense retrieval (semantic similarity)
+2. Sparse retrieval (BM25 keyword matching)
+3. RRF fusion for ranking
+4. Optional reranking for fine-grained sorting
+
+This sample document is intentionally kept simple for fast test execution.

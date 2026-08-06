@@ -1,0 +1,16 @@
+{
+  "app_name": "skdy-rag-server",
+  "version": "0.2.0",
+  "storage_backend": "chroma",
+  "sparse_backend": "bm25",
+  "rerank_backend": "none",
+  "providers": {
+    "llm": {"configured": true, "ready": true, "model": "gpt-4o-mini"},
+    "embedding": {"configured": true, "ready": true, "model": "text-embedding-3-small"},
+    "vision": {"configured": false, "ready": false, "model": null}
+  },
+  "features": {
+    "multimodal": false,
+    "image_captioning": false
+  }
+}

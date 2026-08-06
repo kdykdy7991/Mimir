@@ -1,0 +1,184 @@
+# ============================================================
+# SKDY RAG Server - Main Configuration
+# ============================================================
+# 修改本文件可切换各组件后端，无需修改代码。
+# 使用 ${ENV_VAR} 语法引用环境变量（如 ${OPENAI_API_KEY}）。
+# ============================================================
+
+# ----------------------------------------------------------------
+# LLM 配置 (核心推理模型)
+# ----------------------------------------------------------------
+llm:
+  provider: openai             # openai | deepseek | minimax | mimo | vllm | ollama
+  model: Qwen3.6-35B-A3B-NVFP4  # 本地 vLLM 服务的模型 id（OpenAI 兼容 API）
+  temperature: 0.0
+  max_tokens: 4096
+  api_key: "not-needed"        # 本地服务不校验；OpenAI 云请用 ${OPENAI_API_KEY}
+  base_url: "http://localhost:8000/v1"   # 本地 vLLM server
+  # DeepSeek 配置 (当 provider: deepseek 时生效)
+  # api_key: "${DEEPSEEK_API_KEY}"
+  # base_url: "https://api.deepseek.com/v1"
+  # MiniMax 配置 (当 provider: minimax 时生效)
+  # api_key: "${MINIMAX_API_KEY}"
+  # base_url: "https://api.minimax.chat/v1"
+  # Mimo 配置 (当 provider: mimo 时生效)
+  # api_key: "${MIMO_API_KEY}"
+  # base_url: "https://api.mimo.ai/v1"
+  # vLLM 配置 (当 provider: vllm 时生效，本地部署)
+  # api_key: "not-needed"
+  # base_url: "http://localhost:8000/v1"
+  # model: "your-model"
+  # Ollama 配置 (当 provider: ollama 时生效，本地部署)
+  # api_key: "not-needed"
+  # base_url: "http://localhost:11434/v1"
+  # model: "llama3"
+  # 注：视觉能力（capabilities）由 OpenAICompatibleLLM.VISION_MODELS
+  # 集合按模型名判断。Qwen3.6-35B-A3B-NVFP4 是 NVIDIA 量化视觉模型
+  # （OpenAI 兼容 /v1/chat/completions 多模态端点），
+  # 已加入集合 → capabilities={'text', 'vision'}。
+  # 要让别的视觉模型被识别，编辑
+  # src/libs/llm/providers/openai_compatible.py 的 VISION_MODELS。
+
+# ----------------------------------------------------------------
+# Embedding 配置
+# ----------------------------------------------------------------
+embedding:
+  provider: openai             # openai | sentence_transformers | huggingface
+  model: qwen3-embedding       # 本地 vLLM 服务的模型名（OpenAI 兼容 API）
+  dimensions: 1024             # 必须与 server 输出维度一致（已 curl 验证）
+  api_key: "not-needed"        # 本地服务不校验 key；OpenAI 云服务请用 ${OPENAI_API_KEY}
+  base_url: "http://localhost:8003/v1"   # 本地 qwen3-embedding server
+  # Sentence-Transformers 配置 (当 provider: sentence_transformers 时生效，本地推理)
+  # model: BAAI/bge-small-zh-v1.5
+  # device: cpu                 # cpu | cuda | auto
+  # dimensions: 512
+  # Hugging Face 配置 (当 provider: huggingface 时生效，本地推理)
+  # model: BAAI/bge-small-zh-v1.5
+  # device: cpu                 # cpu | cuda | auto
+  # dimensions: 512
+  # Ollama 配置 (当 provider: ollama 时生效)
+  # base_url: "http://localhost:11434"
+  # model: "nomic-embed-text"
+  # 其它 OpenAI 兼容 server：把 base_url 改成对应地址即可，
+  # 维度也必须同步改成 server 实际输出维度。
+
+# ----------------------------------------------------------------
+# 向量存储配置
+# ----------------------------------------------------------------
+vector_store:
+  backend: chroma              # chroma | qdrant | pinecone
+  persist_path: ./data/db/chroma
+  collection_name: default
+
+# ----------------------------------------------------------------
+# 检索配置
+# ----------------------------------------------------------------
+retrieval:
+  sparse_backend: bm25         # bm25 | elasticsearch
+  fusion_algorithm: rrf        # rrf | weighted_sum
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
+  rrf_k: 60                    # RRF 平滑常数
+
+# ----------------------------------------------------------------
+# Sparse / BM25 配置
+#
+# 分词固定为 1+2-gram char n-gram（ASCII 词 + CJK 单字 + CJK 紧邻
+# 双字）。无需分词词典，零依赖。
+# ----------------------------------------------------------------
+sparse:
+  # stopwords: []              # 自定义停用词列表；注释掉则使用内置停用词
+  min_term_len: 1              # 词项最小长度（1 保留单字、2 保留双字）
+  drop_pure_digits: true       # 是否丢弃纯数字词
+
+# ----------------------------------------------------------------
+# 重排配置
+# ----------------------------------------------------------------
+rerank:
+  backend: none                # none | cross_encoder | llm
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  top_m: 30                    # 送入 reranker 的候选数
+  device: cpu                  # cpu | cuda | auto
+  # Cross-Encoder 模型选项:
+  # - cross-encoder/ms-marco-MiniLM-L-6-v2 (英文，轻量)
+  # - BAAI/bge-reranker-v2-m3 (多语言，推荐)
+  # - Qwen/Qwen3-Reranker-0.6B (中文优化，轻量)
+
+# ----------------------------------------------------------------
+# 切分器配置
+# ----------------------------------------------------------------
+splitter:
+  type: recursive              # recursive | semantic | fixed_length
+  chunk_size: 1024
+  chunk_overlap: 200
+  separators:
+    - "\n\n"
+    - "\n"
+    - " "
+    - ""
+
+# ----------------------------------------------------------------
+# 评估配置
+# ----------------------------------------------------------------
+evaluation:
+  backends: []                 # [ragas, custom] - 初期为空，Phase H 启用
+  golden_test_set: ./tests/fixtures/golden_test_set.json
+
+# ----------------------------------------------------------------
+# Ingestion 配置
+# ----------------------------------------------------------------
+ingestion:
+  chunk_refiner:
+    use_llm: false             # C5: 关闭 LLM 增强 (默认降级到 rule-based)
+    prompt_path: ./config/prompts/chunk_refinement.txt
+    fallback_on_error: true    # LLM 失败时回退到 rule 结果
+    min_change_ratio: 0.0      # 强制 LLM 输出 (无变化检测)
+  metadata_enricher:
+    use_llm: true             # C6: 关闭 LLM 增强 (默认降级到 rule-based)
+    prompt_path: ./config/prompts/metadata_enrichment.txt
+    fallback_on_error: true
+    max_title_len: 80
+    max_summary_len: 200
+    max_tags: 5
+  image_captioner:
+    use_llm: true             # C7: 关闭 Vision LLM (默认降级)
+    prompt_path: ./config/prompts/image_captioning.txt
+    fallback_on_error: true
+    max_caption_len: 500
+  image_classifier:
+    enabled: true            # C8: 图片装饰性/内容性分类（默认关闭）
+    hard_filter:
+      enabled: true
+      size_enabled: true
+      min_width: 40.0
+      min_height: 40.0
+      min_area_ratio: 0.005
+      position_enabled: false
+      header_ratio: 0.08
+      footer_ratio: 0.08
+      duplicate_enabled: true
+    llm:
+      enabled: false
+      prompt_path: ./config/prompts/image_classification.txt
+      fallback_on_error: true
+
+# ----------------------------------------------------------------
+# 可观测性配置
+# ----------------------------------------------------------------
+observability:
+  enabled: true
+  logging:
+    log_file: ./logs/traces.jsonl
+    log_level: INFO            # DEBUG | INFO | WARNING
+  detail_level: standard       # minimal | standard | verbose
+
+# ----------------------------------------------------------------
+# Dashboard 管理平台配置
+# ----------------------------------------------------------------
+dashboard:
+  enabled: true
+  port: 8501
+  traces_dir: ./logs
+  auto_refresh: true
+  refresh_interval: 5

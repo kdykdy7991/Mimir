@@ -1,0 +1,25 @@
+# SKDY RAG Server — 可选容器部署（后端 Web API）
+#
+# 启动：  docker compose up -d
+# 停止：  docker compose down
+#
+# 说明：
+# - network_mode: host 让容器内 localhost:8003 / :8000 直达宿主机上的
+#   embedding / LLM vLLM 服务（与 config/settings.yaml 的本地默认一致）。
+# - data/ 通过 volume 持久化（uploads / db / images / traces）。
+# - 前端 Next.js 默认本地 `npm run dev` 运行；如需容器化前端可再扩一个 service。
+# - 远程 / 多机部署：请先改 config/settings.yaml 的 embedding/llm base_url
+#   指向可达服务，再置于反向代理之后（见 README「容器部署」）。
+# - **必须单 worker**：BM25 写锁是进程内的，多 worker 共享 data/ 会并发
+#   竞争索引。本镜像 CMD 即单进程（uvicorn 默认 workers=1）；不要用
+#   `--workers N`（N>1）启动，直到引入跨进程锁（见 README「并发与部署」）。
+
+services:
+  api:
+    build: .
+    image: skdy-rag-server:local
+    container_name: skdy-rag-api
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

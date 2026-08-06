@@ -1,0 +1,64 @@
+# Smoke-test config — local-only, no API keys.
+# Used by ``tests/smoke/run_smoke.py``.
+#
+# All LLM-using transforms are disabled so the smoke runs
+# hermetically. Only the embedding model (sentence-transformers,
+# downloaded on first use) and the local ChromaStore + BM25
+# backends are needed.
+
+llm:
+  provider: openai             # not actually invoked (all LLM transforms disabled)
+  model: gpt-4o
+  temperature: 0.0
+  max_tokens: 4096
+  api_key: "not-needed"
+  base_url: "https://api.openai.com/v1"
+
+embedding:
+  provider: sentence_transformers
+  model: BAAI/bge-small-zh-v1.5
+  dimensions: 512
+  device: cpu
+
+vector_store:
+  backend: chroma
+  persist_path: ./data/smoke/chroma
+  collection_name: smoke
+
+retrieval:
+  sparse_backend: bm25
+  fusion_algorithm: rrf
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 5
+  rrf_k: 60
+
+rerank:
+  backend: none
+
+splitter:
+  backend: recursive
+  chunk_size: 256
+  chunk_overlap: 32
+
+# All LLM-using transforms disabled — keeps the smoke test
+# hermetic (no API key needed).
+ingestion:
+  chunk_refiner:
+    use_llm: false
+    fallback_on_error: true
+    min_change_ratio: 0.0
+  metadata_enricher:
+    use_llm: false
+    fallback_on_error: true
+    max_title_len: 80
+    max_summary_len: 200
+    max_tags: 5
+  image_captioner:
+    use_llm: false
+    fallback_on_error: true
+    max_caption_len: 500
+
+observability:
+  trace_log_path: ./data/smoke/traces.jsonl
+  log_level: WARNING

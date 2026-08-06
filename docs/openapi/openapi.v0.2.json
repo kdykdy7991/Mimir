@@ -1,0 +1,3420 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SKDY RAG Server API",
+    "description": "HTTP API for the SKDY RAG Server. Mounted under `/api/v1`.\n\n**Contract**: the OpenAPI schema is the single source of truth for the Web UI; client types are generated from it.\n\n**Error envelope**: every 4xx/5xx returns `{\"error\": {\"code\": \"...\", \"message\": \"...\", \"request_id\": \"...\", \"details\": {}}}`.",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/api/v1/system/info": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Service + provider status snapshot",
+        "description": "Return app metadata and per-provider configuration status.",
+        "operationId": "get_system_info_api_v1_system_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness + dependency health",
+        "description": "Return a coarse health snapshot.",
+        "operationId": "get_system_health_api_v1_system_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHealth"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List collections",
+        "description": "Cursor-paginated list of collections.",
+        "operationId": "list_collections_api_v1_collections_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from the previous page's ``next_cursor``.",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor from the previous page's ``next_cursor``."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size, 1-100.",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size, 1-100."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Create a collection",
+        "description": "Create a new collection (persists a BM25 index marker).",
+        "operationId": "create_collection_api_v1_collections_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Get a single collection",
+        "description": "Fetch a single collection by ID.",
+        "operationId": "get_collection_api_v1_collections__collection_id__get",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Update a collection",
+        "description": "Update mutable knowledge-base metadata.",
+        "operationId": "update_collection_api_v1_collections__collection_id__patch",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Delete a collection",
+        "description": "Delete a collection and all of its documents.",
+        "operationId": "delete_collection_api_v1_collections__collection_id__delete",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/documents": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List documents in a collection",
+        "description": "Cursor-paginated list of documents belonging to a collection.",
+        "operationId": "list_collection_documents_api_v1_collections__collection_id__documents_get",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from the previous page's ``next_cursor``.",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor from the previous page's ``next_cursor``."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size, 1-100.",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size, 1-100."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Upload documents and start ingestion",
+        "description": "Upload one or more documents to a collection and start ingestion.\n\nTwo mutually-exclusive modes on the same endpoint:\n\n- **Single** (legacy, M2): send ``file``. Returns ``202`` with a\n  ``DocumentUploadResponse``; behavior is unchanged from M2 except the\n  addition of a file-extension check (415) beside the MIME check\n  (double validation per DEV_SPEC).\n- **Batch** (M5): send ``files[]``. All files go to the same\n  collection. Returns ``202`` with a ``BatchUploadResponse`` carrying\n  a ``batch_id`` and one result per file (``accepted`` → ``task_id``\n  to poll, ``skipped`` → duplicate, ``rejected`` → structured error).\n  A single file's validation / ingestion failure never blocks the\n  others.\n\nLimits: per-file size ``WEB_API_UPLOAD_MAX_BYTES`` (413), batch file\ncount ``WEB_API_UPLOAD_MAX_BATCH_FILES`` and batch total\n``WEB_API_UPLOAD_MAX_BATCH_BYTES`` (413), extension + MIME allow-lists\n(415). Unknown collection → 404. There is no SSE — clients poll\n``GET /tasks/{id}`` for each accepted file.",
+        "operationId": "upload_collection_document_api_v1_collections__collection_id__documents_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_collection_document_api_v1_collections__collection_id__documents_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DocumentUploadResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BatchUploadResponse"
+                    }
+                  ],
+                  "title": "Response Upload Collection Document Api V1 Collections  Collection Id  Documents Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get a single document",
+        "description": "Fetch document detail by ID.",
+        "operationId": "get_document_api_v1_documents__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Document ID (UUID).",
+              "title": "Document Id"
+            },
+            "description": "Document ID (UUID)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Delete a document (coordinated)",
+        "description": "Coordinated delete across vector store + BM25 + image storage.",
+        "operationId": "delete_document_api_v1_documents__document_id__delete",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Document ID (UUID).",
+              "title": "Document Id"
+            },
+            "description": "Document ID (UUID)."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get ingestion task status",
+        "description": "Return the current status of an ingestion task.\n\nThe task registry is process-local. A task that cannot be found\nreturns ``404`` with envelope code ``TASK_NOT_FOUND``. Frontends\npoll this endpoint after ``POST /collections/{id}/documents`` until\nthe status reaches ``succeeded`` or ``failed``.",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Ingestion task ID (UUID).",
+              "title": "Task Id"
+            },
+            "description": "Ingestion task ID (UUID)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics/overview": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "RAG overview metrics",
+        "description": "Aggregate quality, latency and ingestion signals for the overview UI.",
+        "operationId": "get_overview_metrics_api_v1_metrics_overview_get",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "type": "string",
+              "default": "7d",
+              "title": "Range"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/queries": {
+      "post": {
+        "tags": [
+          "queries"
+        ],
+        "summary": "Run a hybrid query against a collection",
+        "description": "Run retrieval and return citations + diagnostics.\n\nM3: ``collection=name`` routes the query to the per-collection\n``HybridSearch`` (EngineCache) — fixing the v0.2 limitation where\nevery collection silently queried the default index.",
+        "operationId": "create_query_api_v1_collections__collection_id__queries_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "502": {
+            "description": "Embedding provider failed."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/queries/async": {
+      "post": {
+        "tags": [
+          "queries"
+        ],
+        "summary": "Run a query asynchronously",
+        "description": "Submit a query and return immediately.\n\nM3 batch 2: the query runs in a background thread; poll\n``GET /queries/{query_id}/result`` for the outcome. ``task_id``\nequals ``query_id`` (and the trace id).",
+        "operationId": "create_async_query_api_v1_collections__collection_id__queries_async_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Collection ID (UUID).",
+              "title": "Collection Id"
+            },
+            "description": "Collection ID (UUID)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AsyncQueryAccepted"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/queries/{query_id}/result": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "Get an async query result",
+        "description": "Poll an async query (M3 batch 2).\n\n``pending`` / ``running`` → keep polling; ``succeeded`` populates\n``result``; ``failed`` populates ``error``. Unknown ids return 404\n``QUERY_NOT_FOUND``.",
+        "operationId": "get_async_query_result_api_v1_queries__query_id__result_get",
+        "parameters": [
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Query ID (== task id).",
+              "title": "Query Id"
+            },
+            "description": "Query ID (== task id)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AsyncQueryResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/queries/{query_id}/trace": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "Get a query trace",
+        "description": "Return the per-stage trace for a previously run query.\n\nEvery query recorded by the Web API stores its trace under\n``query_id == trace_id``, so this is a straight store lookup.",
+        "operationId": "get_query_trace_api_v1_queries__query_id__trace_get",
+        "parameters": [
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Query ID (== trace id).",
+              "title": "Query Id"
+            },
+            "description": "Query ID (== trace id)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingestions/{ingestion_id}/trace": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "Get an ingestion trace",
+        "description": "Return the per-stage trace for a previously run ingestion.\n\nIngestion traces are recorded with ``trace_id == task_id``. When the\ntrace is missing but the task still exists (e.g. recorded before this\nfeature, or trace persistence failed), return 200 with empty stages —\nthe ingestion *record* is real even if its timeline is gone.",
+        "operationId": "get_ingestion_trace_api_v1_ingestions__ingestion_id__trace_get",
+        "parameters": [
+          {
+            "name": "ingestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Ingestion ID (== task id).",
+              "title": "Ingestion Id"
+            },
+            "description": "Ingestion ID (== task id)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images/{image_id}": {
+      "get": {
+        "tags": [
+          "images"
+        ],
+        "summary": "Fetch an indexed image",
+        "description": "Return image bytes for the given image ID.",
+        "operationId": "get_image_api_v1_images__image_id__get",
+        "parameters": [
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Image ID.",
+              "title": "Image Id"
+            },
+            "description": "Image ID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "image/*": {}
+            }
+          },
+          "404": {
+            "description": "Image not found."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AsyncQueryAccepted": {
+        "properties": {
+          "query_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Query Id"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "accepted",
+            "title": "Status",
+            "default": "accepted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query_id",
+          "task_id"
+        ],
+        "title": "AsyncQueryAccepted",
+        "description": "``POST /collections/{id}/queries/async`` response (M3 batch 2).\n\nReturns immediately with the query id; poll ``GET /queries/{id}/result``\nuntil it reaches ``succeeded`` / ``failed``. ``task_id`` equals\n``query_id`` (and the trace id) so one id drives result + trace.",
+        "example": {
+          "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "status": "accepted",
+          "task_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+        }
+      },
+      "AsyncQueryResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "query_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Query Id"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The query response, present only when ``status`` is ``succeeded``."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured error, present only when ``status`` is ``failed``."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "query_id"
+        ],
+        "title": "AsyncQueryResult",
+        "description": "``GET /queries/{query_id}/result`` response (M3 batch 2).\n\nPoll until ``status`` is ``succeeded`` (``result`` populated) or\n``failed`` (``error`` populated). ``pending`` / ``running`` mean the\nbackground query is still in flight.",
+        "example": {
+          "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "result": {
+            "citations": [],
+            "diagnostics": {},
+            "query_id": "…"
+          },
+          "status": "succeeded"
+        }
+      },
+      "BatchFileResult": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Original file name."
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id",
+            "description": "Stable document UUID (``uuid5`` of collection+source path). ``None`` for rejected files (never written to storage)."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id",
+            "description": "Ingestion task to poll for ``accepted`` files; ``None`` for ``skipped``/``rejected``."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "skipped",
+              "rejected"
+            ],
+            "title": "Status"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "description": "Raw file size in bytes.",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured error for ``rejected`` files. Same shape as the HTTP error envelope — branch on ``error.code`` (``UNSUPPORTED_FILE_TYPE`` / ``UNSUPPORTED_MEDIA_TYPE`` / ``FILE_TOO_LARGE`` / ``DUPLICATE_FILENAME``)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "status"
+        ],
+        "title": "BatchFileResult",
+        "description": "One file's result inside a ``BatchUploadResponse`` (M5).",
+        "example": {
+          "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+          "filename": "employee-handbook.pdf",
+          "size_bytes": 1845632,
+          "status": "accepted",
+          "task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f"
+        }
+      },
+      "BatchUploadResponse": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id",
+            "description": "Correlation id for this batch."
+          },
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id",
+            "description": "Target collection UUID."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Number of files in the batch."
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Accepted",
+            "description": "Files accepted as new tasks."
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Skipped",
+            "description": "Files skipped as duplicates (already ingested)."
+          },
+          "rejected": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Rejected",
+            "description": "Files rejected by boundary validation."
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/BatchFileResult"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "Per-file results, in submission order."
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "collection_id",
+          "total",
+          "accepted",
+          "skipped",
+          "rejected",
+          "files"
+        ],
+        "title": "BatchUploadResponse",
+        "description": "``POST /collections/{id}/documents`` batch response (M5).\n\nOne batch uploads many files to the same collection. Each file is\nvalidated and submitted independently — a single rejection never\nblocks the others, and accepted files each carry their own\n``task_id`` for async polling. ``total == accepted + skipped + rejected``.",
+        "example": {
+          "accepted": 2,
+          "batch_id": "6c9f3d5a-8b1e-4a2d-9c7f-0e5d4a3b2c1a",
+          "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+          "files": [
+            {
+              "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+              "filename": "a.pdf",
+              "size_bytes": 1024,
+              "status": "accepted",
+              "task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f"
+            },
+            {
+              "document_id": "8e5b2d4f-3c1e-4b3f-9d0e-2b3c4d5e6f7a",
+              "filename": "b.md",
+              "size_bytes": 2048,
+              "status": "accepted",
+              "task_id": "2f3e4d5c-6b7a-4c9d-8e0f-3b4c5d6e7f8b"
+            },
+            {
+              "error": {
+                "code": "UNSUPPORTED_FILE_TYPE",
+                "details": {},
+                "message": "Unsupported file extension .txt"
+              },
+              "filename": "bad.txt",
+              "size_bytes": 512,
+              "status": "rejected"
+            }
+          ],
+          "rejected": 1,
+          "skipped": 0,
+          "total": 3
+        }
+      },
+      "Body_upload_collection_document_api_v1_collections__collection_id__documents_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File",
+            "description": "Single document file (PDF / Markdown)."
+          },
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files",
+            "description": "Batch of documents; all go to this collection."
+          }
+        },
+        "type": "object",
+        "title": "Body_upload_collection_document_api_v1_collections__collection_id__documents_post"
+      },
+      "Citation": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Index",
+            "description": "1-based position in the citation list."
+          },
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "document_name": {
+            "type": "string",
+            "title": "Document Name",
+            "description": "Human-readable document name (filename)."
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "Source page number when applicable."
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Raw chunk text for snippet rendering."
+          },
+          "scores": {
+            "$ref": "#/components/schemas/CitationScores"
+          },
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/CitationImage"
+            },
+            "type": "array",
+            "title": "Images"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "chunk_id",
+          "document_id",
+          "document_name",
+          "text"
+        ],
+        "title": "Citation",
+        "description": "One retrievable chunk referenced by the answer.\n\nThe 1-based index matches the ``[1]`` markers in the answer text so\nthe Web UI can render clickable inline references.",
+        "example": {
+          "chunk_id": "d2c3v4b5n6m7",
+          "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+          "document_name": "employee-handbook.pdf",
+          "images": [
+            {
+              "caption": "年假申请流程图",
+              "id": "img-001",
+              "url": "/api/v1/images/img-001"
+            }
+          ],
+          "index": 1,
+          "page": 12,
+          "scores": {
+            "dense": 0.81,
+            "fusion": 0.031,
+            "rerank": 0.91,
+            "sparse": 8.2
+          },
+          "text": "员工年假标准：入职满 1 年不满 10 年，每年 5 天；…"
+        }
+      },
+      "CitationImage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stable image identifier."
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Relative path, e.g. ``/api/v1/images/abc-123``.",
+            "examples": [
+              "/api/v1/images/abc-123"
+            ]
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption",
+            "description": "Image caption (if multimodal enrichment was enabled)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "url"
+        ],
+        "title": "CitationImage",
+        "description": "Image associated with a citation.\n\n``url`` is always a *relative* path (``/api/v1/images/{id}``) so the\nfrontend can resolve it against the configured API base URL.\nLocal filesystem paths MUST NOT leak into the API."
+      },
+      "CitationScores": {
+        "properties": {
+          "dense": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dense",
+            "description": "Cosine similarity from the dense retriever (0–1)."
+          },
+          "sparse": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sparse",
+            "description": "BM25 score from the sparse retriever (raw, not normalised)."
+          },
+          "fusion": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fusion",
+            "description": "Reciprocal Rank Fusion score — sum of ``1 / (k + rank_i)`` across the input rankings (default ``k = 60``). **Higher is better.** Range is roughly ``(0, len(rankings)]``; values for the top hit are typically small (e.g. ~0.016 for k=60). See ``src/core/query_engine/fusion.py::reciprocal_rank_fusion``."
+          },
+          "rerank": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank",
+            "description": "Score from the rerank stage (provider-specific range)."
+          }
+        },
+        "type": "object",
+        "title": "CitationScores",
+        "description": "Per-stage scores for a single citation.\n\nEvery field is nullable because a chunk may appear in only one\nretrieval branch (e.g. dense-only query) or have no rerank applied."
+      },
+      "CollectionCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Human-readable collection name. Must be unique."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional description."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CollectionCreateRequest",
+        "description": "``POST /collections`` body.",
+        "example": {
+          "description": "Internal HR & policies.",
+          "name": "company-handbook"
+        }
+      },
+      "CollectionDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable collection name."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional long-form description."
+          },
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count",
+            "description": "Number of documents currently indexed.",
+            "default": 0
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count",
+            "description": "Total chunks indexed across all documents.",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CollectionDetail",
+        "description": "``GET /collections/{id}`` response — same as summary for now.\n\nKept as a separate type so future fields (e.g. configuration overrides)\ncan be added without breaking the list response.",
+        "example": {
+          "chunk_count": 1820,
+          "created_at": "2026-07-15T03:11:08.012Z",
+          "description": "Internal HR & policies.",
+          "document_count": 12,
+          "id": "b2c1f0e8-1234-5678-9abc-def012345678",
+          "name": "company-handbook",
+          "updated_at": "2026-07-31T08:25:42.001Z"
+        }
+      },
+      "CollectionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionSummary"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Page elements."
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Pagination cursor info."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "title": "CollectionListResponse",
+        "description": "``GET /collections`` response — page of summaries.\n\nExample (empty list)::\n\n    {\n      \"items\": [],\n      \"page_info\": {\"next_cursor\": null, \"has_more\": false}\n    }",
+        "examples": [
+          {
+            "items": [],
+            "page_info": {
+              "has_more": false
+            }
+          },
+          {
+            "items": [
+              "<one element>"
+            ],
+            "page_info": {
+              "has_more": true,
+              "next_cursor": "eyJwYWdlIjoxfQ=="
+            }
+          }
+        ]
+      },
+      "CollectionSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable collection name."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional long-form description."
+          },
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count",
+            "description": "Number of documents currently indexed.",
+            "default": 0
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count",
+            "description": "Total chunks indexed across all documents.",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CollectionSummary",
+        "description": "Lightweight collection row for the list endpoint.",
+        "example": {
+          "chunk_count": 1820,
+          "created_at": "2026-07-15T03:11:08.012Z",
+          "description": "Internal HR & policies.",
+          "document_count": 12,
+          "id": "b2c1f0e8-1234-5678-9abc-def012345678",
+          "name": "company-handbook",
+          "updated_at": "2026-07-31T08:25:42.001Z"
+        }
+      },
+      "CollectionUpdateRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Updated description; null clears it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "title": "CollectionUpdateRequest",
+        "description": "``PATCH /collections/{id}`` body."
+      },
+      "DependencyHealth": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Dependency key (e.g. 'chroma', 'bm25')."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "down"
+            ],
+            "title": "Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "Optional short message for the diagnostic page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "DependencyHealth",
+        "description": "Per-dependency health for ``/system/health``.",
+        "example": {
+          "name": "chroma",
+          "status": "ok"
+        }
+      },
+      "DocumentDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Original filename."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "description": "Raw file size in bytes."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed",
+              "deleting"
+            ],
+            "title": "Status"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count",
+            "description": "Number of chunks written to the vector store.",
+            "default": 0
+          },
+          "image_count": {
+            "type": "integer",
+            "title": "Image Count",
+            "description": "Number of images extracted and indexed.",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "file_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Hash",
+            "description": "SHA-256 of the raw file. Used to detect duplicate uploads."
+          },
+          "last_task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Task Id",
+            "description": "Most recent ingestion task ID, if any."
+          },
+          "last_query_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Query Id",
+            "description": "Most recent query that cited this document, if any (M3 batch 2). Lets the UI jump from a document back to the query's trace."
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured error from the last failed task (if any). Same shape as the top-level HTTP error envelope — branch on ``last_error.code``."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "collection_id",
+          "filename",
+          "size_bytes",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DocumentDetail",
+        "description": "``GET /documents/{id}`` response — extends summary with ingestion refs.\n\n``last_task_id`` lets the frontend jump straight to the task detail\npage when ``status`` is anything other than ``ready``.",
+        "example": {
+          "chunk_count": 142,
+          "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+          "created_at": "2026-07-31T08:23:11.234Z",
+          "file_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+          "filename": "employee-handbook.pdf",
+          "id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+          "image_count": 7,
+          "last_query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "last_task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+          "size_bytes": 1845632,
+          "status": "ready",
+          "updated_at": "2026-07-31T08:25:42.001Z"
+        }
+      },
+      "DocumentListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Page elements."
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Pagination cursor info."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "title": "DocumentListResponse",
+        "description": "``GET /collections/{id}/documents`` response.\n\nExample (empty collection)::\n\n    {\n      \"items\": [],\n      \"page_info\": {\"next_cursor\": null, \"has_more\": false}\n    }",
+        "examples": [
+          {
+            "items": [],
+            "page_info": {
+              "has_more": false
+            }
+          },
+          {
+            "items": [
+              "<one element>"
+            ],
+            "page_info": {
+              "has_more": true,
+              "next_cursor": "eyJwYWdlIjoxfQ=="
+            }
+          }
+        ]
+      },
+      "DocumentSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Original filename."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "description": "Raw file size in bytes."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed",
+              "deleting"
+            ],
+            "title": "Status"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count",
+            "description": "Number of chunks written to the vector store.",
+            "default": 0
+          },
+          "image_count": {
+            "type": "integer",
+            "title": "Image Count",
+            "description": "Number of images extracted and indexed.",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "collection_id",
+          "filename",
+          "size_bytes",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DocumentSummary",
+        "description": "Lightweight row for collection document list.",
+        "example": {
+          "chunk_count": 142,
+          "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+          "created_at": "2026-07-31T08:23:11.234Z",
+          "filename": "employee-handbook.pdf",
+          "id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+          "image_count": 7,
+          "size_bytes": 1845632,
+          "status": "ready",
+          "updated_at": "2026-07-31T08:25:42.001Z"
+        }
+      },
+      "DocumentUploadResponse": {
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentDetail"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id",
+            "description": "Ingestion task ID; poll ``GET /tasks/{id}`` for status."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document",
+          "task_id"
+        ],
+        "title": "DocumentUploadResponse",
+        "description": "``POST /collections/{id}/documents`` response.\n\nThe synchronous-first design returns the created document + the\ningestion task ID immediately. The frontend then polls ``/tasks/{id}``\nfor status (no SSE in M1 — see TODO M3 #18).",
+        "example": {
+          "document": {
+            "chunk_count": 0,
+            "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+            "created_at": "2026-07-31T08:23:11.234Z",
+            "filename": "q2-roadmap.pdf",
+            "id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+            "image_count": 0,
+            "size_bytes": 524288,
+            "status": "pending",
+            "updated_at": "2026-07-31T08:23:11.234Z"
+          },
+          "task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f"
+        }
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KnowledgeBaseHealth": {
+        "properties": {
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "index_status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "indexing",
+              "attention"
+            ],
+            "title": "Index Status"
+          },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_count",
+          "chunk_count",
+          "index_status"
+        ],
+        "title": "KnowledgeBaseHealth"
+      },
+      "KnowledgeBaseMetric": {
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "query_count": {
+            "type": "integer",
+            "title": "Query Count"
+          },
+          "no_result_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Result Rate"
+          },
+          "p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency Ms"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "attention"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "collection_id",
+          "name",
+          "query_count",
+          "status"
+        ],
+        "title": "KnowledgeBaseMetric"
+      },
+      "OverviewAttentionItem": {
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning",
+              "critical"
+            ],
+            "title": "Severity"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "title",
+          "description",
+          "href"
+        ],
+        "title": "OverviewAttentionItem"
+      },
+      "OverviewCoreMetrics": {
+        "properties": {
+          "effective_retrieval_rate": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "p95_latency_ms": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "no_result_rate": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          },
+          "ingestion_success_rate": {
+            "$ref": "#/components/schemas/OverviewMetric"
+          }
+        },
+        "type": "object",
+        "required": [
+          "effective_retrieval_rate",
+          "p95_latency_ms",
+          "no_result_rate",
+          "ingestion_success_rate"
+        ],
+        "title": "OverviewCoreMetrics"
+      },
+      "OverviewCorpus": {
+        "properties": {
+          "collection_count": {
+            "type": "integer",
+            "title": "Collection Count"
+          },
+          "document_count": {
+            "type": "integer",
+            "title": "Document Count"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "collection_count",
+          "document_count",
+          "chunk_count"
+        ],
+        "title": "OverviewCorpus"
+      },
+      "OverviewMetric": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "title": "OverviewMetric",
+        "description": "Current and previous-period value for one decision metric."
+      },
+      "OverviewResponse": {
+        "properties": {
+          "range": {
+            "type": "string",
+            "enum": [
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "title": "Range"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "attention",
+              "critical"
+            ],
+            "title": "Status"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "query_count": {
+            "type": "integer",
+            "title": "Query Count"
+          },
+          "previous_query_count": {
+            "type": "integer",
+            "title": "Previous Query Count"
+          },
+          "degraded_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Rate"
+          },
+          "failed_ingestions": {
+            "type": "integer",
+            "title": "Failed Ingestions"
+          },
+          "corpus": {
+            "$ref": "#/components/schemas/OverviewCorpus"
+          },
+          "traffic": {
+            "$ref": "#/components/schemas/TrafficMetrics"
+          },
+          "retrieval_health": {
+            "$ref": "#/components/schemas/RetrievalHealth"
+          },
+          "knowledge_base_health": {
+            "$ref": "#/components/schemas/KnowledgeBaseHealth"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/OverviewCoreMetrics"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewTrendPoint"
+            },
+            "type": "array",
+            "title": "Trend"
+          },
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewAttentionItem"
+            },
+            "type": "array",
+            "title": "Attention"
+          },
+          "knowledge_bases": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeBaseMetric"
+            },
+            "type": "array",
+            "title": "Knowledge Bases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "range",
+          "started_at",
+          "ended_at",
+          "status",
+          "headline",
+          "summary",
+          "query_count",
+          "previous_query_count",
+          "failed_ingestions",
+          "corpus",
+          "traffic",
+          "retrieval_health",
+          "knowledge_base_health",
+          "metrics",
+          "trend",
+          "attention",
+          "knowledge_bases"
+        ],
+        "title": "OverviewResponse"
+      },
+      "OverviewTrendPoint": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "query_count": {
+            "type": "integer",
+            "title": "Query Count",
+            "default": 0
+          },
+          "effective_retrieval_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Retrieval Rate"
+          },
+          "p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp"
+        ],
+        "title": "OverviewTrendPoint"
+      },
+      "PageInfo": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Opaque cursor for the next page. ``null`` means no more pages."
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "Convenience flag; equivalent to ``next_cursor is not None``."
+          }
+        },
+        "type": "object",
+        "required": [
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "PageInfo",
+        "description": "Cursor pagination metadata.\n\nThe cursor is opaque to clients; they should pass back whatever\n``next_cursor`` they got in the previous response.\n\n``next_cursor`` is required + nullable: every response carries the\nfield, with ``null`` meaning \"no more pages\". This avoids the\nfront-end having to distinguish between \"field missing\" and\n\"field is null\".",
+        "example": {
+          "has_more": true,
+          "next_cursor": "eyJwYWdlIjoyfQ=="
+        }
+      },
+      "ProviderStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "description": "Whether the Provider has the required configuration (without exposing the value)."
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready",
+            "description": "Whether the Provider is currently reachable / usable."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Configured model name, if any. Omitted if not configured."
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "ready"
+        ],
+        "title": "ProviderStatus",
+        "description": "Per-Provider presence + readiness.\n\nThe ``configured`` and ``ready`` booleans are the only signals the\nfrontend should depend on. Detailed model names are exposed because\nthe Web overview page needs them, but secrets are NEVER returned.",
+        "example": {
+          "configured": true,
+          "model": "gpt-4o-mini",
+          "ready": true
+        }
+      },
+      "QueryDiagnostics": {
+        "properties": {
+          "duration_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "description": "End-to-end latency in milliseconds."
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id",
+            "description": "Trace ID for this query; pass to ``GET /queries/{query_id}/trace`` for the full per-stage breakdown."
+          },
+          "dense_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dense Count",
+            "description": "Chunks returned by the dense retriever."
+          },
+          "sparse_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sparse Count",
+            "description": "Chunks returned by the sparse retriever."
+          },
+          "fused_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fused Count",
+            "description": "Chunks after RRF fusion."
+          },
+          "reranked_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reranked Count",
+            "description": "Chunks after rerank (0 if skipped)."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True if at least one stage fell back due to a failure.",
+            "default": false
+          },
+          "degraded_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Degraded Reasons",
+            "description": "Human-readable reasons; frontend should display but never branch business logic on these strings. Use ``degraded`` for the boolean."
+          }
+        },
+        "type": "object",
+        "required": [
+          "duration_ms"
+        ],
+        "title": "QueryDiagnostics",
+        "description": "Per-stage counts, latency, and degradation signals.\n\nListed in the v0.1 contract — frontend may render these on the\nPlayground / Trace page. All counts are nullable so the backend\ncan skip reporting a stage it didn't run (e.g. rerank when\n``enable_rerank=false``).",
+        "example": {
+          "degraded": false,
+          "degraded_reasons": [],
+          "dense_count": 20,
+          "duration_ms": 128,
+          "fused_count": 15,
+          "reranked_count": 5,
+          "sparse_count": 20,
+          "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+        }
+      },
+      "QueryRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Query",
+            "description": "User question / search string."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "Maximum number of chunks to return. Hard-capped to 50.",
+            "default": 5
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "hybrid",
+              "dense",
+              "sparse"
+            ],
+            "title": "Mode",
+            "description": "Retrieval mode: hybrid (default), dense-only, or sparse-only.",
+            "default": "hybrid"
+          },
+          "enable_rerank": {
+            "type": "boolean",
+            "title": "Enable Rerank",
+            "description": "If false, the rerank stage is skipped. Equivalent to disabling the rerank provider in settings but for a single request.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "QueryRequest",
+        "description": "``POST /collections/{id}/queries`` body.",
+        "example": {
+          "enable_rerank": true,
+          "mode": "hybrid",
+          "query": "公司年假怎么规定?",
+          "top_k": 5
+        }
+      },
+      "QueryResponse": {
+        "properties": {
+          "query_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Query Id"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer",
+            "description": "Final answer text. In v0.1 this is ``null`` — we return chunks and citations, not generated answers. See PRODUCTION §10."
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/QueryDiagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query_id",
+          "diagnostics"
+        ],
+        "title": "QueryResponse",
+        "description": "``POST /collections/{id}/queries`` response.\n\n``query_id`` is the query record ID; pass it to\n``GET /queries/{id}/trace`` for the full Trace JSON.\n``answer`` is null in v0.1 — final answer generation is out of scope\n(see PRODUCTION §10 \"final answer generation as optional independent stage\").",
+        "examples": [
+          {
+            "citations": [
+              {
+                "chunk_id": "d2c3v4b5n6m7",
+                "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+                "document_name": "employee-handbook.pdf",
+                "images": [],
+                "index": 1,
+                "page": 12,
+                "scores": {
+                  "dense": 0.81,
+                  "fusion": 0.031,
+                  "rerank": 0.91,
+                  "sparse": 8.2
+                },
+                "text": "员工年假标准：入职满 1 年不满 10 年，每年 5 天；…"
+              }
+            ],
+            "diagnostics": {
+              "degraded": false,
+              "degraded_reasons": [],
+              "dense_count": 20,
+              "duration_ms": 128,
+              "fused_count": 15,
+              "reranked_count": 5,
+              "sparse_count": 20,
+              "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+            },
+            "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+          },
+          {
+            "citations": [],
+            "diagnostics": {
+              "degraded": true,
+              "degraded_reasons": [
+                "no chunks matched the query"
+              ],
+              "dense_count": 0,
+              "duration_ms": 42,
+              "fused_count": 0,
+              "reranked_count": 0,
+              "sparse_count": 0,
+              "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+            },
+            "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+          },
+          {
+            "citations": [
+              {
+                "chunk_id": "d2c3v4b5n6m7",
+                "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+                "document_name": "employee-handbook.pdf",
+                "images": [],
+                "index": 1,
+                "page": 12,
+                "scores": {
+                  "dense": 0.81,
+                  "fusion": 0.031
+                },
+                "text": "员工年假标准：…"
+              }
+            ],
+            "diagnostics": {
+              "degraded": true,
+              "degraded_reasons": [
+                "sparse backend unavailable; dense-only fallback",
+                "rerank timeout; using fused ranking"
+              ],
+              "dense_count": 20,
+              "duration_ms": 96,
+              "fused_count": 15,
+              "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+            },
+            "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+          }
+        ]
+      },
+      "RetrievalHealth": {
+        "properties": {
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "empty_retrieval_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empty Retrieval Rate"
+          },
+          "average_top_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Top K"
+          },
+          "average_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Latency Ms"
+          },
+          "rerank_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Success Rate",
+            "description": "Unavailable while reranking is not enabled/instrumented."
+          }
+        },
+        "type": "object",
+        "title": "RetrievalHealth"
+      },
+      "SystemHealth": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "down"
+            ],
+            "title": "Status"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyHealth"
+            },
+            "type": "array",
+            "title": "Dependencies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "SystemHealth",
+        "description": "``GET /system/health`` response.\n\nTop-level ``status`` is the worst of any dependency — frontend should\nshow a banner when this is anything other than ``ok``.",
+        "examples": [
+          {
+            "dependencies": [
+              {
+                "name": "chroma",
+                "status": "ok"
+              },
+              {
+                "name": "bm25",
+                "status": "ok"
+              }
+            ],
+            "status": "ok"
+          },
+          {
+            "dependencies": [
+              {
+                "name": "chroma",
+                "status": "ok"
+              },
+              {
+                "detail": "vision provider not configured",
+                "name": "vision",
+                "status": "down"
+              }
+            ],
+            "status": "degraded"
+          }
+        ]
+      },
+      "SystemInfo": {
+        "properties": {
+          "app_name": {
+            "type": "string",
+            "title": "App Name",
+            "description": "Service name (skdy-rag-server)."
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "Service version."
+          },
+          "storage_backend": {
+            "type": "string",
+            "title": "Storage Backend",
+            "description": "Vector store backend identifier (e.g. 'chroma')."
+          },
+          "sparse_backend": {
+            "type": "string",
+            "title": "Sparse Backend",
+            "description": "Sparse retrieval backend (e.g. 'bm25')."
+          },
+          "rerank_backend": {
+            "type": "string",
+            "enum": [
+              "none",
+              "cross_encoder",
+              "llm"
+            ],
+            "title": "Rerank Backend",
+            "description": "Active rerank backend."
+          },
+          "providers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProviderStatus"
+            },
+            "type": "object",
+            "title": "Providers",
+            "description": "Map of component name (llm / embedding / vision) to its status. NEVER contains credentials."
+          },
+          "features": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Features",
+            "description": "Optional capability flags (e.g. multimodal, image_captioning). Web UI may use these to hide unsupported actions."
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_name",
+          "version",
+          "storage_backend",
+          "sparse_backend",
+          "rerank_backend",
+          "providers"
+        ],
+        "title": "SystemInfo",
+        "description": "``GET /system/info`` response.\n\nExposes the pluggable component layout + a per-Provider status map.",
+        "example": {
+          "app_name": "skdy-rag-server",
+          "features": {
+            "image_captioning": false,
+            "multimodal": false
+          },
+          "providers": {
+            "embedding": {
+              "configured": true,
+              "model": "text-embedding-3-small",
+              "ready": true
+            },
+            "llm": {
+              "configured": true,
+              "model": "gpt-4o-mini",
+              "ready": true
+            },
+            "vision": {
+              "configured": false,
+              "ready": false
+            }
+          },
+          "rerank_backend": "none",
+          "sparse_backend": "bm25",
+          "storage_backend": "chroma",
+          "version": "0.1.0"
+        }
+      },
+      "TaskError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable machine-readable code. Frontend branches on this, NEVER on ``message``. Same vocabulary as the top-level HTTP error envelope (``ErrorDetail.code``).",
+            "examples": [
+              "UPSTREAM_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error description."
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "description": "Optional structured context (e.g. provider name, status code)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TaskError",
+        "description": "Structured error for async business operations.\n\nLives inside :class:`TaskStatusResponse` and\n:class:`DocumentDetail` (as ``last_error``). Same shape and\nbranching rules as the top-level HTTP :class:`ErrorDetail`, but\nscoped to \"this thing I asked you to do, eventually failed\" rather\nthan \"this request couldn't even be processed\".",
+        "examples": [
+          {
+            "code": "UPSTREAM_ERROR",
+            "details": {
+              "provider": "openai",
+              "status_code": 502
+            },
+            "message": "Embedding provider failed"
+          },
+          {
+            "code": "UNSUPPORTED_FILE_TYPE",
+            "details": {
+              "received_content_type": "text/plain"
+            },
+            "message": "File content-type 'text/plain' is not allowed"
+          }
+        ]
+      },
+      "TaskProgress": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "load",
+              "split",
+              "transform",
+              "embed",
+              "upsert"
+            ],
+            "title": "Stage"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current",
+            "description": "Items processed in this stage; ``null`` when unknown."
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total",
+            "description": "Items expected in this stage; ``null`` when unknown."
+          },
+          "percent": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percent",
+            "description": "Computed by the backend (0–100). Frontend must NOT recompute; different stages use different denominators."
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Short human-readable hint. Frontend may display but must NOT branch business logic on it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "percent"
+        ],
+        "title": "TaskProgress",
+        "description": "Structured progress for the current pipeline stage.\n\n``percent`` is the canonical value the frontend should display\n(0–100). ``current``/``total`` stay for diagnostic views and are\nnullable when the backend can't predict totals (e.g. some LLM\ntransforms).",
+        "example": {
+          "current": 32,
+          "message": "Embedding chunks",
+          "percent": 32,
+          "stage": "embed",
+          "total": 100
+        }
+      },
+      "TaskStatusResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current stage + progress. ``None`` when status is ``pending`` or any terminal state."
+          },
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt",
+            "description": "Retry attempt count (0 for first try).",
+            "default": 0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured error when the task finished in a failed state. Same shape as the top-level HTTP error envelope — frontend branches on ``error.code``, never on ``error.message``. ``None`` for any non-failed status."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document_id",
+          "collection_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TaskStatusResponse",
+        "description": "``GET /tasks/{id}`` response.",
+        "examples": [
+          {
+            "attempt": 0,
+            "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+            "created_at": "2026-07-31T08:23:11.234Z",
+            "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+            "id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+            "progress": {
+              "current": 32,
+              "message": "Embedding chunks",
+              "percent": 32,
+              "stage": "embed",
+              "total": 100
+            },
+            "status": "running",
+            "updated_at": "2026-07-31T08:23:42.100Z"
+          },
+          {
+            "attempt": 0,
+            "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+            "created_at": "2026-07-31T08:23:11.234Z",
+            "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+            "finished_at": "2026-07-31T08:25:42.001Z",
+            "id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+            "progress": {
+              "current": 142,
+              "percent": 100,
+              "stage": "upsert",
+              "total": 142
+            },
+            "status": "succeeded",
+            "updated_at": "2026-07-31T08:25:42.001Z"
+          },
+          {
+            "attempt": 0,
+            "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+            "created_at": "2026-07-31T08:23:11.234Z",
+            "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+            "error": {
+              "code": "UPSTREAM_ERROR",
+              "details": {
+                "provider": "openai",
+                "status_code": 502
+              },
+              "message": "Embedding provider failed"
+            },
+            "finished_at": "2026-07-31T08:24:01.500Z",
+            "id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+            "progress": {
+              "current": 32,
+              "message": "Embedding chunks",
+              "percent": 32,
+              "stage": "embed",
+              "total": 100
+            },
+            "status": "failed",
+            "updated_at": "2026-07-31T08:24:01.500Z"
+          }
+        ]
+      },
+      "TraceResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Trace ID (== query or ingestion ID)."
+          },
+          "trace_type": {
+            "type": "string",
+            "enum": [
+              "query",
+              "ingestion"
+            ],
+            "title": "Trace Type",
+            "description": "Trace discriminator; one of ``query``, ``ingestion``."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Finished At"
+          },
+          "total_latency_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Latency Ms"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/TraceStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Top-level error message if any."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "trace_type",
+          "started_at",
+          "finished_at",
+          "total_latency_ms"
+        ],
+        "title": "TraceResponse",
+        "description": "``GET /queries/{id}/trace`` and ``GET /ingestions/{id}/trace`` response.",
+        "example": {
+          "finished_at": "2026-07-31T08:23:11.362Z",
+          "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          "stages": [
+            {
+              "details": {
+                "top_k": 20
+              },
+              "duration_ms": 60.0,
+              "method": "cosine",
+              "name": "dense",
+              "provider": "openai",
+              "started_at": "2026-07-31T08:23:11.250Z"
+            },
+            {
+              "details": {
+                "top_k": 20
+              },
+              "duration_ms": 12.0,
+              "method": "bm25",
+              "name": "sparse",
+              "provider": "bm25",
+              "started_at": "2026-07-31T08:23:11.250Z"
+            },
+            {
+              "details": {
+                "k": 60
+              },
+              "duration_ms": 2.0,
+              "method": "rrf",
+              "name": "fusion",
+              "provider": "rrf",
+              "started_at": "2026-07-31T08:23:11.315Z"
+            },
+            {
+              "details": {
+                "input_count": 15,
+                "output_count": 5
+              },
+              "duration_ms": 23.4,
+              "method": "cross_encoder",
+              "name": "rerank",
+              "provider": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+              "started_at": "2026-07-31T08:23:11.350Z"
+            }
+          ],
+          "started_at": "2026-07-31T08:23:11.234Z",
+          "total_latency_ms": 128.0,
+          "trace_type": "query"
+        }
+      },
+      "TraceStage": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Stage name, e.g. 'dense', 'sparse', 'rerank'."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "Implementation method, e.g. 'bm25', 'rrf'."
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider",
+            "description": "Provider name, e.g. 'openai', 'cross_encoder'."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "duration_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "description": "Stage duration in milliseconds."
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "description": "Provider-specific or method-specific extra fields."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "started_at",
+          "duration_ms"
+        ],
+        "title": "TraceStage",
+        "description": "One stage inside a trace.\n\n``method`` / ``provider`` are the dynamic-component hints the\nDashboard already uses to render provider-specific detail\n(see DEV_SPEC §3.4.4 / §3.4.5).",
+        "example": {
+          "details": {
+            "input_count": 15,
+            "output_count": 5
+          },
+          "duration_ms": 23.4,
+          "method": "cross_encoder",
+          "name": "rerank",
+          "provider": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "started_at": "2026-07-31T08:23:11.350Z"
+        }
+      },
+      "TrafficMetrics": {
+        "properties": {
+          "request_count": {
+            "type": "integer",
+            "title": "Request Count"
+          },
+          "previous_request_count": {
+            "type": "integer",
+            "title": "Previous Request Count"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "average_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Latency Ms"
+          },
+          "embedding_token_usage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Token Usage",
+            "description": "Embedding input tokens consumed by query and document indexing operations."
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_count",
+          "previous_request_count"
+        ],
+        "title": "TrafficMetrics"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "query_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "answer": null,
+  "citations": [],
+  "diagnostics": {
+    "duration_ms": 42,
+    "trace_id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "dense_count": 0,
+    "sparse_count": 0,
+    "fused_count": 0,
+    "reranked_count": 0,
+    "degraded": true,
+    "degraded_reasons": ["no chunks matched the query"]
+  }
+}

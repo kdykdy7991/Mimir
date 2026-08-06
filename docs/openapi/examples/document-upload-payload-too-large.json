@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "PAYLOAD_TOO_LARGE",
+    "message": "file size 62914560 bytes exceeds the 52428800-byte limit",
+    "request_id": "19fb613e400-12345678",
+    "details": {
+      "size_bytes": 62914560,
+      "max_bytes": 52428800
+    }
+  }
+}
