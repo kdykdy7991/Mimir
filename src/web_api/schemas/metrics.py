@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.web_api.schemas._types import UtcDatetime
 
@@ -33,13 +33,49 @@ class OverviewTrendPoint(BaseModel):
 
 
 class TrafficMetrics(BaseModel):
+    """Traffic + embedding token accounting (PRD docs/prd-embedding-token-metrics.md).
+
+    The three token fields are a unit: either all are numbers (accounting
+    is live for the window) or all are ``null`` (provider can't report
+    usage, or stats not wired). ``0`` is an honest "measured, nothing
+    consumed" answer — never converted to ``null``.
+    """
+
     request_count: int
     previous_request_count: int
     success_rate: float | None = None
     average_latency_ms: float | None = None
     embedding_token_usage: int | None = Field(
         None, description="Embedding input tokens consumed by query and document indexing operations.",
+        ge=0,
     )
+    query_embedding_tokens: int | None = Field(
+        None, description="Embedding input tokens consumed by query-text vectorization.",
+        ge=0,
+    )
+    ingestion_embedding_tokens: int | None = Field(
+        None, description="Embedding input tokens consumed by document chunk vectorization.",
+        ge=0,
+    )
+    embedding_token_usage_since: UtcDatetime | None = Field(
+        None, description="UTC start of the earliest recorded usage event — lets the UI flag partial-period data.",
+    )
+
+    @model_validator(mode="after")
+    def _token_fields_move_together(self) -> "TrafficMetrics":
+        token_values = (
+            self.embedding_token_usage,
+            self.query_embedding_tokens,
+            self.ingestion_embedding_tokens,
+        )
+        if not all(v is None for v in token_values) and not all(
+            isinstance(v, int) for v in token_values
+        ):
+            raise ValueError(
+                "embedding_token_usage / query_embedding_tokens / "
+                "ingestion_embedding_tokens must be all numeric or all null"
+            )
+        return self
 
 
 class RetrievalHealth(BaseModel):

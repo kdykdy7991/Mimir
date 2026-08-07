@@ -53,6 +53,7 @@ class ApplicationServices:
     trace: Any  # TraceStore — shared by QueryService / IngestionService
     engines: Any  # EngineCache — multi-collection routing
     db: Any | None = None  # WebApiDB — durable Web API metadata
+    usage: Any | None = None  # EmbeddingUsageStore — embedding token accounting
 
 
 def _load_settings(config_path: str | None) -> "Settings":
@@ -143,6 +144,7 @@ def build_application_services(
     from src.application.engines import EngineCache
     from src.application.services import (
         DocumentService,
+        EmbeddingUsageStore,
         IngestionService,
         QueryService,
         SystemService,
@@ -189,6 +191,24 @@ def build_application_services(
     # collections lazy-build on first access.
     engines.prime([collection])
 
+    # PRD docs/prd-embedding-token-metrics.md §5.1/§5.3: one durable
+    # collector turns every successful provider usage emission into an
+    # ``embedding_usage_events`` row. Capability mirrors the provider's
+    # ``usage_supported`` (OpenAI-compatible → exact; local encoders →
+    # no usage → the overview reports null, never 0). Best-effort
+    # writes are safe on the query hot path — a failed insert is logged
+    # and dropped.
+    usage_store = EmbeddingUsageStore(
+        web_db,
+        enabled=bool(getattr(embedding, "usage_supported", False)),
+    )
+    # Fakes passed in by tests (plain ``object()``) don't expose the
+    # listener API — registration is best-effort so the wiring stays
+    # tolerant of injected collaborators.
+    add_listener = getattr(embedding, "add_usage_listener", None)
+    if add_listener is not None:
+        add_listener(usage_store.record)
+
     return ApplicationServices(
         query=QueryService(
             engines,
@@ -215,4 +235,5 @@ def build_application_services(
         trace=trace_store,
         engines=engines,
         db=web_db,
+        usage=usage_store,
     )

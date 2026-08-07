@@ -46,6 +46,7 @@ from src.application.services.upload_types import (
     UploadPolicy,
 )
 from src.ingestion.storage.bm25_locks import bm25_write_lock
+from src.libs.embedding.usage import embedding_usage_context
 
 if TYPE_CHECKING:
     from src.application.services.trace_store import TraceStore
@@ -574,17 +575,30 @@ class IngestionService:
         # the pipeline re-acquires it for the index write).
         with bm25_write_lock(collection):
             try:
-                # M3: pass ``collection=`` explicitly so the pipeline's
-                # per-run scoping (integrity + image writes) matches the
-                # collection this task was routed to — the pipeline's
-                # ctor ``collection`` default is "default" and would
-                # otherwise mislabel non-default uploads.
-                # M5: read the unique temp file but label the document
-                # with the stable canonical source_path.
-                result = self._pipeline_for(collection).run(
-                    path=ingest_path, on_progress=on_progress, trace=trace,
-                    collection=collection, source_path=canonical_source,
-                )
+                # PRD §5.2: tag the pipeline's dense-embedding calls as
+                # ``ingestion`` (the SparseEncoder uses BM25 char n-grams,
+                # so only dense calls emit usage). ContextVar set + read in
+                # this worker thread, so async uploads tag correctly too.
+                # The task record carries the business ids.
+                rec = self._tracker.get(task_id)
+                with embedding_usage_context(
+                    operation="ingestion",
+                    collection_id=str(rec.collection_id) if rec else None,
+                    trace_id=str(task_id),
+                    task_id=str(task_id),
+                    document_id=str(rec.document_id) if rec and rec.document_id else None,
+                ):
+                    # M3: pass ``collection=`` explicitly so the pipeline's
+                    # per-run scoping (integrity + image writes) matches the
+                    # collection this task was routed to — the pipeline's
+                    # ctor ``collection`` default is "default" and would
+                    # otherwise mislabel non-default uploads.
+                    # M5: read the unique temp file but label the document
+                    # with the stable canonical source_path.
+                    result = self._pipeline_for(collection).run(
+                        path=ingest_path, on_progress=on_progress, trace=trace,
+                        collection=collection, source_path=canonical_source,
+                    )
             except Exception as exc:  # noqa: BLE001 — any failure → task failed
                 self._record_failure(task_id, exc)
                 if trace is not None:

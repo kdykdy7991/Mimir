@@ -1949,7 +1949,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** TrafficMetrics */
+        /**
+         * TrafficMetrics
+         * @description Traffic + embedding token accounting (PRD docs/prd-embedding-token-metrics.md).
+         *
+         *     The three token fields are a unit: either all are numbers (accounting
+         *     is live for the window) or all are ``null`` (provider can't report
+         *     usage, or stats not wired). ``0`` is an honest "measured, nothing
+         *     consumed" answer — never converted to ``null``.
+         */
         TrafficMetrics: {
             /** Request Count */
             request_count: number;
@@ -1964,6 +1972,21 @@ export interface components {
              * @description Embedding input tokens consumed by query and document indexing operations.
              */
             embedding_token_usage?: number | null;
+            /**
+             * Query Embedding Tokens
+             * @description Embedding input tokens consumed by query-text vectorization.
+             */
+            query_embedding_tokens?: number | null;
+            /**
+             * Ingestion Embedding Tokens
+             * @description Embedding input tokens consumed by document chunk vectorization.
+             */
+            ingestion_embedding_tokens?: number | null;
+            /**
+             * Embedding Token Usage Since
+             * @description UTC start of the earliest recorded usage event — lets the UI flag partial-period data.
+             */
+            embedding_token_usage_since?: string | null;
         };
         /** ValidationError */
         ValidationError: {

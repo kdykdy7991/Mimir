@@ -35,6 +35,11 @@ class SentenceTransformersEmbedding(BaseEmbedding):
     - sentence-transformers/all-MiniLM-L6-v2
     """
 
+    provider_name = "sentence_transformers"
+    # Local inference has no API usage payload — the overview reports
+    # ``null`` for token stats (never an estimated number).
+    usage_supported = False
+
     def __init__(self, settings: Any):
         if SentenceTransformer is None:
             raise EmbeddingError(

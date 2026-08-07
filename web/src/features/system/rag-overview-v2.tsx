@@ -29,6 +29,16 @@ function compact(value: number | null | undefined) {
   return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function embeddingTokenNote(traffic: OverviewResponse["traffic"]) {
+  if (traffic.embedding_token_usage == null) return "查询与文档索引 Token 统计未接入";
+  const breakdown = traffic.query_embedding_tokens == null || traffic.ingestion_embedding_tokens == null
+    ? "来源明细不可用"
+    : "查询 " + compact(traffic.query_embedding_tokens) + " · 文档索引 " + compact(traffic.ingestion_embedding_tokens);
+  if (!traffic.embedding_token_usage_since) return breakdown;
+  const since = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(traffic.embedding_token_usage_since));
+  return breakdown + " · 自 " + since + " 起";
+}
+
 function TrafficCard({ icon: Icon, label, value, note }: { icon: ComponentType<{ className?: string }>; label: string; value: string; note: string }) {
   return (
     <article className="glass-surface rounded-xl p-5 sm:p-6">
@@ -154,6 +164,9 @@ export function RagOverviewV2() {
     success_rate: null,
     average_latency_ms: null,
     embedding_token_usage: null,
+    query_embedding_tokens: null,
+    ingestion_embedding_tokens: null,
+    embedding_token_usage_since: null,
   };
   const legacyNoResultRate = data.metrics.no_result_rate.value ?? null;
   const retrievalHealth = runtime.retrieval_health ?? {
@@ -186,7 +199,7 @@ export function RagOverviewV2() {
           <TrafficCard icon={Activity} label="请求量" note={`上一周期 ${traffic.previous_request_count.toLocaleString()} 次`} value={compact(traffic.request_count)} />
           <TrafficCard icon={SearchCheck} label="成功率" note="已产生有效查询结果的请求占比" value={percent(traffic.success_rate)} />
           <TrafficCard icon={Timer} label="平均延迟" note="RAG 检索端到端平均耗时" value={latency(traffic.average_latency_ms)} />
-          <TrafficCard icon={WalletCards} label="Embedding Token" note="查询与文档索引的向量化输入 Token" value={compact(traffic.embedding_token_usage)} />
+          <TrafficCard icon={WalletCards} label="Embedding Token" note={embeddingTokenNote(traffic)} value={compact(traffic.embedding_token_usage)} />
         </div>
       </section>
 

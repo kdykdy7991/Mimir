@@ -35,6 +35,11 @@ class HuggingFaceEmbedding(BaseEmbedding):
     For simpler usage, prefer SentenceTransformersEmbedding.
     """
 
+    provider_name = "huggingface"
+    # Local inference has no API usage payload — the overview reports
+    # ``null`` for token stats (never an estimated number).
+    usage_supported = False
+
     def __init__(self, settings: Any):
         if AutoModel is None or AutoTokenizer is None:
             raise EmbeddingError(

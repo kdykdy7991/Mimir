@@ -56,7 +56,7 @@ test("overview and collection data render from API", async ({ page }) => {
   await expect(page.getByText("请求趋势")).toBeVisible();
   await expect(page.getByText("检索健康度")).toBeVisible();
   await expect(page.getByRole("heading", { name: "知识库状态" })).toBeVisible();
-  await expect(page.getByText("未接入")).toBeVisible();
+  await expect(page.getByText("未接入", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "知识库", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E 知识库" })).toBeVisible();
 });

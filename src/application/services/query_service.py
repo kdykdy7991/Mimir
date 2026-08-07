@@ -47,6 +47,7 @@ from src.core.trace.trace_context import (
 )
 from src.core.types import RetrievalResult
 from src.application.services.task_types import TaskError
+from src.libs.embedding.usage import embedding_usage_context
 
 if TYPE_CHECKING:
     from src.application.services.trace_store import TraceStore
@@ -267,14 +268,24 @@ class QueryService:
         engine = self._engine_for(collection)
         trace = trace or new_trace(TRACE_TYPE_QUERY)
         start = time.perf_counter()
-        if mode == "dense":
-            results = self._dense_search(engine, query, top_k, filters, trace)
-        elif mode == "sparse":
-            results = self._sparse_search(engine, query, top_k, trace)
-        else:
-            results = engine.search(
-                query=query, top_k=top_k, filters=filters, trace=trace,
-            )
+        # PRD §5.2: tag this query's embedding calls as ``query`` so the
+        # usage listener buckets the tokens correctly. The context only
+        # covers the engine invocation — nothing else in this method
+        # embeds. ContextVars are per-thread; async queries run ``search``
+        # in their worker thread, which is where the context is set+read.
+        with embedding_usage_context(
+            operation="query",
+            collection_id=str(collection_uuid(collection)),
+            trace_id=trace.trace_id,
+        ):
+            if mode == "dense":
+                results = self._dense_search(engine, query, top_k, filters, trace)
+            elif mode == "sparse":
+                results = self._sparse_search(engine, query, top_k, trace)
+            else:
+                results = engine.search(
+                    query=query, top_k=top_k, filters=filters, trace=trace,
+                )
         latency_ms = (time.perf_counter() - start) * 1000.0
 
         trace.finish()

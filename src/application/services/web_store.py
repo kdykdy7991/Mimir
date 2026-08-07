@@ -11,14 +11,17 @@ durable, indexed SQLite store so:
   queryable tables (feeding ``GET /queries/{query_id}/result`` and
   ``DocumentDetail.last_query_id``).
 
-One database file, five tables:
+One database file, six tables:
 
-- ``tasks``            — durable task records (ingestion + query)
-- ``traces``           — indexed trace payloads (JSON)
-- ``query_results``    — async query output (serialized QueryResult)
-- ``query_citations``  — ``(query_id, document_id)`` joins for
+- ``tasks``                  — durable task records (ingestion + query)
+- ``traces``                 — indexed trace payloads (JSON)
+- ``query_results``          — async query output (serialized QueryResult)
+- ``query_citations``        — ``(query_id, document_id)`` joins for
   ``DocumentDetail.last_query_id``
-- ``collections``      — persistent knowledge-base descriptions
+- ``collections``            — persistent knowledge-base descriptions
+- ``embedding_usage_events`` — per-call embedding token usage (PRD
+  ``docs/prd-embedding-token-metrics.md`` §5.3) feeding the overview's
+  token cards
 
 Follows the codebase's SQLite convention (per-operation connection +
 WAL) used by ``file_integrity`` / ``image_storage``. Rows are plain
@@ -101,6 +104,26 @@ class WebApiDB:
                     created_at  REAL NOT NULL,
                     updated_at  REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS embedding_usage_events (
+                    id                  TEXT PRIMARY KEY,
+                    occurred_at         REAL NOT NULL,
+                    operation           TEXT NOT NULL,
+                    token_count         INTEGER NOT NULL,
+                    provider            TEXT NOT NULL,
+                    model               TEXT NOT NULL,
+                    collection_id       TEXT,
+                    trace_id            TEXT,
+                    task_id             TEXT,
+                    document_id         TEXT,
+                    provider_request_id TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_occurred
+                    ON embedding_usage_events(occurred_at);
+                CREATE INDEX IF NOT EXISTS idx_usage_op_occurred
+                    ON embedding_usage_events(operation, occurred_at);
+                CREATE INDEX IF NOT EXISTS idx_usage_col_occurred
+                    ON embedding_usage_events(collection_id, occurred_at);
                 """
             )
             conn.commit()
@@ -386,6 +409,80 @@ class WebApiDB:
         finally:
             conn.close()
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Embedding token usage (PRD docs/prd-embedding-token-metrics.md §5.3)
+    # ------------------------------------------------------------------
+    def record_embedding_usage(self, event: dict[str, Any]) -> None:
+        """Insert one embedding usage event (best-effort by caller).
+
+        ``id`` is the dedup key — the store sets it from the provider
+        request id when available so an app-level retry of the same
+        provider call is never double-counted. ``INSERT OR IGNORE``
+        keeps a duplicate write idempotent.
+        """
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO embedding_usage_events
+                    (id, occurred_at, operation, token_count, provider,
+                     model, collection_id, trace_id, task_id, document_id,
+                     provider_request_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event["id"], event["occurred_at"], event["operation"],
+                    event["token_count"], event["provider"], event["model"],
+                    event.get("collection_id"), event.get("trace_id"),
+                    event.get("task_id"), event.get("document_id"),
+                    event.get("provider_request_id"),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def summarize_embedding_usage(
+        self, start_at: float, end_at: float,
+    ) -> tuple[int, int, int]:
+        """Sum token usage in a half-open interval, split by operation.
+
+        Returns ``(total, query_total, ingestion_total)``. Empty ranges
+        yield ``(0, 0, 0)`` — the caller decides whether ``0`` or ``null``
+        is the honest answer based on capability.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT
+                    SUM(token_count) AS total,
+                    SUM(CASE WHEN operation = 'query'
+                        THEN token_count ELSE 0 END) AS query_total,
+                    SUM(CASE WHEN operation = 'ingestion'
+                        THEN token_count ELSE 0 END) AS ingestion_total
+                FROM embedding_usage_events
+                WHERE occurred_at >= ? AND occurred_at < ?
+                """,
+                (start_at, end_at),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None or row["total"] is None:
+            return (0, 0, 0)
+        return (int(row["total"]), int(row["query_total"]), int(row["ingestion_total"]))
+
+    def embedding_usage_earliest(self) -> float | None:
+        """UTC epoch of the earliest recorded usage event (or ``None``)."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT MIN(occurred_at) AS earliest FROM embedding_usage_events",
+            ).fetchone()
+        finally:
+            conn.close()
+        return float(row["earliest"]) if row is not None and row["earliest"] is not None else None
 
     def ping(self) -> None:
         """Liveness probe — raises if the SQLite file is unreadable."""

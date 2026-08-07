@@ -7,6 +7,7 @@ how the internal modules are split.
 """
 
 from src.application.services.document_service import DocumentService
+from src.application.services.embedding_usage_store import EmbeddingUsageStore
 from src.application.services.ingestion_service import IngestionService
 from src.application.services.query_service import QueryResult, QueryService
 from src.application.services.task_types import (
@@ -49,6 +50,8 @@ __all__ = [
     "UploadPolicy",
     # document
     "DocumentService",
+    # embedding token usage (PRD docs/prd-embedding-token-metrics.md)
+    "EmbeddingUsageStore",
     # system
     "DependencyHealthView",
     "ProviderStatusView",

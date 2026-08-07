@@ -17,7 +17,7 @@ export const overview = {
     no_result_rate: { value: 7.6, previous: 9.9, target: 10 },
     ingestion_success_rate: { value: 98.7, previous: 97.2, target: 99 },
   },
-  traffic: { request_count: 128, previous_request_count: 112, success_rate: 99.2, average_latency_ms: 860, embedding_token_usage: null },
+  traffic: { request_count: 128, previous_request_count: 112, success_rate: 99.2, average_latency_ms: 860, embedding_token_usage: null, query_embedding_tokens: null, ingestion_embedding_tokens: null, embedding_token_usage_since: null },
   retrieval_health: { success_rate: 94.5, empty_retrieval_rate: 5.5, average_top_k: 8.2, average_latency_ms: 620, rerank_success_rate: null },
   knowledge_base_health: { document_count: 1, chunk_count: 12, index_status: "ready", last_updated_at: "2026-08-06T00:00:00.000Z" },
   trend: Array.from({ length: 7 }, (_, index) => ({ timestamp: new Date(Date.UTC(2026, 6, 30 + index)).toISOString(), query_count: 16 + index, effective_retrieval_rate: 88 + index, p95_latency_ms: 1900 - index * 70 })),

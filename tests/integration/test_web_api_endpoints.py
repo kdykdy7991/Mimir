@@ -9,13 +9,19 @@ persist dir for collection listing, so that dir is pointed at ``tmp_path``.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.application.composition import ApplicationServices
-from src.application.services import DocumentService, IngestionService, SystemService
+from src.application.services import (
+    DocumentService,
+    EmbeddingUsageStore,
+    IngestionService,
+    SystemService,
+)
 from src.application.services.trace_store import TraceStore
 from src.application.services.web_store import WebApiDB
 from src.core.settings import Settings
@@ -199,7 +205,12 @@ class TestOverviewMetrics:
         assert body["traffic"]["request_count"] == 3
         assert body["traffic"]["success_rate"] == 100.0
         assert body["traffic"]["average_latency_ms"] == 1400.0
-        assert body["traffic"]["token_usage"] is None
+        # No usage store wired in this fixture → all token fields null
+        # (PRD §4: never fabricated, never 0 when unmeasured).
+        assert body["traffic"]["embedding_token_usage"] is None
+        assert body["traffic"]["query_embedding_tokens"] is None
+        assert body["traffic"]["ingestion_embedding_tokens"] is None
+        assert body["traffic"]["embedding_token_usage_since"] is None
         assert body["retrieval_health"]["success_rate"] == 66.7
         assert body["retrieval_health"]["empty_retrieval_rate"] == 33.3
         assert body["retrieval_health"]["average_top_k"] == 0.7
@@ -211,6 +222,91 @@ class TestOverviewMetrics:
 
     def test_rejects_unknown_range(self, client: TestClient) -> None:
         assert client.get("/api/v1/metrics/overview?range=year").status_code == 422
+
+
+class TestOverviewEmbeddingTokens:
+    """PRD docs/prd-embedding-token-metrics.md §4 — traffic token card.
+
+    The three token fields are a unit: all numeric (accounting live) or
+    all ``null`` (not measured). ``0`` is an honest empty window, never
+    converted to ``null``.
+    """
+
+    @staticmethod
+    def _client(services: ApplicationServices, *, enabled: bool) -> TestClient:
+        store = EmbeddingUsageStore(services.db, enabled=enabled)
+        return TestClient(create_app(
+            services=dataclasses.replace(services, usage=store),
+        ))
+
+    @staticmethod
+    def _record(
+        services: ApplicationServices, *, at: float, op: str, tokens: int,
+    ) -> None:
+        services.db.record_embedding_usage({
+            "id": f"{op}:{at}",
+            "occurred_at": at,
+            "operation": op,
+            "token_count": tokens,
+            "provider": "openai",
+            "model": "qwen3-embedding",
+        })
+
+    def test_all_null_when_no_usage_store(self, services: ApplicationServices) -> None:
+        # The base fixture leaves ``usage`` unwired → not measured.
+        client = TestClient(create_app(services=services))
+        traffic = client.get("/api/v1/metrics/overview?range=24h").json()["traffic"]
+        assert traffic["embedding_token_usage"] is None
+        assert traffic["query_embedding_tokens"] is None
+        assert traffic["ingestion_embedding_tokens"] is None
+        assert traffic["embedding_token_usage_since"] is None
+
+    def test_all_null_when_provider_incapable(self, services: ApplicationServices) -> None:
+        # A local encoder (sentence-transformers) can't report usage →
+        # null, never a fabricated estimate.
+        client = self._client(services, enabled=False)
+        traffic = client.get("/api/v1/metrics/overview?range=24h").json()["traffic"]
+        assert traffic["embedding_token_usage"] is None
+        assert traffic["query_embedding_tokens"] is None
+        assert traffic["ingestion_embedding_tokens"] is None
+        assert traffic["embedding_token_usage_since"] is None
+
+    def test_zero_when_enabled_but_nothing_consumed(self, services: ApplicationServices) -> None:
+        client = self._client(services, enabled=True)
+        traffic = client.get("/api/v1/metrics/overview?range=24h").json()["traffic"]
+        assert traffic["embedding_token_usage"] == 0
+        assert traffic["query_embedding_tokens"] == 0
+        assert traffic["ingestion_embedding_tokens"] == 0
+        assert traffic["embedding_token_usage_since"] is None
+
+    def test_sums_are_range_bounded(self, services: ApplicationServices) -> None:
+        import time
+
+        now = time.time()
+        self._record(services, at=now - 60, op="query", tokens=100)
+        self._record(services, at=now - 30, op="ingestion", tokens=200)
+        self._record(services, at=now - 2 * 86_400, op="query", tokens=9999)
+        client = self._client(services, enabled=True)
+
+        day = client.get("/api/v1/metrics/overview?range=24h").json()["traffic"]
+        assert day["embedding_token_usage"] == 300
+        assert day["query_embedding_tokens"] == 100
+        assert day["ingestion_embedding_tokens"] == 200
+
+        week = client.get("/api/v1/metrics/overview?range=7d").json()["traffic"]
+        assert week["embedding_token_usage"] == 10299
+        assert week["query_embedding_tokens"] == 10099
+        assert week["ingestion_embedding_tokens"] == 200
+
+    def test_since_reflects_earliest_event(self, services: ApplicationServices) -> None:
+        import time
+
+        now = time.time()
+        self._record(services, at=now - 60, op="query", tokens=5)
+        client = self._client(services, enabled=True)
+        traffic = client.get("/api/v1/metrics/overview?range=30d").json()["traffic"]
+        assert traffic["embedding_token_usage_since"] is not None
+        assert traffic["embedding_token_usage"] == 5
 
 
 # ---------------------------------------------------------------------------

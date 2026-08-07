@@ -44,6 +44,44 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator * 100, 1) if denominator else None
 
 
+def _embedding_token_metrics(
+    services: ApplicationServices, start: float, now: float,
+) -> dict[str, Any]:
+    """Embedding token fields for the traffic card (PRD §4).
+
+    The three token fields are a unit — all numeric or all ``null``:
+
+    - Capability off (no usage store wired, or the provider can't report
+      usage — local encoders) → all ``null``. We must not fabricate a
+      number from text length.
+    - Capability on → window sums straight from the ``embedding_usage_events``
+      table; an empty window honestly reads ``0``. ``since`` is the earliest
+      recorded event so the UI can flag partial-period data (``null`` until
+      the first event lands, since stats have no data start yet).
+    """
+    usage = getattr(services, "usage", None)
+    if usage is None or not getattr(usage, "enabled", False):
+        return {
+            "embedding_token_usage": None,
+            "query_embedding_tokens": None,
+            "ingestion_embedding_tokens": None,
+            "embedding_token_usage_since": None,
+        }
+    total, query_total, ingestion_total = services.db.summarize_embedding_usage(
+        start, now,
+    )
+    earliest = services.db.embedding_usage_earliest()
+    return {
+        "embedding_token_usage": total,
+        "query_embedding_tokens": query_total,
+        "ingestion_embedding_tokens": ingestion_total,
+        "embedding_token_usage_since": (
+            datetime.fromtimestamp(earliest, tz=timezone.utc)
+            if earliest is not None else None
+        ),
+    }
+
+
 def _decode_queries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     decoded: list[dict[str, Any]] = []
     for row in rows:
@@ -235,7 +273,7 @@ def get_overview_metrics(
                 round(sum(row["latency_ms"] for row in current_queries) / len(current_queries), 1)
                 if current_queries else None
             ),
-            embedding_token_usage=None,
+            **_embedding_token_metrics(services, start, now),
         ),
         retrieval_health=RetrievalHealth(
             success_rate=_rate(sum(row["has_results"] for row in current_queries), len(current_queries)),

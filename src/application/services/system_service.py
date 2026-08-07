@@ -213,7 +213,12 @@ class SystemService:
                 name, "degraded", "embedding client not wired",
             )
         try:
-            self._embedding.embed_single("ping")
+            # PRD §5.2/§3.1: health checks must never count as business
+            # usage. Tag the probe so the usage store can drop it.
+            from src.libs.embedding.usage import embedding_usage_context
+
+            with embedding_usage_context(operation="healthcheck"):
+                self._embedding.embed_single("ping")
             return DependencyHealthView(name, "ok")
         except Exception as exc:  # noqa: BLE001 — any failure → down
             from src.libs.embedding import EmbeddingError

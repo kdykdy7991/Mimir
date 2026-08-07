@@ -56,6 +56,11 @@ class OpenAIEmbedding(BaseEmbedding):
     from the API at construction time — see the module docstring.
     """
 
+    provider_name = "openai"
+    # OpenAI-compatible /v1/embeddings responses carry ``usage``
+    # (qwen3-embedding included), so exact token accounting is on.
+    usage_supported = True
+
     def __init__(self, settings: Any):
         if OpenAI is None:
             raise EmbeddingError(
@@ -157,7 +162,20 @@ class OpenAIEmbedding(BaseEmbedding):
             )
             # Sort by index to ensure correct order
             sorted_data = sorted(response.data, key=lambda x: x.index)
-            return [item.embedding for item in sorted_data]
+            vectors = [item.embedding for item in sorted_data]
+            # Exact token usage (PRD §5.1): read usage at the provider
+            # boundary while the response is still in scope. Missing
+            # usage → no event (the store reports ``null``, never 0).
+            usage = getattr(response, "usage", None)
+            total_tokens = getattr(usage, "total_tokens", None)
+            if total_tokens is not None:
+                self._emit_usage(
+                    total_tokens=total_tokens,
+                    prompt_tokens=getattr(usage, "prompt_tokens", None),
+                    model=self.model,
+                    provider_request_id=getattr(response, "id", None),
+                )
+            return vectors
         except Exception as e:
             error_msg = str(e).lower()
             if "connection" in error_msg or "timeout" in error_msg:
