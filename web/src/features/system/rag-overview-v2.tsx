@@ -29,6 +29,11 @@ function compact(value: number | null | undefined) {
   return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function fullNumber(value: number | null | undefined) {
+  if (value == null) return "未接入";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
 function embeddingTokenNote(traffic: OverviewResponse["traffic"]) {
   if (traffic.embedding_token_usage == null) return "查询与文档索引 Token 统计未接入";
   const breakdown = traffic.query_embedding_tokens == null || traffic.ingestion_embedding_tokens == null
@@ -199,7 +204,7 @@ export function RagOverviewV2() {
           <TrafficCard icon={Activity} label="请求量" note={`上一周期 ${traffic.previous_request_count.toLocaleString()} 次`} value={compact(traffic.request_count)} />
           <TrafficCard icon={SearchCheck} label="成功率" note="已产生有效查询结果的请求占比" value={percent(traffic.success_rate)} />
           <TrafficCard icon={Timer} label="平均延迟" note="RAG 检索端到端平均耗时" value={latency(traffic.average_latency_ms)} />
-          <TrafficCard icon={WalletCards} label="Embedding Token" note={embeddingTokenNote(traffic)} value={compact(traffic.embedding_token_usage)} />
+          <TrafficCard icon={WalletCards} label="Embedding Token" note={embeddingTokenNote(traffic)} value={fullNumber(traffic.embedding_token_usage)} />
         </div>
       </section>
 
