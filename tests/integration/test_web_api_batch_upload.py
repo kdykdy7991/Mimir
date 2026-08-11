@@ -269,7 +269,7 @@ class TestBatchLimits:
         client = TestClient(create_app(services=services))
         cid = collection_uuid("default")
 
-        many = [("files", (f"f{i}.pdf", b"%PDF", "application/pdf")) for i in range(11)]
+        many = [("files", (f"f{i}.pdf", b"%PDF", "application/pdf")) for i in range(51)]
         resp = client.post(f"/api/v1/collections/{cid}/documents", files=many)
         assert resp.status_code == 413
         assert resp.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"

@@ -21,6 +21,7 @@ import type {
 // local FastAPI service, which avoids LAN proxy and CORS differences.
 const DEFAULT_API_BASE_URL = "";
 const DEFAULT_TIMEOUT_MS = 60_000;
+const BATCH_UPLOAD_TIMEOUT_MS = 5 * 60_000;
 
 type CursorParams = {
   cursor?: string | null;
@@ -33,6 +34,7 @@ type RequestOptions = {
   method?: string;
   signal?: AbortSignal | undefined;
   timeoutMs?: number;
+  onResponse?: (response: Response) => void;
 };
 
 export type ApiClientOptions = {
@@ -127,6 +129,7 @@ export class ApiClient {
       if (body !== undefined) init.body = body;
 
       const response = await this.fetcher(`${this.baseUrl}${path}`, init);
+      options.onResponse?.(response);
       if (!response.ok) throw new ApiError(response.status, await readError(response));
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
@@ -189,14 +192,29 @@ export class ApiClient {
     });
   }
 
-  async uploadDocuments(collectionId: string, files: readonly File[], signal?: AbortSignal) {
+  async uploadDocumentsWithTiming(collectionId: string, files: readonly File[], signal?: AbortSignal) {
     const body = new FormData();
     for (const file of files) body.append("files", file);
-    return this.request<BatchUploadResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents`, {
+    const started = typeof performance !== "undefined" ? performance.now() : Date.now();
+    let serverDurationMs: number | undefined;
+    let requestId: string | undefined;
+    const response = await this.request<BatchUploadResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents`, {
       method: "POST",
+      timeoutMs: BATCH_UPLOAD_TIMEOUT_MS,
       body,
       signal,
+      onResponse: (raw) => {
+        const parsed = Number.parseFloat(raw.headers.get("X-Server-Duration-Ms") ?? "");
+        if (Number.isFinite(parsed)) serverDurationMs = parsed;
+        requestId = raw.headers.get("X-Request-ID") ?? undefined;
+      },
     });
+    const finished = typeof performance !== "undefined" ? performance.now() : Date.now();
+    return { response, durationMs: finished - started, serverDurationMs, requestId };
+  }
+
+  async uploadDocuments(collectionId: string, files: readonly File[], signal?: AbortSignal) {
+    return (await this.uploadDocumentsWithTiming(collectionId, files, signal)).response;
   }
 
   getDocument(documentId: string, signal?: AbortSignal) {

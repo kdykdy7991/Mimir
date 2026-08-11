@@ -30,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.application.composition import ApplicationServices
 from src.web_api.exception_handlers import register_exception_handlers
 from src.web_api.middleware.request_id import RequestIDMiddleware
+from src.web_api.middleware.request_timing import RequestTimingMiddleware
 from src.web_api.routers import (
     collections,
     documents,
@@ -81,10 +82,11 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Server-Duration-Ms", "Server-Timing"],
     )
 
-    # Request-ID must run BEFORE exception handlers read it.
+    # Request-ID wraps timing so upload timing logs carry the same correlation id.
+    app.add_middleware(RequestTimingMiddleware)
     app.add_middleware(RequestIDMiddleware)
 
     register_exception_handlers(app)

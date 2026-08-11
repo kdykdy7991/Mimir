@@ -33,7 +33,7 @@ class UploadPolicy:
     ``SETTINGS``; CLI / MCP / tests keep the defaults.
     """
 
-    max_file_bytes: int = 50 * 1024 * 1024  # 50 MB per file
+    max_file_bytes: int = 20 * 1024 * 1024  # 20 MB per file
     allowed_extensions: FrozenSet[str] = field(
         default_factory=lambda: frozenset({".pdf", ".md", ".markdown"}),
     )
@@ -44,8 +44,8 @@ class UploadPolicy:
             "text/plain",
         }),
     )
-    max_batch_files: int = 10
-    max_batch_bytes: int = 100 * 1024 * 1024  # 100 MB total per batch
+    max_batch_files: int = 50
+    max_batch_bytes: int = 1024 * 1024 * 1024  # 1 GB total per batch
 
 
 # ---------------------------------------------------------------------------

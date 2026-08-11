@@ -23,7 +23,7 @@ import pathlib
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Path, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Path, Query, UploadFile, status
 
 from src.application.composition import ApplicationServices
 from src.application.services import BatchFileUpload
@@ -252,6 +252,7 @@ async def list_collection_documents(
     summary="Upload documents and start ingestion",
 )
 async def upload_collection_document(
+    background_tasks: BackgroundTasks,
     collection_id: UUID = Path(..., description="Collection ID (UUID)."),
     file: UploadFile | None = File(
         None, description="Single document file (PDF / Markdown).",
@@ -311,6 +312,7 @@ async def upload_collection_document(
             collection=name,
             collection_id=collection_id,
             services=services,
+            background_tasks=background_tasks,
         )
     return await _upload_single(
         file=file,  # type: ignore[arg-type]
@@ -413,6 +415,7 @@ async def _upload_batch(
     collection: str,
     collection_id: UUID,
     services: ApplicationServices,
+    background_tasks: BackgroundTasks,
 ) -> BatchUploadResponse:
     """M5 batch path — per-file results, batch-level limits as HTTP errors."""
     # Batch-level limits. Count is cheap to check before reading bodies;
@@ -453,11 +456,14 @@ async def _upload_batch(
     # Per-file validation + task creation live in the service so the
     # batch semantics (independent rejection / dedup skip / per-file
     # task + trace) are shared with any future non-HTTP caller.
-    return services.ingestion.upload_batch(
+    response = services.ingestion.upload_batch(
         items=items,
         collection=collection,
         collection_id=collection_id,
+        defer_workers=True,
     )
+    background_tasks.add_task(services.ingestion.start_batch, response.batch_id)
+    return response
 
 
 def _pending_document_detail(

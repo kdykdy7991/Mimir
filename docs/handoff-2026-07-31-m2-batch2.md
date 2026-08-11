@@ -59,7 +59,7 @@ curl -sS http://127.0.0.1:8766/api/v1/system/health
 | 变量 | 默认 | 用途 |
 |---|---|---|
 | `WEB_API_DATA_DIR` | `./data` | 上传/索引/历史数据根目录 |
-| `WEB_API_UPLOAD_MAX_BYTES` | `52428800` | 单文件上限（50 MB） |
+| `WEB_API_UPLOAD_MAX_BYTES` | `20971520` | 单文件上限（20 MB） |
 | `WEB_API_UPLOAD_ALLOWED_MIME` | `application/pdf` | 逗号分隔 MIME 允许表 |
 | `WEB_API_CORS_ALLOW_ORIGINS` | `*` | 生产建议收紧 |
 | `WEB_API_REQUEST_TIMEOUT_SECONDS` | `60` | 仅文档建议，不在响应里 |

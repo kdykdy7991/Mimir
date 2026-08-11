@@ -112,6 +112,8 @@ class TestSystemInfo:
         assert set(body["providers"]) == {"llm", "embedding", "vision"}
         assert body["providers"]["llm"]["configured"] is True
         assert body["providers"]["llm"]["model"] == "gpt-4o"
+        assert float(resp.headers["X-Server-Duration-Ms"]) >= 0
+        assert resp.headers["Server-Timing"].startswith("app;dur=")
 
     def test_never_leaks_secrets(self, client: TestClient) -> None:
         body = client.get("/api/v1/system/info").json()

@@ -64,7 +64,7 @@ M1 默认 `Access-Control-Allow-Origin: *`（便于本地 Next.js dev 跨域）�
 | 项 | 约束 |
 |---|---|
 | Content-Type | `application/pdf`（M1），可通过 `WEB_API_UPLOAD_ALLOWED_MIME` 扩展 |
-| 单文件上限 | **50 MB**，可通过 `WEB_API_UPLOAD_MAX_BYTES` 调整 |
+| 单文件上限 | **20 MB**，可通过 `WEB_API_UPLOAD_MAX_BYTES` 调整 |
 | 表单字段名 | `file`（multipart/form-data） |
 | 超过大小 | `413 PAYLOAD_TOO_LARGE`，body `details: {size_bytes, max_bytes}` |
 | 错类型 | `415 UNSUPPORTED_MEDIA_TYPE`，body `details: {received_content_type, allowed_content_types}` |
@@ -149,7 +149,7 @@ v0.2 真实存在、已实现并可被触发的错误码：
 | 405 | `METHOD_NOT_ALLOWED` | 路由不接受的 HTTP 方法 |
 | 409 | `CONFLICT` | 通用冲突兜底 |
 | 409 | `COLLECTION_ALREADY_EXISTS` | 集合名重复 |
-| 413 | `PAYLOAD_TOO_LARGE` | 上传文件 > 50 MB |
+| 413 | `PAYLOAD_TOO_LARGE` | 上传文件 > 20 MB |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | 上传文件 Content-Type 不在 allow-list |
 | 422 | `VALIDATION_ERROR` | Pydantic 校验失败（body / query / path） |
 | 500 | `INTERNAL_ERROR` | 未捕获异常（不会暴露内部细节） |

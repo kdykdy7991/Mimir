@@ -63,7 +63,7 @@ def _sanitize_metadata_value(value: Any) -> Any | None:
         return value
     if isinstance(value, list):
         if not value:
-            return value
+            return None
         if not all(isinstance(v, _CHROMA_ALLOWED_SCALAR) for v in value):
             return None
         first_type = type(value[0])

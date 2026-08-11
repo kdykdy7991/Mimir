@@ -94,6 +94,28 @@ describe("ApiClient", () => {
     expect(new Headers(init?.headers).has("Content-Type")).toBe(false);
   });
 
+  it("reports upload round-trip and server processing timing", async () => {
+    const response = {
+      batch_id: "batch-timing", collection_id: "collection-id", total: 1,
+      accepted: 1, skipped: 0, rejected: 0,
+      files: [{ filename: "guide.md", document_id: "document-1", task_id: "task-1", status: "accepted", size_bytes: 3, error: null }],
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(response, {
+      status: 202,
+      headers: { "X-Server-Duration-Ms": "12.50", "X-Request-ID": "upload-request-1" },
+    }));
+    const client = new ApiClient({ fetch: fetcher });
+
+    const result = await client.uploadDocumentsWithTiming(
+      "collection-id", [new File(["# x"], "guide.md", { type: "text/markdown" })],
+    );
+
+    expect(result.response).toEqual(response);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result.serverDurationMs).toBe(12.5);
+    expect(result.requestId).toBe("upload-request-1");
+  });
+
   it("wraps transport failures without exposing fetch implementation details", async () => {
     const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("connection refused"));
     const client = new ApiClient({ fetch: fetcher });

@@ -135,6 +135,11 @@ class IngestionService:
         # from its env-driven settings) — the application layer never
         # imports the Web API layer. Defaults mirror the historical values.
         self._policy = upload_policy if upload_policy is not None else UploadPolicy()
+        # Bound concurrent ingestion pipelines so large batches do not
+        # overwhelm Embedding, Chroma, and the per-collection BM25 lock.
+        self._worker_slots = threading.BoundedSemaphore(4)
+        self._queued_workers: dict[UUID, tuple[str, str, str]] = {}
+        self._queued_workers_lock = threading.Lock()
         # Per-task post-completion hooks. Production leaves the dict
         # empty; tests register a hook to clean up temp files. Keys are
         # mutation-safe because the lock is owned by the tracker.
@@ -275,6 +280,7 @@ class IngestionService:
         document_id: UUID,
         source_path: Path | str | None = None,
         on_complete: Callable[[TaskRecord], None] | None = None,
+        defer_worker: bool = False,
     ) -> TaskRecord:
         """Stage the upload bytes, create a task and spawn the worker.
 
@@ -322,14 +328,34 @@ class IngestionService:
         # zombie thread blocking process exit. The collection name is
         # passed along so a cache-backed service routes this task to the
         # right per-collection pipeline (M3).
+        with self._queued_workers_lock:
+            self._queued_workers[task_id] = (str(ingest_path), str(canonical), collection)
+        if not defer_worker:
+            self.start_worker(task_id)
+        return record
+
+    def start_worker(self, task_id: UUID) -> None:
+        """Start one staged ingestion task; safe to call only once."""
+        with self._queued_workers_lock:
+            args = self._queued_workers.pop(task_id, None)
+        if args is None:
+            return
         worker = threading.Thread(
             target=self._run_worker,
-            args=(task_id, str(ingest_path), str(canonical), collection),
+            args=(task_id, *args),
             name=f"ingest-{task_id}",
             daemon=True,
         )
         worker.start()
-        return record
+
+    def start_batch(self, batch_id: UUID) -> None:
+        """Start accepted tasks after the HTTP 202 response is sent."""
+        batch = self._batches.get(batch_id)
+        if batch is None:
+            return
+        for item in batch.files:
+            if item.task_id is not None:
+                self.start_worker(item.task_id)
 
     # ------------------------------------------------------------------
     # M5 — batch ingestion
@@ -341,6 +367,7 @@ class IngestionService:
         collection: str,
         collection_id: UUID,
         on_complete: Callable[[TaskRecord], None] | None = None,
+        defer_workers: bool = False,
     ) -> BatchUploadResponse:
         """Submit a batch of files to ``collection``; each gets its own task.
 
@@ -378,6 +405,7 @@ class IngestionService:
                 integrity=integrity,
                 seen_source_paths=seen_source_paths,
                 on_complete=on_complete,
+                defer_worker=defer_workers,
             )
             results.append(result)
 
@@ -407,6 +435,7 @@ class IngestionService:
         integrity: Any,
         seen_source_paths: set[str],
         on_complete: Callable[[TaskRecord], None] | None,
+        defer_worker: bool,
     ) -> BatchFileResult:
         """Validate + submit one batch file; return its per-file result."""
         # --- 1. Boundary validation (never touches disk) --------------
@@ -464,6 +493,7 @@ class IngestionService:
             document_id=doc_id,
             source_path=source_path,
             on_complete=on_complete,
+            defer_worker=defer_worker,
         )
         return BatchFileResult(
             filename=item.filename,
@@ -519,6 +549,18 @@ class IngestionService:
     # Internals
     # ------------------------------------------------------------------
     def _run_worker(
+        self,
+        task_id: UUID,
+        ingest_path: str,
+        canonical_source: str,
+        collection: str = "default",
+    ) -> None:
+        """Bounded worker entry point. Large batches queue after four active pipelines.
+        """
+        with self._worker_slots:
+            self._run_worker_unbounded(task_id, ingest_path, canonical_source, collection)
+
+    def _run_worker_unbounded(
         self,
         task_id: UUID,
         ingest_path: str,
