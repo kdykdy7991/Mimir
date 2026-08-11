@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -50,7 +51,10 @@ def _envelope(
     )
     return JSONResponse(
         status_code=status_code,
-        content=payload.model_dump(exclude_none=True),
+        content=jsonable_encoder(
+            payload.model_dump(exclude_none=True),
+            custom_encoder={Exception: str},
+        ),
     )
 
 
@@ -88,11 +92,11 @@ async def _validation_error_handler(
     request: Request, exc: RequestValidationError,
 ) -> JSONResponse:
     """Pydantic body/query validation errors → 422 with field details."""
-    # Starlette renamed 422 → 422 Unprocessable Content in 0.40; keep the
-    # older name as a fallback so we work on either side of the rename.
+    # Starlette renamed 422 → 422 Unprocessable Content in 0.40. Fall
+    # back to the numeric value without touching the deprecated alias.
     status_422 = getattr(
         status, "HTTP_422_UNPROCESSABLE_CONTENT",
-        getattr(status, "HTTP_422_UNPROCESSABLE_ENTITY", 422),
+        422,
     )
     return _envelope(
         status_code=status_422,

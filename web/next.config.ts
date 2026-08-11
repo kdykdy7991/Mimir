@@ -10,8 +10,8 @@ const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
 const nextConfig: NextConfig = {
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   experimental: {
-    // FastAPI accepts batches up to 1 GB; leave room for multipart metadata.
-    proxyClientMaxBodySize: "1100mb",
+    // FastAPI accepts batches up to 2 GB; leave room for multipart metadata.
+    proxyClientMaxBodySize: "2100mb",
   },
   async rewrites() {
     return [

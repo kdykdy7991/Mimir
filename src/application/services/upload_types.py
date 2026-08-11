@@ -44,8 +44,8 @@ class UploadPolicy:
             "text/plain",
         }),
     )
-    max_batch_files: int = 50
-    max_batch_bytes: int = 1024 * 1024 * 1024  # 1 GB total per batch
+    max_batch_files: int = 100
+    max_batch_bytes: int = 2 * 1024 * 1024 * 1024  # 2 GB total per batch
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@ import {
   BookOpenText,
   Boxes,
   ChevronRight,
-  FileText,
   Gauge,
   Menu,
   Search,
@@ -38,10 +37,7 @@ const navigation: NavigationGroup[] = [
   },
   {
     label: "知识管理",
-    items: [
-      { href: "/collections", icon: Boxes, label: "知识库" },
-      { href: "/documents", icon: FileText, label: "全部文档" },
-    ],
+    items: [{ href: "/collections", icon: Boxes, label: "知识库" }],
   },
   {
     label: "检索实验",

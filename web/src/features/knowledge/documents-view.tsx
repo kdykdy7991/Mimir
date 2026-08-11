@@ -12,15 +12,23 @@ import { DocumentTable, type DocumentRow } from "./document-table";
 import { createUploadBatchId } from "./upload-batch-id";
 import { calculateBatchProgress } from "./upload-batch-progress";
 
-type Data = { collections: CollectionDetail[]; documents: DocumentRow[] };
+type PageInfo = { next_cursor: string | null; has_more: boolean };
+type Data = { collections: CollectionDetail[]; documents: DocumentRow[]; pageInfo?: PageInfo };
 type UploadState = "queued" | "uploading" | "accepted" | "skipped" | "rejected" | "failed";
 type UploadItem = { file: File; state: UploadState; error?: string };
 type UploadBatchFile = { id: string; filename: string; state: UploadState; error?: string; durationMs?: number; serverDurationMs?: number; requestId?: string };
 type UploadBatch = { id: string; total: number; settledWithoutTask: number; elapsedMs: number; files: UploadBatchFile[]; tasks: { id: string; filename: string }[] };
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
-const MAX_BATCH_SIZE = 1024 * 1024 * 1024;
-const MAX_BATCH_FILES = 50;
+const MAX_BATCH_SIZE = 2 * 1024 * 1024 * 1024;
+const MAX_BATCH_FILES = 100;
+const DOCUMENT_PAGE_SIZE = 20;
+const UPLOAD_TERMINAL_STATES = new Set<UploadState>(["accepted", "skipped", "rejected", "failed"]);
+const TASK_TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled", "skipped"]);
+
+function isUploadBatchComplete(batch: UploadBatch) {
+  return batch.files.length === batch.total && batch.files.every((item) => UPLOAD_TERMINAL_STATES.has(item.state));
+}
 
 function nowMs() {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -43,10 +51,23 @@ function isSupportedFile(file: File) {
   return name.endsWith(".pdf") || name.endsWith(".md") || name.endsWith(".markdown");
 }
 
-async function loadData(fixedCollectionId: string | undefined, signal: AbortSignal): Promise<Data> {
+async function loadData(fixedCollectionId: string | undefined, signal: AbortSignal, documentCursor?: string): Promise<Data> {
   const collections: CollectionDetail[] = [];
-  if (fixedCollectionId) collections.push(await apiClient.getCollection(fixedCollectionId, signal));
-  else {
+  if (fixedCollectionId) {
+    const collection = await apiClient.getCollection(fixedCollectionId, signal);
+    const page = await apiClient.listDocuments(
+      fixedCollectionId,
+      { ...(documentCursor ? { cursor: documentCursor } : {}), limit: DOCUMENT_PAGE_SIZE },
+      signal,
+    );
+    const uniqueDocuments = new Map<string, DocumentRow>();
+    for (const document of page.items) {
+      const row = { ...document, collectionName: collection.name };
+      const identity = row.collection_id + ":" + row.id;
+      if (!uniqueDocuments.has(identity)) uniqueDocuments.set(identity, row);
+    }
+    return { collections: [collection], documents: [...uniqueDocuments.values()], pageInfo: page.page_info };
+  } else {
     let cursor: string | null | undefined;
     do {
       const page = await apiClient.listCollections({ ...(cursor ? { cursor } : {}), limit: 100 }, signal);
@@ -72,7 +93,14 @@ async function loadData(fixedCollectionId: string | undefined, signal: AbortSign
 }
 
 export function DocumentsView({ collectionId, embedded = false }: { collectionId?: string; embedded?: boolean }) {
-  const load = useCallback((signal: AbortSignal) => loadData(collectionId, signal), [collectionId]);
+  const [pagination, setPagination] = useState<{ collectionId?: string; cursors: (string | undefined)[] }>({
+    ...(collectionId ? { collectionId } : {}),
+    cursors: [undefined],
+  });
+  const pageCursors = pagination.collectionId === collectionId ? pagination.cursors : [undefined];
+  const currentCursor = pageCursors[pageCursors.length - 1];
+  const currentPage = pageCursors.length;
+  const load = useCallback((signal: AbortSignal) => loadData(collectionId, signal, currentCursor), [collectionId, currentCursor]);
   const { data, error, loading, retry } = useApiResource(load);
   const [query, setQuery] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -80,6 +108,28 @@ export function DocumentsView({ collectionId, embedded = false }: { collectionId
   const [uploadBatches, setUploadBatches] = useState<UploadBatch[]>([]);
   const [actionError, setActionError] = useState<unknown>();
   const filtered = useMemo(() => (data?.documents ?? []).filter((item) => item.filename.toLowerCase().includes(query.trim().toLowerCase())), [data, query]);
+  const totalDocuments = collectionId ? data?.collections[0]?.document_count : undefined;
+  const totalPages = totalDocuments === undefined ? undefined : Math.max(1, Math.ceil(totalDocuments / DOCUMENT_PAGE_SIZE));
+
+  function previousPage() {
+    setQuery("");
+    retry();
+    setPagination((current) => ({
+      ...(collectionId ? { collectionId } : {}),
+      cursors: current.collectionId === collectionId && current.cursors.length > 1 ? current.cursors.slice(0, -1) : [undefined],
+    }));
+  }
+
+  function nextPage() {
+    const nextCursor = data?.pageInfo?.next_cursor;
+    if (!nextCursor) return;
+    setQuery("");
+    retry();
+    setPagination((current) => ({
+      ...(collectionId ? { collectionId } : {}),
+      cursors: current.collectionId === collectionId ? [...current.cursors, nextCursor] : [undefined, nextCursor],
+    }));
+  }
 
   async function remove() {
     if (!deleteTarget) return;
@@ -92,9 +142,9 @@ export function DocumentsView({ collectionId, embedded = false }: { collectionId
   return <div className={embedded ? "space-y-5" : "app-container space-y-6"}>
     {!embedded ? <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><div className="mb-3 flex items-center gap-2"><span className="font-mono text-xs font-semibold tracking-[0.14em] text-primary uppercase">Document center</span><span className="rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[0.6875rem] text-success">实时 API</span></div><h1 className="text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">全部文档</h1><p className="mt-2 text-muted-foreground">跨知识库查看处理进度、索引状态和文档规模。</p></div><Button disabled={!data?.collections.length} onClick={() => setUploadOpen(true)}><UploadCloud className="size-4" />上传文件</Button></header> : <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-lg font-semibold">文档</h2><p className="mt-1 text-sm text-muted-foreground">批量上传 PDF 或 Markdown 后自动创建处理任务。</p></div><Button onClick={() => setUploadOpen(true)}><UploadCloud className="size-4" />上传文件</Button></div>}
     {!embedded && data ? <section className="grid gap-4 sm:grid-cols-3"><Metric icon={Files} label="文档总数" value={data.documents.length} /><Metric icon={FileCheck2} label="索引就绪" value={ready} tone="success" /><Metric icon={FileClock} label="处理中或异常" value={data.documents.length - ready} tone="warning" /></section> : null}
-    {uploadBatches.map((batch, index) => <div className="space-y-3" key={batch.id}><UploadProgressCard batch={batch} {...(index === uploadBatches.length - 1 ? { onRetry: () => setUploadOpen(true) } : {})} />{batch.tasks.length ? <BatchProgressCard batch={batch} onError={setActionError} onSucceeded={retry} /> : null}</div>)}
+    {uploadBatches.map((batch, index) => <div className="space-y-3" key={batch.id}><UploadProgressCard batch={batch} {...(index === uploadBatches.length - 1 ? { onRetry: () => setUploadOpen(true) } : {})} />{isUploadBatchComplete(batch) && batch.tasks.length ? <BatchProgressCard batch={batch} onError={setActionError} onSucceeded={retry} /> : null}</div>)}
     {actionError ? <ErrorState {...(actionError instanceof ApiError ? { code: actionError.code, ...(actionError.requestId ? { requestId: actionError.requestId } : {}) } : {})} description={actionError instanceof ApiError && actionError.code === "TASK_NOT_FOUND" ? "服务可能已重启，任务状态已丢失。请确认文档状态，必要时重新上传。" : actionError instanceof Error ? actionError.message : "操作没有成功完成。"} title={actionError instanceof ApiError && actionError.code === "TASK_NOT_FOUND" ? "任务状态已丢失" : "操作失败"} /> : null}
-    {loading ? <LoadingState label="正在加载文档" rows={6} /> : error ? <ErrorState {...(apiError ? { code: apiError.code, ...(apiError.requestId ? { requestId: apiError.requestId } : {}) } : {})} {...(error instanceof Error ? { description: error.message } : {})} onRetry={retry} title="无法加载文档" /> : <section className="glass-surface rounded-xl p-4 sm:p-6"><label className="relative block"><span className="sr-only">搜索文档</span><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm outline-none focus:border-primary" onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件名…" value={query} /></label><div className="mt-5">{filtered.length ? <DocumentTable documents={filtered} onDelete={setDeleteTarget} /> : <EmptyState description={query ? "没有匹配当前关键词的文档。" : "上传 PDF 或 Markdown 后将在这里显示处理状态。"} icon={Files} title={query ? "没有搜索结果" : "还没有文档"} />}</div></section>}
+    {loading ? <LoadingState label="正在加载文档" rows={6} /> : error ? <ErrorState {...(apiError ? { code: apiError.code, ...(apiError.requestId ? { requestId: apiError.requestId } : {}) } : {})} {...(error instanceof Error ? { description: error.message } : {})} onRetry={retry} title="无法加载文档" /> : <section className="glass-surface rounded-xl p-4 sm:p-6"><label className="relative block"><span className="sr-only">搜索文档</span><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm outline-none focus:border-primary" onChange={(event) => setQuery(event.target.value)} placeholder={collectionId ? "搜索当前页文件名…" : "搜索文件名…"} value={query} /></label><div className="mt-5">{filtered.length ? <DocumentTable documents={filtered} onDelete={setDeleteTarget} /> : <EmptyState description={query ? "没有匹配当前关键词的文档。" : "上传 PDF 或 Markdown 后将在这里显示处理状态。"} icon={Files} title={query ? "没有搜索结果" : "还没有文档"} />}</div>{collectionId && data?.pageInfo ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><p className="text-xs text-muted-foreground">共 {totalDocuments ?? data.documents.length} 条 · 第 {currentPage}{totalPages ? ` / ${totalPages}` : ""} 页 · 每页最多 {DOCUMENT_PAGE_SIZE} 条</p><div className="flex items-center gap-2"><Button disabled={currentPage === 1} onClick={previousPage} variant="secondary">上一页</Button><Button disabled={!data.pageInfo.has_more || !data.pageInfo.next_cursor} onClick={nextPage} variant="secondary">下一页</Button></div></div> : null}</section>}
     {data ? <UploadDialog collections={data.collections} {...(collectionId ? { fixedCollectionId: collectionId } : {})} onOpenChange={setUploadOpen} onUploaded={(batch) => { setActionError(undefined); setUploadBatches((current) => [...current.filter((item) => item.id !== batch.id), batch]); }} open={uploadOpen} /> : null}
     <ConfirmDialog confirmLabel="删除文档" description="删除会协调清理向量、稀疏索引、图片与完整性记录，且无法恢复。" destructive onConfirm={remove} onOpenChange={(open) => { if (!open) setDeleteTarget(undefined); }} open={Boolean(deleteTarget)} title={`删除“${deleteTarget?.filename ?? ""}”？`} />
   </div>;
@@ -105,31 +155,8 @@ function Metric({ icon: Icon, label, tone = "primary", value }: { icon: typeof F
   return <div className="glass-surface flex items-center gap-4 rounded-lg p-5"><span className={`grid size-10 place-items-center rounded-md ${toneClass}`}><Icon className="size-5" /></span><div><p className="text-2xl font-semibold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></div>;
 }
 
-function TaskPoller({ onError, onSucceeded, onUpdate, taskId }: { onError: (error: unknown) => void; onSucceeded: () => void; onUpdate: (task: TaskStatusResponse) => void; taskId: string }) {
-  const [task, setTask] = useState<TaskStatusResponse>();
-  useEffect(() => {
-    let cancelled = false; let timeout: ReturnType<typeof setTimeout>; let delay = 300;
-    async function poll() {
-      try {
-        const next = await apiClient.getTask(taskId);
-        if (cancelled) return;
-        setTask(next);
-        onUpdate(next);
-        if (next.status === "succeeded") { onSucceeded(); return; }
-        if (["failed", "cancelled"].includes(next.status)) return;
-        delay = Math.min(Math.round(delay * 1.5), 2000);
-        timeout = setTimeout(poll, delay);
-      } catch (reason) { if (!cancelled) onError(reason); }
-    }
-    void poll();
-    return () => { cancelled = true; clearTimeout(timeout); };
-  }, [onError, onSucceeded, onUpdate, taskId]);
-  return task ? null : null;
-}
-
 function UploadProgressCard({ batch, onRetry }: { batch: UploadBatch; onRetry?: () => void }) {
-  const terminal = new Set<UploadState>(["accepted", "skipped", "rejected", "failed"]);
-  const completed = batch.files.filter((item) => terminal.has(item.state)).length;
+  const completed = batch.files.filter((item) => UPLOAD_TERMINAL_STATES.has(item.state)).length;
   const failed = batch.files.filter((item) => item.state === "failed" || item.state === "rejected").length;
   const percent = batch.total ? Math.round(completed / batch.total * 100) : 0;
   const status = completed === batch.total ? (failed ? "failed" : "succeeded") : "running";
@@ -148,22 +175,63 @@ function UploadProgressCard({ batch, onRetry }: { batch: UploadBatch; onRetry?: 
 
 function BatchProgressCard({ batch, onError, onSucceeded }: { batch: UploadBatch; onError: (error: unknown) => void; onSucceeded: () => void }) {
   const [tasks, setTasks] = useState<Record<string, TaskStatusResponse>>({});
-  const onUpdate = useCallback((task: TaskStatusResponse) => setTasks((current) => ({ ...current, [task.id]: task })), []);
-  const terminal = new Set(["succeeded", "failed", "cancelled", "skipped"]);
+  const refreshed = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    let delay = 300;
+    const known: Record<string, TaskStatusResponse> = {};
+
+    async function poll() {
+      const pending = batch.tasks.filter((item) => !TASK_TERMINAL_STATES.has(known[item.id]?.status ?? ""));
+      if (!pending.length || cancelled) return;
+      let cursor = 0;
+      async function worker() {
+        while (!cancelled && cursor < pending.length) {
+          const item = pending[cursor++];
+          if (!item) continue;
+          try {
+            const task = await apiClient.getTask(item.id);
+            if (cancelled) return;
+            known[item.id] = task;
+            setTasks((current) => ({ ...current, [task.id]: task }));
+          } catch (reason) {
+            if (!cancelled) onError(reason);
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(4, pending.length) }, () => worker()));
+      if (cancelled) return;
+      const remaining = batch.tasks.some((item) => !TASK_TERMINAL_STATES.has(known[item.id]?.status ?? ""));
+      if (remaining) {
+        delay = Math.min(Math.round(delay * 1.5), 2000);
+        timeout = setTimeout(poll, delay);
+      }
+    }
+
+    void poll();
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, [batch.tasks, onError]);
+
   const taskPercentages = batch.tasks.map((item) => {
     const task = tasks[item.id];
-    return task && terminal.has(task.status) ? 100 : task?.progress?.percent ?? 0;
+    return task && TASK_TERMINAL_STATES.has(task.status) ? 100 : task?.progress?.percent ?? 0;
   });
   const { completed, percent: overallPercent } = calculateBatchProgress(
     batch.total, batch.settledWithoutTask, taskPercentages,
   );
+  useEffect(() => {
+    if (completed === batch.total && !refreshed.current) {
+      refreshed.current = true;
+      onSucceeded();
+    }
+  }, [batch.total, completed, onSucceeded]);
   return <section aria-live="polite" className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-    {batch.tasks.map((item) => <TaskPoller key={item.id} onError={onError} onSucceeded={onSucceeded} onUpdate={onUpdate} taskId={item.id} />)}
     <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold">批量文档处理</p><p className="mt-1 text-xs text-muted-foreground">共 {batch.total} 份，已处理 {completed} 份</p></div><StatusBadge label={completed === batch.total ? "全部完成" : "处理中"} status={completed === batch.total ? "succeeded" : "running"} /></div>
     <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-muted"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${overallPercent}%` }} /></div>
     <div className="mt-2 flex items-center justify-between gap-3"><p className="font-mono text-xs text-muted-foreground">{overallPercent}%</p><p className="font-mono text-[0.6875rem] text-muted-foreground">批次 {batch.id}</p></div>
     <details className="group mt-4 border-t border-primary/15 pt-3"><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-primary">查看各文档处理记录<ChevronDown className="size-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 divide-y divide-border rounded-md border border-border bg-surface">{batch.tasks.map((item) => {
-      const task = tasks[item.id]; const percent = task && terminal.has(task.status) ? 100 : task?.progress?.percent ?? 0;
+      const task = tasks[item.id]; const percent = task && TASK_TERMINAL_STATES.has(task.status) ? 100 : task?.progress?.percent ?? 0;
       return <div className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_auto] sm:items-center" key={item.id}><div className="min-w-0"><p className="truncate text-sm font-medium">{item.filename}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{task?.progress?.message ?? (task?.status === "succeeded" ? "处理完成" : task?.error?.message ?? "等待任务状态")}</p></div><p className="font-mono text-xs text-muted-foreground">{percent}% · {task?.progress?.stage ?? task?.status ?? "pending"}</p><StatusBadge status={task?.status ?? "pending"} /><Link className="text-xs font-semibold text-primary" href={`/traces?type=ingestion&id=${item.id}`}>查看 Trace</Link></div>;
     })}</div></details>
   </section>;
@@ -193,7 +261,7 @@ function UploadDialog({ collections, fixedCollectionId, onOpenChange, onUploaded
     if (oversized) { setError(`${oversized.name}：文件不能超过 20 MB`); setItems([]); return; }
     const totalSize = selected.reduce((sum, file) => sum + file.size, 0);
     if (totalSize > MAX_BATCH_SIZE) {
-      setError("本批文件总大小不能超过 1 GB");
+      setError("本批文件总大小不能超过 2 GB");
       setItems([]);
       return;
     }
@@ -293,5 +361,5 @@ function UploadDialog({ collections, fixedCollectionId, onOpenChange, onUploaded
 
   const failedCount = items.filter((item) => item.state === "failed").length;
   const finished = items.length > 0 && items.every((item) => ["accepted", "skipped", "rejected"].includes(item.state));
-  return <dialog className="m-auto w-[min(calc(100%-2rem),38rem)] rounded-xl border border-border bg-surface-raised p-0 text-foreground shadow-lg backdrop:bg-foreground/20" ref={ref}><form onSubmit={submit}><div className="flex items-start justify-between border-b border-border p-6"><div><h2 className="text-lg font-semibold">批量上传文档</h2><p className="mt-1 text-xs text-muted-foreground">支持 PDF、MD、Markdown；每批最多 50 个，单文件最大 20 MB，整批最大 1 GB。</p></div><button aria-label="关闭" onClick={() => onOpenChange(false)} type="button"><X className="size-4" /></button></div><div className="space-y-4 p-6">{!fixedCollectionId ? <label className="block text-sm font-medium">知识库<select className="mt-2 h-10 w-full rounded-md border border-border bg-surface px-3" name="collection" required>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}<label className="block text-sm font-medium">选择文件<input accept="application/pdf,text/markdown,.pdf,.md,.markdown" className="mt-2 block w-full rounded-md border border-dashed border-border p-4 text-sm" disabled={pending} multiple onChange={(event) => selectFiles(event.target.files)} required={!items.length} type="file" /></label>{batchId ? <p className="font-mono text-[0.6875rem] text-muted-foreground">批次：{batchId}</p> : null}{items.length ? <ul aria-label="待上传文件" className="max-h-64 space-y-2 overflow-y-auto">{items.map((item) => <li className="flex items-center gap-3 rounded-md border border-border bg-surface-muted/50 px-3 py-2" key={`${item.file.name}-${item.file.size}-${item.file.lastModified}`}><FileText className="size-4 shrink-0 text-primary" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.file.name}</p><p className={`text-xs ${item.state === "failed" || item.state === "rejected" ? "text-danger" : "text-muted-foreground"}`}>{item.error ?? (item.state === "queued" ? "等待上传" : item.state === "uploading" ? "正在上传…" : item.state === "accepted" ? "已提交处理" : item.state === "skipped" ? "内容重复，已跳过" : "文件被拒绝")}</p></div>{item.state === "uploading" ? <LoaderCircle className="size-4 animate-spin text-primary" /> : item.state === "accepted" || item.state === "skipped" ? <CheckCircle2 className="size-4 text-success" /> : item.state === "failed" ? <RotateCcw className="size-4 text-danger" /> : item.state === "rejected" ? <X className="size-4 text-danger" /> : null}</li>)}</ul> : null}{error ? <p className="text-xs text-danger">{error}</p> : null}</div><div className="flex items-center justify-between gap-3 border-t border-border bg-surface-muted/50 px-6 py-4"><p className="text-xs text-muted-foreground">{items.length ? `已选择 ${items.length} 个文件` : "尚未选择文件"}</p><div className="flex gap-2"><Button onClick={() => onOpenChange(false)} type="button" variant="ghost">{finished ? "完成" : "取消"}</Button><Button disabled={!items.length || finished} loading={pending} type="submit">{failedCount ? `重试上传（${failedCount}）` : "上传并处理"}</Button></div></div></form></dialog>;
+  return <dialog className="m-auto w-[min(calc(100%-2rem),38rem)] rounded-xl border border-border bg-surface-raised p-0 text-foreground shadow-lg backdrop:bg-foreground/20" ref={ref}><form onSubmit={submit}><div className="flex items-start justify-between border-b border-border p-6"><div><h2 className="text-lg font-semibold">批量上传文档</h2><p className="mt-1 text-xs text-muted-foreground">支持 PDF、MD、Markdown；每批最多 100 个，单文件最大 20 MB，整批最大 2 GB。</p></div><button aria-label="关闭" onClick={() => onOpenChange(false)} type="button"><X className="size-4" /></button></div><div className="space-y-4 p-6">{!fixedCollectionId ? <label className="block text-sm font-medium">知识库<select className="mt-2 h-10 w-full rounded-md border border-border bg-surface px-3" name="collection" required>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}<label className="block text-sm font-medium">选择文件<input accept="application/pdf,text/markdown,.pdf,.md,.markdown" className="mt-2 block w-full rounded-md border border-dashed border-border p-4 text-sm" disabled={pending} multiple onChange={(event) => selectFiles(event.target.files)} required={!items.length} type="file" /></label>{batchId ? <p className="font-mono text-[0.6875rem] text-muted-foreground">批次：{batchId}</p> : null}{items.length ? <ul aria-label="待上传文件" className="max-h-64 space-y-2 overflow-y-auto">{items.map((item) => <li className="flex items-center gap-3 rounded-md border border-border bg-surface-muted/50 px-3 py-2" key={`${item.file.name}-${item.file.size}-${item.file.lastModified}`}><FileText className="size-4 shrink-0 text-primary" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.file.name}</p><p className={`text-xs ${item.state === "failed" || item.state === "rejected" ? "text-danger" : "text-muted-foreground"}`}>{item.error ?? (item.state === "queued" ? "等待上传" : item.state === "uploading" ? "正在上传…" : item.state === "accepted" ? "已提交处理" : item.state === "skipped" ? "内容重复，已跳过" : "文件被拒绝")}</p></div>{item.state === "uploading" ? <LoaderCircle className="size-4 animate-spin text-primary" /> : item.state === "accepted" || item.state === "skipped" ? <CheckCircle2 className="size-4 text-success" /> : item.state === "failed" ? <RotateCcw className="size-4 text-danger" /> : item.state === "rejected" ? <X className="size-4 text-danger" /> : null}</li>)}</ul> : null}{error ? <p className="text-xs text-danger">{error}</p> : null}</div><div className="flex items-center justify-between gap-3 border-t border-border bg-surface-muted/50 px-6 py-4"><p className="text-xs text-muted-foreground">{items.length ? `已选择 ${items.length} 个文件` : "尚未选择文件"}</p><div className="flex gap-2"><Button onClick={() => onOpenChange(false)} type="button" variant="ghost">{finished ? "完成" : "取消"}</Button><Button disabled={!items.length || finished} loading={pending} type="submit">{failedCount ? `重试上传（${failedCount}）` : "上传并处理"}</Button></div></div></form></dialog>;
 }

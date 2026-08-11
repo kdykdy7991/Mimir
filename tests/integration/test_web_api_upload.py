@@ -375,6 +375,27 @@ class TestGetTask:
 # ---------------------------------------------------------------------------
 
 class TestUploadValidation:
+    def test_text_files_field_returns_serializable_422(
+        self, tmp_path, ok_pipeline,
+    ) -> None:
+        services, _hook = _build_services(tmp_path, ok_pipeline)
+        client = TestClient(create_app(services=services))
+
+        cid = collection_uuid("default")
+        resp = client.post(
+            f"/api/v1/collections/{cid}/documents",
+            files={"files": (None, b"not-an-upload-file")},
+        )
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        error = body["error"]["details"]["errors"][0]
+        assert error["loc"] == ["body", "files", 0]
+        assert error["ctx"]["error"] == (
+            "Expected UploadFile, received: <class 'str'>"
+        )
+
     def test_unsupported_mime_returns_415(
         self, tmp_path, ok_pipeline,
     ) -> None:

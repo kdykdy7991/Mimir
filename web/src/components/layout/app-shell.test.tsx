@@ -48,5 +48,6 @@ describe("AppShell", () => {
     expect(active).toHaveAttribute("aria-current", "page");
     const inactive = screen.getByRole("link", { name: "检索调试" });
     expect(inactive).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("link", { name: "全部文档" })).not.toBeInTheDocument();
   });
 });
