@@ -59,6 +59,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {
                     "bm25_chunks": {"type": ["integer", "null"]},
                     "vector_count": {"type": ["integer", "null"]},
                     "data_dir": {"type": "string"},
+                    "description": {"type": ["string", "null"]},
                 },
                 "required": ["name", "source", "data_dir"],
             },
@@ -175,12 +176,14 @@ async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             source = "bm25"
         else:
             source = "vector_store"
+        description = settings.mcp.collection_descriptions.get(name)
         entry: dict[str, Any] = {
             "name": name,
             "source": source,
             "bm25_chunks": None,
             "vector_count": counts.get(name),
             "data_dir": chroma_dir,
+            "description": description,
         }
         if in_bm25:
             entry["bm25_chunks"] = bm25[name]["bm25_chunks"]
@@ -194,6 +197,8 @@ async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     md_lines = [f"# Collections ({len(collections)})", ""]
     for c in collections:
         bits = [f"**{c['name']}**", f"source: {c['source']}"]
+        if c.get("description"):
+            bits.insert(1, c["description"])
         if c.get("bm25_chunks") is not None:
             bits.append(f"bm25: {c['bm25_chunks']} chunks")
         if c.get("vector_count") is not None:
@@ -217,8 +222,8 @@ def register(handler: ProtocolHandler) -> None:
     handler.register(
         name="list_collections",
         description=(
-            "List the collections available in the local data "
-            "directory, with chunk/vector counts and source paths."
+            "List knowledge bases authorized for the current MCP API key. "
+            "Each entry includes its internal collection name, configured business description, and index statistics."
         ),
         input_schema=INPUT_SCHEMA,
         handler=_list_collections,

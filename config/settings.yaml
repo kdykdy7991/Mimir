@@ -196,3 +196,14 @@ mcp_access:
   database_path: ./data/db/mcp_access.db
   session_ttl_seconds: 86400
   max_sessions: 10000
+
+# MCP 客户端在初始化和工具发现时看到的服务身份及知识库说明。
+mcp:
+  server_name: skdy-knowledge-query
+  server_title: 时空道宇知识查询
+  server_description: 时空道宇公司知识库查询服务，用于检索已授权的内部知识库并返回引用来源。
+  instructions: >-
+    这是时空道宇知识查询 MCP。回答涉及公司资料、制度、产品或项目的信息前，
+    优先调用 list_collections 确认可用知识库，再调用 query_knowledge_hub 检索。
+  collection_descriptions:
+    "skdy common": 时空道宇公司的综合知识库，包含公司通用资料与跨部门共享知识。

@@ -79,6 +79,23 @@ def test_lists_bm25_collections(tmp_path: Path):
     assert alpha["source"] in ("both", "bm25")
 
 
+def test_collection_description_is_exposed_to_mcp_clients(tmp_path: Path):
+    _write_bm25(tmp_path, "skdy common", ["company profile"])
+    cfg = _write_settings(tmp_path, collection="skdy common")
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8")
+        + "\nmcp:\n  collection_descriptions:\n    \"skdy common\": 时空道宇公司的综合知识库\n",
+        encoding="utf-8",
+    )
+    markdown, structured = _run(lc._list_collections({
+        "_data_dir": str(tmp_path), "_config_path": str(cfg),
+    }))
+    item = structured["collections"][0]
+    assert item["name"] == "skdy common"
+    assert item["description"] == "时空道宇公司的综合知识库"
+    assert "时空道宇公司的综合知识库" in markdown
+
+
 def test_marks_overlap_as_both(tmp_path: Path):
     _write_bm25(tmp_path, "shared", ["d1"])
     cfg = _write_settings(tmp_path, collection="shared")

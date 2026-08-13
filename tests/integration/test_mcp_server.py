@@ -50,7 +50,7 @@ async def test_initialize_returns_server_info():
         async with ClientSession(read, write) as session:
             init = await session.initialize()
             assert init.server_info is not None
-            assert init.server_info.name == "skdy-rag-server"
+            assert init.server_info.name == "skdy-knowledge-query"
             assert init.capabilities is not None
 
 

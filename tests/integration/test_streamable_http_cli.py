@@ -167,7 +167,7 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
     ) as (r, w):
         async with ClientSession(r, w) as session:
             init = await session.initialize()
-            assert init.server_info.name == "skdy-rag-server"
+            assert init.server_info.name == "skdy-knowledge-query"
 
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)

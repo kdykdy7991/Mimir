@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mcp.server.stdio import stdio_server  # noqa: E402
 
-from src.core.settings import load_settings  # noqa: E402
+from src.core.settings import Settings, load_settings  # noqa: E402
 from src.mcp_server.protocol_handler import ProtocolHandler  # noqa: E402
 
 
@@ -165,6 +165,8 @@ async def run_server(
     server instance so the tool catalogue cannot drift between
     transports.
     """
+    settings = Settings()
+
     # Load settings so tools can read them. We don't fail if the
     # file is missing — defaults are usable, and a malformed file
     # is logged and ignored (so the server still starts).
@@ -186,7 +188,12 @@ async def run_server(
             config_path, exc,
         )
 
-    handler = ProtocolHandler()
+    handler = ProtocolHandler(
+        server_name=settings.mcp.server_name,
+        server_title=settings.mcp.server_title,
+        server_description=settings.mcp.server_description,
+        instructions=settings.mcp.instructions,
+    )
     _register_default_tools(handler)
     logger.info(
         "registered tools: %s", ", ".join(handler.list_names()) or "(none)",

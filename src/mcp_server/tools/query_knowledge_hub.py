@@ -272,9 +272,8 @@ def register(handler: ProtocolHandler) -> None:
     handler.register(
         name="query_knowledge_hub",
         description=(
-            "Run a RAG query against a collection. Returns the top-k "
-            "chunks as Markdown with [n] references and a structured "
-            "citations list."
+            "Search an authorized SKDY knowledge base for evidence relevant to a question. "
+            "Use list_collections first to identify the collection name. Returns cited results."
         ),
         input_schema=INPUT_SCHEMA,
         handler=_query_knowledge_hub,

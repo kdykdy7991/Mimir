@@ -118,9 +118,16 @@ class ProtocolHandler:
     """
 
     def __init__(
-        self, *, server_name: str = "skdy-rag-server",
+        self, *,
+        server_name: str = "skdy-rag-server",
+        server_title: str | None = None,
+        server_description: str | None = None,
+        instructions: str | None = None,
     ) -> None:
         self._server_name = server_name
+        self._server_title = server_title
+        self._server_description = server_description
+        self._instructions = instructions
         self._tools: dict[str, ToolRegistration] = {}
 
     # ------------------------------------------------------------------
@@ -241,6 +248,9 @@ class ProtocolHandler:
 
         server: Server = Server(
             self._server_name,
+            title=self._server_title,
+            description=self._server_description,
+            instructions=self._instructions,
             on_list_tools=_on_list_tools,
             on_call_tool=_on_call_tool,
         )

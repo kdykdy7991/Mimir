@@ -185,8 +185,7 @@ def register(handler: ProtocolHandler) -> None:
     handler.register(
         name="get_document_summary",
         description=(
-            "Return the title, summary, tags, and chunk count for a "
-            "document by its doc_id (the stable UUID from the Web API)."
+            "Return a document summary from an authorized SKDY knowledge base by its doc_id."
         ),
         input_schema=INPUT_SCHEMA,
         handler=_get_document_summary,

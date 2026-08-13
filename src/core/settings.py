@@ -206,6 +206,18 @@ class McpAccessSettings(BaseModel):
     max_sessions: int = 10000
 
 
+class McpPresentationSettings(BaseModel):
+    """Metadata shown to MCP clients during server and tool discovery."""
+    server_name: str = "skdy-knowledge-query"
+    server_title: str = "SKDY Knowledge Query"
+    server_description: str = "A knowledge-query MCP service for the SKDY knowledge bases."
+    instructions: str = (
+        "Use this MCP to search the authorized SKDY knowledge bases. "
+        "Call list_collections first when selecting a knowledge base."
+    )
+    collection_descriptions: dict[str, str] = Field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # Root Settings model
 # ---------------------------------------------------------------------------
@@ -229,6 +241,7 @@ class Settings(BaseModel):
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     dashboard: DashboardSettings = Field(default_factory=DashboardSettings)
     mcp_access: McpAccessSettings = Field(default_factory=McpAccessSettings)
+    mcp: McpPresentationSettings = Field(default_factory=McpPresentationSettings)
 
 
 # ---------------------------------------------------------------------------
