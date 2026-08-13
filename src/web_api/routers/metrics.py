@@ -144,15 +144,15 @@ def get_overview_metrics(
     range_: Literal["24h", "7d", "30d"] = Query("7d", alias="range"),
     services: ApplicationServices = Depends(get_application_services),
 ) -> OverviewResponse:
-    """Aggregate quality, latency and ingestion signals for the overview UI."""
+    """Aggregate all RAG query sources; MCP records are included in the total."""
     now = time.time()
     duration = _RANGE_SECONDS[range_]
     start = now - duration
     previous_start = start - duration
     db = services.db
 
-    current_queries = _decode_queries(db.list_query_results_between(start, now, source="mcp"))
-    previous_queries = _decode_queries(db.list_query_results_between(previous_start, start, source="mcp"))
+    current_queries = _decode_queries(db.list_query_results_between(start, now))
+    previous_queries = _decode_queries(db.list_query_results_between(previous_start, start))
     current_tasks = db.list_tasks_between(start, now, task_type="ingestion")
     previous_tasks = db.list_tasks_between(previous_start, start, task_type="ingestion")
 
