@@ -29,6 +29,8 @@ from typing import Any
 
 from src.core.settings import Settings, load_settings
 from src.mcp_server.protocol_handler import ProtocolHandler
+from src.mcp_server.auth.authorization import filter_accessible_collections
+from src.mcp_server.auth.context import current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +161,7 @@ async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     configured = settings.vector_store.collection_name
     # Every known collection = BM25 index files ∪ the configured store name.
     names = sorted(set(bm25) | ({configured} if configured else set()))
+    names = filter_accessible_collections(current_principal(), names)
     counts = _vector_counts(settings, names)
 
     chroma_dir = str(Path(data_dir) / "db" / "chroma")

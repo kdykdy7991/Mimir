@@ -72,6 +72,8 @@ from mcp.types import (
     Tool,
 )
 
+from src.mcp_server.auth.context import _current_principal, principal_from_server_context
+
 logger = logging.getLogger(__name__)
 
 
@@ -166,7 +168,7 @@ class ProtocolHandler:
     # Dispatch (testable in isolation, no mcp Server needed)
     # ------------------------------------------------------------------
     async def dispatch(
-        self, name: str, arguments: dict | None = None,
+        self, name: str, arguments: dict | None = None, *, principal=None,
     ) -> list[TextContent | ImageContent] | tuple[
         list[TextContent | ImageContent], dict | None,
     ]:
@@ -189,7 +191,16 @@ class ProtocolHandler:
             "tool call: name=%s args_keys=%s",
             name, list(arguments.keys()),
         )
-        result = await registration.handler(arguments)
+        if principal is None:
+            # Direct dispatch is a local/testing call. Real HTTP dispatch
+            # supplies the ASGI-authenticated identity below.
+            from src.mcp_server.auth.context import TrustedLocalPrincipal
+            principal = TrustedLocalPrincipal()
+        token = _current_principal.set(principal)
+        try:
+            result = await registration.handler(arguments)
+        finally:
+            _current_principal.reset(token)
         return _normalize_result(name, result)
 
     # ------------------------------------------------------------------
@@ -219,8 +230,13 @@ class ProtocolHandler:
         async def _on_call_tool(
             ctx, params: CallToolRequestParams,
         ) -> CallToolResult:
+            principal = principal_from_server_context(ctx)
             return await _to_call_tool_result(
-                await handler.dispatch(params.name, params.arguments),
+                await handler.dispatch(
+                    params.name,
+                    params.arguments,
+                    principal=principal,
+                ),
             )
 
         server: Server = Server(
