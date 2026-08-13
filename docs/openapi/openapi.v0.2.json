@@ -911,6 +911,150 @@
           }
         }
       }
+    },
+    "/api/v1/mcp-keys": {
+      "get": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "List MCP API keys",
+        "operationId": "list_mcp_keys_api_v1_mcp_keys_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPKeyListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Create an MCP API key",
+        "operationId": "create_mcp_key_api_v1_mcp_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPKeyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPKeySecretResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp-keys/{name}/rotate": {
+      "post": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Rotate an MCP API key",
+        "operationId": "rotate_mcp_key_api_v1_mcp_keys__name__rotate_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPKeySecretResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp-keys/{name}/revoke": {
+      "post": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Revoke an MCP API key",
+        "operationId": "revoke_mcp_key_api_v1_mcp_keys__name__revoke_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPKeyMetadata"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2045,6 +2189,178 @@
           "status"
         ],
         "title": "KnowledgeBaseMetric"
+      },
+      "MCPKeyCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "allowed_collections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Allowed Collections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "allowed_collections"
+        ],
+        "title": "MCPKeyCreateRequest"
+      },
+      "MCPKeyListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MCPKeyMetadata"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "MCPKeyListResponse"
+      },
+      "MCPKeyMetadata": {
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "title": "Key Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "allowed_collections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Collections"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_id",
+          "name",
+          "allowed_collections",
+          "enabled",
+          "created_at",
+          "revoked_at",
+          "last_used_at"
+        ],
+        "title": "MCPKeyMetadata"
+      },
+      "MCPKeySecretResponse": {
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "title": "Key Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "allowed_collections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Collections"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key_id",
+          "name",
+          "allowed_collections",
+          "enabled",
+          "created_at",
+          "revoked_at",
+          "last_used_at",
+          "api_key"
+        ],
+        "title": "MCPKeySecretResponse",
+        "description": "Returned only by create/rotate; ``api_key`` is never listable."
       },
       "OverviewAttentionItem": {
         "properties": {

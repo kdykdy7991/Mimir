@@ -38,3 +38,9 @@ export type SystemHealth = Schema["SystemHealth"];
 export type SystemInfo = Schema["SystemInfo"];
 export type TaskStatusResponse = Schema["TaskStatusResponse"];
 export type TraceResponse = Schema["TraceResponse"];
+
+/** Trusted-admin MCP API-key management DTOs (not OpenAPI-generated yet). */
+export type MCPKeyCreateRequest = { name: string; allowed_collections: string[] };
+export type MCPKeyMetadata = { key_id: string; name: string; allowed_collections: string[]; enabled: boolean; created_at: string; revoked_at: string | null; last_used_at: string | null };
+export type MCPKeySecretResponse = MCPKeyMetadata & { api_key: string };
+export type MCPKeyListResponse = { items: MCPKeyMetadata[] };

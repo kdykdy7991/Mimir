@@ -40,6 +40,7 @@ from src.web_api.routers import (
     metrics,
     tasks,
     traces,
+    mcp_keys,
 )
 
 API_PREFIX = "/api/v1"
@@ -103,6 +104,7 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
     app.include_router(queries.router, prefix=API_PREFIX)
     app.include_router(traces.router, prefix=API_PREFIX)
     app.include_router(images.router, prefix=API_PREFIX)
+    app.include_router(mcp_keys.router, prefix=API_PREFIX)
 
     return app
 

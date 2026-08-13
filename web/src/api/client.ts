@@ -5,6 +5,10 @@ import type {
   CollectionDetail,
   CollectionListResponse,
   CollectionUpdateRequest,
+  MCPKeyCreateRequest,
+  MCPKeyListResponse,
+  MCPKeyMetadata,
+  MCPKeySecretResponse,
   DocumentDetail,
   DocumentListResponse,
   DocumentUploadResponse,
@@ -176,6 +180,14 @@ export class ApiClient {
   deleteCollection(collectionId: string, signal?: AbortSignal) {
     return this.request<void>(`/api/v1/collections/${encodeURIComponent(collectionId)}`, { method: "DELETE", signal });
   }
+
+  listMCPKeys(signal?: AbortSignal) { return this.request<MCPKeyListResponse>("/api/v1/mcp-keys", { signal }); }
+
+  createMCPKey(body: MCPKeyCreateRequest, signal?: AbortSignal) { return this.request<MCPKeySecretResponse>("/api/v1/mcp-keys", { method: "POST", body, signal }); }
+
+  rotateMCPKey(name: string, signal?: AbortSignal) { return this.request<MCPKeySecretResponse>(`/api/v1/mcp-keys/${encodeURIComponent(name)}/rotate`, { method: "POST", signal }); }
+
+  revokeMCPKey(name: string, signal?: AbortSignal) { return this.request<MCPKeyMetadata>(`/api/v1/mcp-keys/${encodeURIComponent(name)}/revoke`, { method: "POST", signal }); }
 
   listDocuments(collectionId: string, params?: CursorParams, signal?: AbortSignal) {
     const path = `/api/v1/collections/${encodeURIComponent(collectionId)}/documents`;

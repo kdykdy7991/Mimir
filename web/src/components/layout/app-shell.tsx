@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  KeyRound,
   BookOpenText,
   Boxes,
   ChevronRight,
@@ -38,6 +39,10 @@ const navigation: NavigationGroup[] = [
   {
     label: "知识管理",
     items: [{ href: "/collections", icon: Boxes, label: "知识库" }],
+  },
+  {
+    label: "接入管理",
+    items: [{ href: "/mcp-keys", icon: KeyRound, label: "API Key 管理" }],
   },
   {
     label: "检索实验",
