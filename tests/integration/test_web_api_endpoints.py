@@ -157,6 +157,7 @@ class TestOverviewMetrics:
             }),
             document_ids=[],
             created_at=created_at,
+            source="mcp",
         )
 
     def test_aggregates_quality_latency_and_ingestion(

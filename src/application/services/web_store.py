@@ -86,7 +86,9 @@ class WebApiDB:
                     collection  TEXT NOT NULL,
                     query_text  TEXT NOT NULL,
                     result_json TEXT NOT NULL,
-                    created_at  REAL NOT NULL
+                    created_at  REAL NOT NULL,
+                    source      TEXT NOT NULL DEFAULT "web_api",
+                    api_key_id  TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS query_citations (
@@ -126,6 +128,12 @@ class WebApiDB:
                     ON embedding_usage_events(collection_id, occurred_at);
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(query_results)")}
+            if "source" not in columns:
+                conn.execute("ALTER TABLE query_results ADD COLUMN source TEXT NOT NULL DEFAULT \"web_api\"")
+            if "api_key_id" not in columns:
+                conn.execute("ALTER TABLE query_results ADD COLUMN api_key_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_query_results_source_created ON query_results(source, created_at)")
             conn.commit()
         finally:
             conn.close()
@@ -309,6 +317,8 @@ class WebApiDB:
         result_json: str,
         document_ids: list[str],
         created_at: float | None = None,
+        source: str = "web_api",
+        api_key_id: str | None = None,
     ) -> None:
         """Persist an async query's output + the documents it cited."""
         import time
@@ -319,15 +329,17 @@ class WebApiDB:
             conn.execute(
                 """
                 INSERT INTO query_results
-                    (query_id, collection, query_text, result_json, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (query_id, collection, query_text, result_json, created_at, source, api_key_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(query_id) DO UPDATE SET
                     collection  = excluded.collection,
                     query_text  = excluded.query_text,
                     result_json = excluded.result_json,
-                    created_at  = excluded.created_at
+                    created_at  = excluded.created_at,
+                    source      = excluded.source,
+                    api_key_id  = excluded.api_key_id
                 """,
-                (query_id, collection, query_text, result_json, created),
+                (query_id, collection, query_text, result_json, created, source, api_key_id),
             )
             conn.executemany(
                 """
@@ -372,7 +384,7 @@ class WebApiDB:
     # Overview metrics
     # ------------------------------------------------------------------
     def list_query_results_between(
-        self, start_at: float, end_at: float,
+        self, start_at: float, end_at: float, *, source: str | None = None,
     ) -> list[dict[str, Any]]:
         """Query result rows in a half-open reporting interval."""
         conn = self._connect()
@@ -382,9 +394,10 @@ class WebApiDB:
                 SELECT query_id, collection, query_text, result_json, created_at
                 FROM query_results
                 WHERE created_at >= ? AND created_at < ?
+                  AND (? IS NULL OR source = ?)
                 ORDER BY created_at ASC
                 """,
-                (start_at, end_at),
+                (start_at, end_at, source, source),
             ).fetchall()
         finally:
             conn.close()

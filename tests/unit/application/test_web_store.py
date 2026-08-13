@@ -79,6 +79,11 @@ class TestWebApiDB:
         # Result rows are readable.
         assert db.get_query_result("q1")["query_text"] == "hello"
 
+    def test_query_results_filter_by_source(self, db: WebApiDB) -> None:
+        db.save_query_result(query_id="web", collection="default", query_text="web", result_json="{\"chunks\": []}", document_ids=[], created_at=10, source="web_api")
+        db.save_query_result(query_id="mcp", collection="default", query_text="mcp", result_json="{\"chunks\": []}", document_ids=[], created_at=10, source="mcp", api_key_id="key-a")
+        assert [row["query_id"] for row in db.list_query_results_between(0, 20, source="mcp")] == ["mcp"]
+
 
 # ---------------------------------------------------------------------------
 # TaskTracker durable wiring

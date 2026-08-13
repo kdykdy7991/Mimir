@@ -13,8 +13,11 @@ the CLI and the MCP surface.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
+import time
+from uuid import uuid4
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +27,9 @@ from src.core.response.multimodal_assembler import (
     ImageNotFoundError,
     MultimodalAssembler,
 )
+from src.application.identifiers import document_uuid
 from src.application.services import QueryService
+from src.application.services.web_store import WebApiDB
 from src.core.settings import Settings, load_settings
 from src.ingestion.embedding.sparse_encoder import SparseEncoder
 from src.ingestion.storage.image_storage import ImageStorage
@@ -221,13 +226,21 @@ async def _query_knowledge_hub(
         no_rerank=no_rerank,
     )
 
-    candidates = query_service.search(query, top_k=top_k).chunks
+    started = time.perf_counter()
+    search_result = query_service.search(query, top_k=top_k)
+    candidates = search_result.chunks
 
     if rerank_stage is not None and candidates:
         output = rerank_stage.rerank(query, candidates)
         results = output.results
     else:
         results = candidates
+
+    _record_mcp_query(
+        data_dir=data_dir, query=query, collection=collection, results=results,
+        latency_ms=(time.perf_counter() - started) * 1000.0,
+        degraded=search_result.degraded,
+    )
 
     # E6: assemble multimodal content blocks (text + base64 image)
     # so clients that understand MCP image content can render
@@ -249,6 +262,31 @@ async def _query_knowledge_hub(
         )
         response = build_response(results, query)
         return response.as_pair()
+
+
+def _record_mcp_query(
+    *, data_dir: str, query: str, collection: str, results: list[Any],
+    latency_ms: float, degraded: bool,
+) -> None:
+    """Best-effort durable usage record for one MCP knowledge query."""
+    principal = current_principal()
+    document_ids = sorted({
+        str(document_uuid(collection, item.metadata.get("source_path", "")))
+        for item in results if item.metadata.get("source_path")
+    })
+    try:
+        WebApiDB(Path(data_dir) / "db" / "web_api.db").save_query_result(
+            query_id=str(uuid4()), collection=collection, query_text=query,
+            result_json=json.dumps({
+                "chunks": [{} for _ in results],
+                "degraded": degraded,
+                "latency_ms": round(latency_ms, 1),
+            }),
+            document_ids=document_ids, source="mcp",
+            api_key_id=getattr(principal, "key_id", None),
+        )
+    except Exception as exc:
+        logger.warning("failed to record MCP query usage: %s", exc)
 
 
 def _build_assembler(*, data_dir: str) -> MultimodalAssembler:

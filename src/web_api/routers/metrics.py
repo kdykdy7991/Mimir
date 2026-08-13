@@ -151,30 +151,18 @@ def get_overview_metrics(
     previous_start = start - duration
     db = services.db
 
-    current_queries = _decode_queries(db.list_query_results_between(start, now))
-    previous_queries = _decode_queries(db.list_query_results_between(previous_start, start))
+    current_queries = _decode_queries(db.list_query_results_between(start, now, source="mcp"))
+    previous_queries = _decode_queries(db.list_query_results_between(previous_start, start, source="mcp"))
     current_tasks = db.list_tasks_between(start, now, task_type="ingestion")
     previous_tasks = db.list_tasks_between(previous_start, start, task_type="ingestion")
-    current_query_tasks = db.list_tasks_between(start, now, task_type="query")
-    previous_query_tasks = db.list_tasks_between(previous_start, start, task_type="query")
 
     current = _query_metrics(current_queries)
     previous = _query_metrics(previous_queries)
     ingestion = _ingestion_metrics(current_tasks)
     previous_ingestion = _ingestion_metrics(previous_tasks)
 
-    current_result_ids = {row["query_id"] for row in current_queries}
-    previous_result_ids = {row["query_id"] for row in previous_queries}
-    current_failed_queries = sum(
-        row["status"] in {"failed", "cancelled"} and row["task_id"] not in current_result_ids
-        for row in current_query_tasks
-    )
-    previous_failed_queries = sum(
-        row["status"] in {"failed", "cancelled"} and row["task_id"] not in previous_result_ids
-        for row in previous_query_tasks
-    )
-    request_count = len(current_queries) + current_failed_queries
-    previous_request_count = len(previous_queries) + previous_failed_queries
+    request_count = len(current_queries)
+    previous_request_count = len(previous_queries)
 
     refs = services.document.list_collections()
     corpus_documents = 0
