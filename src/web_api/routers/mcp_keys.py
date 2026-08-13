@@ -16,7 +16,7 @@ from src.mcp_server.auth.models import (
 )
 from src.web_api.errors import BadRequestError, ConflictError, NotFoundError
 from src.web_api.schemas.mcp_keys import (
-    MCPKeyCreateRequest, MCPKeyListResponse, MCPKeyMetadata, MCPKeySecretResponse,
+    MCPKeyCreateRequest, MCPKeyListResponse, MCPKeyMetadata, MCPKeyRenameRequest, MCPKeySecretResponse,
 )
 
 router = APIRouter(prefix="/mcp-keys", tags=["mcp-keys"])
@@ -54,6 +54,17 @@ async def create_mcp_key(body: MCPKeyCreateRequest) -> MCPKeySecretResponse:
         raise BadRequestError(str(exc)) from exc
     return MCPKeySecretResponse(**_metadata(item).model_dump(), api_key=raw_key)
 
+
+@router.patch("/{name}", response_model=MCPKeyMetadata, summary="Rename an MCP API key")
+async def rename_mcp_key(name: str, body: MCPKeyRenameRequest) -> MCPKeyMetadata:
+    try:
+        return _metadata(_service().rename_key(name=name, new_name=body.name))
+    except KeyNotFoundError as exc:
+        raise NotFoundError(str(exc)) from exc
+    except DuplicateKeyNameError as exc:
+        raise ConflictError(str(exc)) from exc
+    except ValueError as exc:
+        raise BadRequestError(str(exc)) from exc
 
 @router.post("/{name}/rotate", response_model=MCPKeySecretResponse,
              summary="Rotate an MCP API key")

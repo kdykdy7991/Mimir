@@ -12,6 +12,10 @@ class MCPKeyCreateRequest(BaseModel):
     allowed_collections: list[str] = Field(..., min_length=1)
 
 
+class MCPKeyRenameRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+
+
 class MCPKeyMetadata(BaseModel):
     key_id: str
     name: str
@@ -33,6 +37,6 @@ class MCPKeyListResponse(BaseModel):
 
 
 __all__ = [
-    "MCPKeyCreateRequest", "MCPKeyListResponse", "MCPKeyMetadata",
+    "MCPKeyCreateRequest", "MCPKeyRenameRequest", "MCPKeyListResponse", "MCPKeyMetadata",
     "MCPKeySecretResponse",
 ]

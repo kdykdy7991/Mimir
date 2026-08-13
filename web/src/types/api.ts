@@ -348,6 +348,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List MCP API keys */
+        get: operations["list_mcp_keys_api_v1_mcp_keys_get"];
+        put?: never;
+        /** Create an MCP API key */
+        post: operations["create_mcp_key_api_v1_mcp_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp-keys/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an MCP API key */
+        delete: operations["delete_mcp_key_api_v1_mcp_keys__name__delete"];
+        options?: never;
+        head?: never;
+        /** Rename an MCP API key */
+        patch: operations["rename_mcp_key_api_v1_mcp_keys__name__patch"];
+        trace?: never;
+    };
+    "/api/v1/mcp-keys/{name}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate an MCP API key */
+        post: operations["rotate_mcp_key_api_v1_mcp_keys__name__rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp-keys/{name}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke an MCP API key */
+        post: operations["revoke_mcp_key_api_v1_mcp_keys__name__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1121,6 +1191,68 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "attention";
+        };
+        /** MCPKeyCreateRequest */
+        MCPKeyCreateRequest: {
+            /** Name */
+            name: string;
+            /** Allowed Collections */
+            allowed_collections: string[];
+        };
+        /** MCPKeyListResponse */
+        MCPKeyListResponse: {
+            /** Items */
+            items: components["schemas"]["MCPKeyMetadata"][];
+        };
+        /** MCPKeyMetadata */
+        MCPKeyMetadata: {
+            /** Key Id */
+            key_id: string;
+            /** Name */
+            name: string;
+            /** Allowed Collections */
+            allowed_collections: string[];
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+        };
+        /** MCPKeyRenameRequest */
+        MCPKeyRenameRequest: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * MCPKeySecretResponse
+         * @description Returned only by create/rotate; ``api_key`` is never listable.
+         */
+        MCPKeySecretResponse: {
+            /** Key Id */
+            key_id: string;
+            /** Name */
+            name: string;
+            /** Allowed Collections */
+            allowed_collections: string[];
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Api Key */
+            api_key: string;
         };
         /** OverviewAttentionItem */
         OverviewAttentionItem: {
@@ -2630,6 +2762,185 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mcp_keys_api_v1_mcp_keys_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeyListResponse"];
+                };
+            };
+        };
+    };
+    create_mcp_key_api_v1_mcp_keys_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPKeyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeySecretResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mcp_key_api_v1_mcp_keys__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_mcp_key_api_v1_mcp_keys__name__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPKeyRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeyMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_mcp_key_api_v1_mcp_keys__name__rotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeySecretResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_mcp_key_api_v1_mcp_keys__name__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeyMetadata"];
+                };
             };
             /** @description Validation Error */
             422: {

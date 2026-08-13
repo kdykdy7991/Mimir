@@ -184,6 +184,35 @@ class ApiKeyStore:
         finally:
             conn.close()
 
+    def rename(self, *, name: str, new_name: str) -> KeyRecord:
+        """Rename a key without changing its credential or whitelist."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM mcp_api_keys WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                raise KeyNotFoundError(f"no API key named {name!r}")
+            try:
+                conn.execute(
+                    "UPDATE mcp_api_keys SET name = ? WHERE key_id = ?",
+                    (new_name, row["key_id"]),
+                )
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                raise DuplicateKeyNameError(
+                    f"an API key named {new_name!r} already exists"
+                ) from None
+            conn.commit()
+            fresh = conn.execute(
+                "SELECT * FROM mcp_api_keys WHERE key_id = ?", (row["key_id"],)
+            ).fetchone()
+            return self._record_from_row(conn, fresh)
+        finally:
+            conn.close()
+
     def rotate(
         self,
         *,

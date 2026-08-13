@@ -972,6 +972,91 @@
         }
       }
     },
+    "/api/v1/mcp-keys/{name}": {
+      "patch": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Rename an MCP API key",
+        "operationId": "rename_mcp_key_api_v1_mcp_keys__name__patch",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPKeyRenameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPKeyMetadata"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Delete an MCP API key",
+        "operationId": "delete_mcp_key_api_v1_mcp_keys__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mcp-keys/{name}/rotate": {
       "post": {
         "tags": [
@@ -1042,41 +1127,6 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/mcp-keys/{name}": {
-      "delete": {
-        "tags": [
-          "mcp-keys"
-        ],
-        "summary": "Delete an MCP API key",
-        "operationId": "delete_mcp_key_api_v1_mcp_keys__name__delete",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Name"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -2327,6 +2377,21 @@
           "last_used_at"
         ],
         "title": "MCPKeyMetadata"
+      },
+      "MCPKeyRenameRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "MCPKeyRenameRequest"
       },
       "MCPKeySecretResponse": {
         "properties": {

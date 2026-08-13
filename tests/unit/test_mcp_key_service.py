@@ -268,6 +268,26 @@ class TestRevoke:
             service.revoke_key(name="nobody")
 
 
+class TestRename:
+    def test_rename_preserves_credential_and_whitelist(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        raw, old = service.create_key(name="agent-a", allowed_collections={"hr"})
+        renamed = service.rename_key(name="agent-a", new_name="agent-b")
+        principal = service.authenticate(raw)
+        assert principal is not None
+        assert renamed.key_id == old.key_id
+        assert renamed.name == "agent-b"
+        assert principal.name == "agent-b"
+        assert principal.allowed_collections == frozenset({"hr"})
+
+    def test_rename_duplicate_name_raises(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        service.create_key(name="agent-a", allowed_collections={"hr"})
+        service.create_key(name="agent-b", allowed_collections={"policy"})
+        with pytest.raises(DuplicateKeyNameError):
+            service.rename_key(name="agent-a", new_name="agent-b")
+
+
 class TestDelete:
     def test_delete_invalidates_key_and_removes_metadata(self, tmp_path) -> None:
         service = _service(tmp_path)

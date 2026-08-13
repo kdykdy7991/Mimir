@@ -26,14 +26,19 @@ def test_create_list_rotate_revoke_and_delete_mcp_key(monkeypatch, tmp_path):
         assert listed.json()["items"][0]["name"] == "partner-a"
         assert "api_key" not in listed.json()["items"][0]
 
-        rotated = client.post("/api/v1/mcp-keys/partner-a/rotate")
+        renamed = client.patch("/api/v1/mcp-keys/partner-a", json={"name": "partner-renamed"})
+        assert renamed.status_code == 200
+        assert renamed.json()["name"] == "partner-renamed"
+
+
+        rotated = client.post("/api/v1/mcp-keys/partner-renamed/rotate")
         assert rotated.status_code == 200
         assert rotated.json()["api_key"] != created.json()["api_key"]
 
-        revoked = client.post("/api/v1/mcp-keys/partner-a/revoke")
+        revoked = client.post("/api/v1/mcp-keys/partner-renamed/revoke")
         assert revoked.status_code == 200
         assert revoked.json()["enabled"] is False
 
-        deleted = client.delete("/api/v1/mcp-keys/partner-a")
+        deleted = client.delete("/api/v1/mcp-keys/partner-renamed")
         assert deleted.status_code == 204
         assert client.get("/api/v1/mcp-keys").json()["items"] == []

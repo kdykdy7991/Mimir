@@ -113,7 +113,7 @@ class MCPAccessAuthMiddleware(BaseHTTPMiddleware):
             token=raw_key,
             client_id=principal.key_id,
             scopes=["mcp.read"],
-            subject=principal.name,
+            subject=principal.key_id,
             claims={"name": principal.name, "key_id": principal.key_id},
         )
         user = AuthenticatedUser(token)

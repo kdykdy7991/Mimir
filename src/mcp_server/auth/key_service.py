@@ -255,6 +255,15 @@ class ApiKeyService:
         self._store.delete(name=name)
         logger.info("api_key deleted name=%s", name)
 
+    def rename_key(self, *, name: str, new_name: str) -> ApiKeyMetadata:
+        """Rename a key without changing the credential or its access scope."""
+        _validate_name(name)
+        _validate_name(new_name)
+        old_name, new_name = name.strip(), new_name.strip()
+        record = self._store.rename(name=old_name, new_name=new_name)
+        logger.info("api_key renamed key_id=%s name=%s new_name=%s", record.key_id, old_name, new_name)
+        return _to_metadata(record)
+
     def rotate_key(self, *, name: str) -> tuple[str, ApiKeyMetadata]:
         """Issue a fresh credential for ``name``; the old key dies instantly.
 
