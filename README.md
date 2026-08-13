@@ -250,13 +250,22 @@ python main.py --check
 
 **HTTP 客户端接入**（远程 agent / 容器化部署 / Web demo）：
 
+HTTP MCP 默认启用 API Key 认证。先使用 `python scripts/mcp_keys.py create --name <agent> --collections <collection,...>` 签发凭证；完整 Key 只显示一次。客户端必须在每个请求携带 `Authorization: Bearer <key>`。撤销或轮换命令及完整联调流程见 [`docs/mcp-integration.md`](docs/mcp-integration.md#22-访问控制api-key-认证)。
+
 ```python
 import asyncio
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 async def main():
-    async with streamable_http_client("http://localhost:8765/mcp") as (r, w):
+    import httpx
+
+    http_client = httpx.AsyncClient(
+        headers={"Authorization": "Bearer skdy_mcp_<key_id>.<secret>"},
+    )
+    async with streamable_http_client(
+        "http://localhost:8765/mcp", http_client=http_client,
+    ) as (r, w):
         async with ClientSession(r, w) as session:
             await session.initialize()
             tools = await session.list_tools()
@@ -284,6 +293,7 @@ asyncio.run(main())
 
 - **stdio 模式**：所有日志走 stderr，stdout 严格只输出 MCP 帧——避免污染协议流。服务进程被 MCP 客户端以子进程方式拉起，通过 stdin 接收 JSON-RPC 请求。
 - **streamable-http 模式**：服务监听 `--host/--port`（默认 `127.0.0.1:8765`），MCP 端点挂在 `--mcp-path`（默认 `/mcp`）。另暴露 `GET /health` 探活端点。**默认绑定 `127.0.0.1`——只接受本机连接**；要接受外部连接需显式 `--host 0.0.0.0` 并放在反向代理之后。
+- **外部 HTTP 接入**：保持 `mcp_access.enabled: true`；服务应位于 TLS 反向代理之后，代理必须透传 `Authorization`、`Mcp-Session-Id` 和 SSE/MCP 响应头。认证关闭时服务只允许绑定 loopback 地址。
 
 ---
 

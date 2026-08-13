@@ -145,6 +145,10 @@ Authorization: Bearer skdy_mcp_<key_id>.<secret>
 多集合白名单的 Key 在查询时若省略 `collection`,会收到工具级参数错误要求显式选择;
 单集合白名单的 Key 省略时会自动使用该集合。
 
+外部部署必须使用 TLS 反向代理，并透传 `Authorization`、`Mcp-Session-Id` 和
+SSE/MCP 响应头。认证关闭时服务仅允许绑定 loopback 地址；不要将
+`data/db/mcp_access.db`、完整 Key 或 Authorization Header 写入镜像、Git 或日志。
+
 ### 2.3 curl 快速探活（initialize,SSE 响应）
 
 ```bash
