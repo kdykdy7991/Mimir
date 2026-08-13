@@ -239,19 +239,18 @@ async def _run_streamable_http(
         run_with_uvicorn,
     )
 
+    # Do not turn an unreadable/malformed configuration into an open remote
+    # endpoint. The initial settings load in ``run_server`` is intentionally
+    # best-effort for the legacy stdio path; HTTP access control is a security
+    # boundary and must fail closed instead.
+    settings = load_settings(config_path)
     key_service: ApiKeyService | None = None
-    try:
-        settings = load_settings(config_path)
-        if settings.mcp_access.enabled:
-            key_service = ApiKeyService(db_path=settings.mcp_access.database_path)
-    except FileNotFoundError:
-        # A missing settings file means no explicit enable — leave the
-        # endpoint open (same default as the rest of the server).
-        logger.warning("settings file %s not found — MCP endpoint left open", config_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "failed to load mcp_access settings from %s: %s — MCP endpoint "
-            "left open", config_path, exc,
+    if settings.mcp_access.enabled:
+        key_service = ApiKeyService(db_path=settings.mcp_access.database_path)
+    elif not _is_loopback_host(host):
+        raise RuntimeError(
+            "refusing to bind unauthenticated streamable-http MCP to a "
+            "non-loopback host; enable mcp_access instead",
         )
 
     app = build_asgi_app(server, mcp_path=mcp_path, key_service=key_service)
@@ -266,6 +265,11 @@ async def _run_streamable_http(
     await asyncio.to_thread(
         run_with_uvicorn, app, host=host, port=port, log_level="warning",
     )
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether an HTTP bind address is limited to the local machine."""
+    return host.strip().lower() in {"127.0.0.1", "::1", "localhost"}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
