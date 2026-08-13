@@ -113,10 +113,47 @@ python -m main --transport streamable-http --host 127.0.0.1 --port 8765 --log-le
 # 探活:curl http://127.0.0.1:8765/health   → {"status":"ok","transport":"streamable-http"}
 ```
 
-### 2.2 curl 快速探活（initialize,SSE 响应）
+### 2.2 访问控制（API Key 认证）
+
+默认（`config/settings.yaml` → `mcp_access.enabled: true`）下,`/mcp` 的
+POST/GET/DELETE 全部需要 `Authorization: Bearer <API Key>`。`/health` 保持匿名。
+`stdio` 模式不受影响,仍可全量访问。
+
+签发与管理密钥:
+
+```bash
+# 创建 —— 完整 Key 只显示这一次,之后无法再查看
+python scripts/mcp_keys.py create --name agent-a --collections hr,policy
+# 列出（只显示元数据,不显示 Key / 摘要）
+python scripts/mcp_keys.py list
+# 立即撤销
+python scripts/mcp_keys.py revoke --name agent-a
+# 轮换（旧 Key 立即失效,新 Key 只显示一次）
+python scripts/mcp_keys.py rotate --name agent-a
+# 自定义数据目录
+python scripts/mcp_keys.py create --name agent-a --collections hr,policy --data-dir ./data
+```
+
+数据库默认 `./data/db/mcp_access.db`,只保存 secret 的 SHA-256 摘要,不含完整 Key。
+客户端需在每个请求携带:
+
+```http
+Authorization: Bearer skdy_mcp_<key_id>.<secret>
+```
+
+权限完全由服务端白名单决定:客户端仍可传 `collection`,但只能传白名单内的值。
+多集合白名单的 Key 在查询时若省略 `collection`,会收到工具级参数错误要求显式选择;
+单集合白名单的 Key 省略时会自动使用该集合。
+
+外部部署必须使用 TLS 反向代理，并透传 `Authorization`、`Mcp-Session-Id` 和
+SSE/MCP 响应头。认证关闭时服务仅允许绑定 loopback 地址；不要将
+`data/db/mcp_access.db`、完整 Key 或 Authorization Header 写入镜像、Git 或日志。
+
+### 2.3 curl 快速探活（initialize,SSE 响应）
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8765/mcp \
+  -H 'Authorization: Bearer skdy_mcp_<key_id>.<secret>' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
@@ -124,17 +161,22 @@ curl -sS -X POST http://127.0.0.1:8765/mcp \
                  "clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-### 2.3 Python 客户端（三个真实工具,与 stdio 同一套调用）
+### 2.4 Python 客户端（三个真实工具,与 stdio 同一套调用）
 
 ```python
 import asyncio
+import httpx
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 BASE = "http://127.0.0.1:8765/mcp"
+API_KEY = "skdy_mcp_<key_id>.<secret>"
 
 async def main():
-    async with streamable_http_client(BASE) as (read, write):
+    http_client = httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    async with streamable_http_client(BASE, http_client=http_client) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
             print("server:", init.server_info.name)
@@ -162,11 +204,14 @@ async def main():
 asyncio.run(main())
 ```
 
-### 2.4 自动化
+### 2.5 自动化
 
 ```bash
 pytest tests/integration/test_streamable_http_cli.py -v
-# 真实子进程 `python -m main --transport streamable-http`,覆盖三个工具 + /health
+# 真实子进程 `python -m main --transport streamable-http`,覆盖三个工具 + /health + Bearer 认证
+
+# 访问控制专项（PRD §11.2）:无 Key / 越权 / 撤销 / 跨 Key session / 并发
+pytest tests/integration/test_mcp_http_access_control.py -v
 ```
 
 ---

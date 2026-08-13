@@ -33,6 +33,10 @@ from src.libs.reranker import RerankerFactory
 from src.libs.vector_store import VectorStoreFactory
 from src.libs.vector_store.scoped import ScopedCollectionVectorStore
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
+from src.mcp_server.auth.authorization import (
+    CollectionAccessDenied, CollectionSelectionRequired, resolve_query_collection,
+)
+from src.mcp_server.auth.context import current_principal
 
 # ``scripts/`` lives at the project root. When the MCP server is launched
 # by a client (Claude Desktop / Cursor / Copilot) the working directory
@@ -199,7 +203,10 @@ async def _query_knowledge_hub(
             "'query' is required and must be a non-empty string",
         )
     top_k: int = int(args.get("top_k") or 10)
-    collection: str = args.get("collection") or "default"
+    try:
+        collection = resolve_query_collection(current_principal(), args.get("collection"))
+    except (CollectionAccessDenied, CollectionSelectionRequired) as exc:
+        return tool_error(str(exc))
     no_rerank: bool = bool(args.get("no_rerank") or False)
 
     # Internal hints the server injects from CLI flags. Tools that

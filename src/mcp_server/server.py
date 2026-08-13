@@ -199,6 +199,7 @@ async def run_server(
     elif transport == "streamable-http":
         await _run_streamable_http(
             server, host=host, port=port, mcp_path=mcp_path,
+            config_path=config_path,
         )
     else:
         raise ValueError(f"unknown transport: {transport!r}")
@@ -217,6 +218,7 @@ async def _run_stdio(server) -> None:
 
 async def _run_streamable_http(
     server, *, host: str, port: int, mcp_path: str,
+    config_path: str = "./config/settings.yaml",
 ) -> None:
     """Run the MCP server over streamable-HTTP via uvicorn.
 
@@ -224,15 +226,36 @@ async def _run_streamable_http(
     so we stay in the same async context as ``run_server`` —
     that way KeyboardInterrupt and other asyncio-aware signals
     behave the same as the stdio path.
+
+    When ``mcp_access.enabled`` is true, the endpoint is protected by
+    Bearer API-key authentication; the key database defaults to
+    ``./data/db/mcp_access.db`` (PRD §8).
     """
     # Import locally so the stdio path doesn't pay the cost of
     # loading starlette/uvicorn on every startup.
+    from src.mcp_server.auth.key_service import ApiKeyService
     from src.mcp_server.transports.streamable_http import (
         build_asgi_app,
         run_with_uvicorn,
     )
 
-    app = build_asgi_app(server, mcp_path=mcp_path)
+    # Do not turn an unreadable/malformed configuration into an open remote
+    # endpoint. The initial settings load in ``run_server`` is intentionally
+    # best-effort for the legacy stdio path; HTTP access control is a security
+    # boundary and must fail closed instead.
+    settings = load_settings(config_path)
+    key_service: ApiKeyService | None = None
+    if settings.mcp_access.enabled:
+        key_service = ApiKeyService(db_path=settings.mcp_access.database_path)
+    elif not _is_loopback_host(host):
+        raise RuntimeError(
+            "refusing to bind unauthenticated streamable-http MCP to a "
+            "non-loopback host; enable mcp_access instead",
+        )
+
+    app = build_asgi_app(server, mcp_path=mcp_path, key_service=key_service)
+    if key_service is not None:
+        logger.info("mcp_access: Bearer API-key authentication enabled")
     logger.info(
         "starting streamable-http server on http://%s:%d%s",
         host, port, "/" + mcp_path.strip("/"),
@@ -242,6 +265,11 @@ async def _run_streamable_http(
     await asyncio.to_thread(
         run_with_uvicorn, app, host=host, port=port, log_level="warning",
     )
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether an HTTP bind address is limited to the local machine."""
+    return host.strip().lower() in {"127.0.0.1", "::1", "localhost"}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

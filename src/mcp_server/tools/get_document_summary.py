@@ -27,6 +27,8 @@ from uuid import UUID
 
 from src.core.settings import Settings, load_settings
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
+from src.mcp_server.auth.authorization import CollectionAccessDenied, require_collection_access
+from src.mcp_server.auth.context import current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,11 @@ async def _get_document_summary(args: dict[str, Any]) -> Any:
             f"Confirm the id is correct and the document has been ingested.",
         )
     collection, source_path = resolved
+    try:
+        require_collection_access(current_principal(), collection)
+    except CollectionAccessDenied:
+        # Do not let a valid-but-forbidden UUID probe another collection.
+        return tool_error("document not found or not accessible")
 
     # Scope the multi-collection router to the document's own collection
     # (data lives in per-collection Chroma stores, not the configured

@@ -182,3 +182,17 @@ dashboard:
   traces_dir: ./logs
   auto_refresh: true
   refresh_interval: 5
+
+# ----------------------------------------------------------------
+# HTTP MCP 访问控制（PRD docs/prd-mcp-api-key-collection-access.md）
+# ----------------------------------------------------------------
+# 开启后，streamable-http 的 /mcp 全部方法（POST/GET/DELETE）都必须携带
+# Authorization: Bearer skdy_mcp_<key_id>.<secret>。密钥用
+# `python scripts/mcp_keys.py create --name X --collections a,b` 签发，
+# 数据库默认位于 ./data/db/mcp_access.db（只保存 secret 的 SHA-256 摘要）。
+# /health 保持匿名。生产环境必须开启；本地开发可显式 enabled: false。
+mcp_access:
+  enabled: true
+  database_path: ./data/db/mcp_access.db
+  session_ttl_seconds: 86400
+  max_sessions: 10000

@@ -37,7 +37,7 @@ from mcp.types import (
     Tool,
 )
 
-from src.mcp_server.server import parse_args
+from src.mcp_server.server import _is_loopback_host, parse_args
 from src.mcp_server.transports.streamable_http import build_asgi_app
 
 
@@ -115,6 +115,16 @@ class TestParseArgs:
     def test_rejects_unknown_transport(self):
         with pytest.raises(SystemExit):
             parse_args(["--transport", "websocket"])
+
+
+class TestHttpBindSafety:
+    @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+    def test_loopback_hosts_are_recognised(self, host):
+        assert _is_loopback_host(host)
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.20", "::"])
+    def test_non_loopback_hosts_are_not_recognised(self, host):
+        assert not _is_loopback_host(host)
 
 
 # ---------------------------------------------------------------------------
