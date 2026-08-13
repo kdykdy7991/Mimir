@@ -92,6 +92,7 @@ def _decode_queries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         decoded.append({
             **row,
             "has_results": bool(result.get("chunks")),
+            "succeeded": not bool(result.get("error")),
             "degraded": bool(result.get("degraded")),
             "latency_ms": float(result.get("latency_ms") or 0.0),
         })
@@ -100,9 +101,10 @@ def _decode_queries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _query_metrics(rows: list[dict[str, Any]]) -> dict[str, float | int | None]:
     count = len(rows)
-    no_results = sum(not row["has_results"] for row in rows)
+    succeeded = [row for row in rows if row["succeeded"]]
+    no_results = sum(not row["has_results"] for row in succeeded)
     degraded = sum(row["degraded"] for row in rows)
-    effective = sum(row["has_results"] and not row["degraded"] for row in rows)
+    effective = sum(row["has_results"] and not row["degraded"] for row in succeeded)
     return {
         "count": count,
         "effective": _rate(effective, count),
@@ -256,7 +258,7 @@ def get_overview_metrics(
         traffic=TrafficMetrics(
             request_count=request_count,
             previous_request_count=previous_request_count,
-            success_rate=_rate(len(current_queries), request_count),
+            success_rate=_rate(sum(row["succeeded"] for row in current_queries), request_count),
             average_latency_ms=(
                 round(sum(row["latency_ms"] for row in current_queries) / len(current_queries), 1)
                 if current_queries else None
@@ -264,7 +266,7 @@ def get_overview_metrics(
             **_embedding_token_metrics(services, start, now),
         ),
         retrieval_health=RetrievalHealth(
-            success_rate=_rate(sum(row["has_results"] for row in current_queries), len(current_queries)),
+            success_rate=_rate(sum(row["has_results"] for row in current_queries if row["succeeded"]), sum(row["succeeded"] for row in current_queries)),
             empty_retrieval_rate=current["no_result"],
             average_top_k=(
                 round(sum(len(json.loads(row["result_json"]).get("chunks", [])) for row in current_queries) / len(current_queries), 1)
