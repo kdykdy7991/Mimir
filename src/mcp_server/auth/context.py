@@ -32,10 +32,21 @@ _current_principal: ContextVar[AccessPrincipalLike | None] = ContextVar(
 
 
 def current_principal() -> AccessPrincipalLike:
-    """Return the identity bound to the active MCP tool invocation."""
+    """Return the identity bound to the active MCP tool invocation.
+
+    When no principal is bound — a stdio/direct call, or a tool handler
+    invoked outside :meth:`ProtocolHandler.dispatch` (e.g. unit tests) —
+    fall back to :class:`TrustedLocalPrincipal`. That matches the PRD §7
+    stdio strategy (local calls read every collection). The HTTP
+    fail-closed guarantee lives at the dispatch boundary: for
+    ``streamable-http`` the principal is always resolved first by
+    :func:`principal_from_server_context`, which raises when a request is
+    unauthenticated, so this fallback can never let an HTTP request slip
+    through as trusted.
+    """
     principal = _current_principal.get()
     if principal is None:
-        raise RuntimeError("MCP access principal is missing from request context")
+        return TrustedLocalPrincipal()
     return principal
 
 

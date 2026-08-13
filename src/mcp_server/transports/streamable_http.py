@@ -45,9 +45,13 @@ from mcp.server.streamable_http_manager import (
     StreamableHTTPSessionManager,
 )
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+
+from src.mcp_server.auth.key_service import ApiKeyService
+from src.mcp_server.auth.middleware import MCPAccessAuthMiddleware
 
 if TYPE_CHECKING:
     from mcp.server import Server
@@ -65,6 +69,7 @@ def build_asgi_app(
     mcp_path: str = "/mcp",
     json_response: bool = False,
     stateless: bool = False,
+    key_service: ApiKeyService | None = None,
 ) -> Starlette:
     """
     Wrap ``server`` in a Starlette ASGI application.
@@ -87,6 +92,10 @@ def build_asgi_app(
             for very simple request/response clients but loses
             the spec's resumability features. Default ``False``
             matches the stdio transport's session model.
+        key_service: When provided, the MCP endpoint is protected by
+            Bearer API-key authentication (PRD §5). ``GET /health``
+            stays anonymous. When ``None``, the endpoint is open —
+            used by tests and when ``mcp_access.enabled`` is false.
 
     Returns:
         A Starlette ``ASGIApp`` ready to serve with uvicorn /
@@ -136,8 +145,30 @@ def build_asgi_app(
     # Normalise mcp_path: must start with "/", no duplicate slashes.
     norm_path = "/" + mcp_path.strip("/")
 
+    # Optional Bearer authentication in front of the whole MCP endpoint.
+    # Mounted via Starlette middleware (not the route) so POST/GET/DELETE
+    # are all covered and the 401 never enters the session manager.
+    if key_service is not None:
+        # If the store is unreachable the whole endpoint must fail closed
+        # (PRD §8): a broken store means every key would 401 anyway, so we
+        # surface it at startup instead of serving unauthenticated traffic.
+        try:
+            key_service.list_keys()
+        except Exception:  # noqa: BLE001 — a broken store must not boot open
+            raise RuntimeError(
+                "mcp_access: cannot open API-key store; refusing to start "
+                "without authentication"
+            ) from None
+
     app = Starlette(
         lifespan=lifespan,
+        middleware=[
+            Middleware(
+                MCPAccessAuthMiddleware,
+                key_service=key_service,
+                health_path="/health",
+            ),
+        ] if key_service is not None else [],
         routes=[
             # The MCP endpoint accepts POST/GET/DELETE only — the
             # ASGI sub-app responds 405 (or appropriate error)

@@ -193,6 +193,19 @@ class DashboardSettings(BaseModel):
     refresh_interval: int = 5
 
 
+class McpAccessSettings(BaseModel):
+    """HTTP MCP access-control configuration (PRD §8).
+
+    Controls Bearer API-key authentication for the ``streamable-http``
+    MCP endpoint. When ``enabled`` is false, the endpoint is left open
+    (used by local development; production must keep it enabled).
+    """
+    enabled: bool = True
+    database_path: str = "./data/db/mcp_access.db"
+    session_ttl_seconds: int = 86400
+    max_sessions: int = 10000
+
+
 # ---------------------------------------------------------------------------
 # Root Settings model
 # ---------------------------------------------------------------------------
@@ -215,6 +228,7 @@ class Settings(BaseModel):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     dashboard: DashboardSettings = Field(default_factory=DashboardSettings)
+    mcp_access: McpAccessSettings = Field(default_factory=McpAccessSettings)
 
 
 # ---------------------------------------------------------------------------
