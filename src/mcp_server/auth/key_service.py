@@ -248,6 +248,13 @@ class ApiKeyService:
         )
         return _to_metadata(record)
 
+    def delete_key(self, *, name: str) -> None:
+        """Permanently remove the named key and invalidate it immediately."""
+        _validate_name(name)
+        name = name.strip()
+        self._store.delete(name=name)
+        logger.info("api_key deleted name=%s", name)
+
     def rotate_key(self, *, name: str) -> tuple[str, ApiKeyMetadata]:
         """Issue a fresh credential for ``name``; the old key dies instantly.
 

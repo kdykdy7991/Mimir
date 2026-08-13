@@ -168,6 +168,22 @@ class ApiKeyStore:
         finally:
             conn.close()
 
+    def delete(self, *, name: str) -> None:
+        """Permanently remove a key and its collection whitelist."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT key_id FROM mcp_api_keys WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                raise KeyNotFoundError(f"no API key named {name!r}")
+            conn.execute("DELETE FROM mcp_api_keys WHERE key_id = ?", (row["key_id"],))
+            conn.commit()
+        finally:
+            conn.close()
+
     def rotate(
         self,
         *,

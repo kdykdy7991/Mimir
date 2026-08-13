@@ -8,7 +8,7 @@ from src.mcp_server.auth import ApiKeyService
 from src.web_api.app import create_app
 
 
-def test_create_list_rotate_and_revoke_mcp_key(monkeypatch, tmp_path):
+def test_create_list_rotate_revoke_and_delete_mcp_key(monkeypatch, tmp_path):
     from src.web_api.routers import mcp_keys
 
     service = ApiKeyService(db_path=tmp_path / "mcp_access.db")
@@ -33,3 +33,7 @@ def test_create_list_rotate_and_revoke_mcp_key(monkeypatch, tmp_path):
         revoked = client.post("/api/v1/mcp-keys/partner-a/revoke")
         assert revoked.status_code == 200
         assert revoked.json()["enabled"] is False
+
+        deleted = client.delete("/api/v1/mcp-keys/partner-a")
+        assert deleted.status_code == 204
+        assert client.get("/api/v1/mcp-keys").json()["items"] == []

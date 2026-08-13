@@ -1055,6 +1055,41 @@
           }
         }
       }
+    },
+    "/api/v1/mcp-keys/{name}": {
+      "delete": {
+        "tags": [
+          "mcp-keys"
+        ],
+        "summary": "Delete an MCP API key",
+        "operationId": "delete_mcp_key_api_v1_mcp_keys__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

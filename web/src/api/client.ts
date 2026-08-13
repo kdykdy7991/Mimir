@@ -189,6 +189,8 @@ export class ApiClient {
 
   revokeMCPKey(name: string, signal?: AbortSignal) { return this.request<MCPKeyMetadata>(`/api/v1/mcp-keys/${encodeURIComponent(name)}/revoke`, { method: "POST", signal }); }
 
+  deleteMCPKey(name: string, signal?: AbortSignal) { return this.request<void>(`/api/v1/mcp-keys/${encodeURIComponent(name)}`, { method: "DELETE", signal }); }
+
   listDocuments(collectionId: string, params?: CursorParams, signal?: AbortSignal) {
     const path = `/api/v1/collections/${encodeURIComponent(collectionId)}/documents`;
     return this.request<DocumentListResponse>(appendCursorParams(path, params), { signal });

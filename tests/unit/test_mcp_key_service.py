@@ -268,6 +268,20 @@ class TestRevoke:
             service.revoke_key(name="nobody")
 
 
+class TestDelete:
+    def test_delete_invalidates_key_and_removes_metadata(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        raw, _ = service.create_key(name="agent-a", allowed_collections={"hr"})
+        service.delete_key(name="agent-a")
+        assert service.authenticate(raw) is None
+        assert service.list_keys() == []
+
+    def test_delete_unknown_name_raises(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        with pytest.raises(KeyNotFoundError):
+            service.delete_key(name="nobody")
+
+
 class TestRotate:
     def test_rotate_invalidates_old_key_immediately(self, tmp_path) -> None:
         service = _service(tmp_path)

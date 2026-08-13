@@ -7,7 +7,7 @@ Web UI; no endpoint returns an existing secret or digest.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 
 from src.core.settings import load_settings
 from src.mcp_server.auth import ApiKeyService
@@ -72,6 +72,15 @@ async def revoke_mcp_key(name: str) -> MCPKeyMetadata:
         return _metadata(_service().revoke_key(name=name))
     except KeyNotFoundError as exc:
         raise NotFoundError(str(exc)) from exc
+
+
+@router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an MCP API key")
+async def delete_mcp_key(name: str) -> Response:
+    try:
+        _service().delete_key(name=name)
+    except KeyNotFoundError as exc:
+        raise NotFoundError(str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ["router"]
