@@ -64,7 +64,7 @@ M1 默认 `Access-Control-Allow-Origin: *`（便于本地 Next.js dev 跨域）�
 | 项 | 约束 |
 |---|---|
 | Content-Type | `application/pdf`（M1），可通过 `WEB_API_UPLOAD_ALLOWED_MIME` 扩展 |
-| 单文件上限 | **20 MB**，可通过 `WEB_API_UPLOAD_MAX_BYTES` 调整 |
+| 单文件上限 | **30 MB**，可通过 `WEB_API_UPLOAD_MAX_BYTES` 调整 |
 | 表单字段名 | `file`（multipart/form-data） |
 | 超过大小 | `413 PAYLOAD_TOO_LARGE`，body `details: {size_bytes, max_bytes}` |
 | 错类型 | `415 UNSUPPORTED_MEDIA_TYPE`，body `details: {received_content_type, allowed_content_types}` |

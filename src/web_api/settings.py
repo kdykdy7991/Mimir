@@ -51,7 +51,7 @@ def _get_str_set(name: str, default: FrozenSet[str]) -> FrozenSet[str]:
 # ---------------------------------------------------------------------------
 # Defaults — per the v0.1 contract (+ M5 batch/extension rules)
 # ---------------------------------------------------------------------------
-DEFAULT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024  # 20 MB per file
+DEFAULT_UPLOAD_MAX_BYTES = 30 * 1024 * 1024  # 30 MB per file
 DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
     "application/pdf",
     "text/markdown",
