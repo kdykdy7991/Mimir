@@ -26,8 +26,14 @@ __all__ = [
     "ImagePersistenceError",
     "DocumentParser",
     "ParserEngineInfo",
+    "LegacyLoaderParserAdapter",
+    "ParsedDocumentAdapter",
 ]
 
+from src.document_parser.adapters import (  # noqa: E402
+    LegacyLoaderParserAdapter,
+    ParsedDocumentAdapter,
+)
 from src.document_parser.base import (  # noqa: E402
     DocumentParser,
     ParserEngineInfo,
