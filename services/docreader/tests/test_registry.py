@@ -33,15 +33,15 @@ def test_registry_parses_markdown() -> None:
 
 def test_registry_unsupported_raises() -> None:
     with pytest.raises(ValueError):
-        registry.parse_file("a.pdf", "pdf", b"%PDF")
+        registry.parse_file("a.pptx", "pptx", b"PK")
 
 
 def test_list_engines_advertises_builtin() -> None:
     engines = registry.list_engines()
     names = {e["name"] for e in engines}
     assert "builtin" in names
-    txt = next(e for e in engines if "txt" in e["file_types"])
-    assert txt["available"] is True
+    pdf = next(e for e in engines if "pdf" in e["file_types"])
+    assert pdf["available"] is True
 
 
 def test_parser_facade_parse_file() -> None:

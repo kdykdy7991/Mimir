@@ -29,6 +29,11 @@ def _plain_text() -> BaseParser:
     return PlainTextParser()
 
 
+def _pdf() -> BaseParser:
+    from docreader.parser.pdf_parser import PDFParser
+    return PDFParser()
+
+
 def register_engine(fmt: str, *, name: str, factory, description: str = "") -> None:
     """Register an engine for ``fmt`` (lowercased, no leading dot)."""
     _ENGINES[fmt.lstrip(".").lower()] = {
@@ -46,6 +51,8 @@ def _default_engines() -> None:
                         description="Markdown pass-through")
         register_engine("markdown", name="builtin", factory=_plain_text,
                         description="Markdown pass-through")
+        register_engine("pdf", name="builtin", factory=_pdf,
+                        description="PDF: layout-aware text / scanned routing")
 
 
 def engine_for(fmt: str) -> BaseParser:
