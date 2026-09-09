@@ -184,6 +184,21 @@ dashboard:
   refresh_interval: 5
 
 # ----------------------------------------------------------------
+# 统一文档解析（WeKnora DocReader 迁移，Phase 1）
+#
+# backend 是迁移 Feature Flag：legacy=沿用现有 Loader 链（默认），
+# docreader=走独立 DocReader 服务。Phase 7 前默认保持 legacy，任何阶段
+# 都可单配置切回，无需数据迁移。（完整解析配置块随后续 Phase 扩展。）
+# ----------------------------------------------------------------
+document_parser:
+  enabled: true
+  backend: legacy              # legacy | docreader
+  endpoint: 127.0.0.1:50051    # DocReader gRPC 地址（backend=docreader 时使用）
+  request_timeout_seconds: 300
+  max_file_bytes: 31457280     # 30 MB
+  default_engine: builtin
+
+# ----------------------------------------------------------------
 # HTTP MCP 访问控制（PRD docs/prd-mcp-api-key-collection-access.md）
 # ----------------------------------------------------------------
 # 开启后，streamable-http 的 /mcp 全部方法（POST/GET/DELETE）都必须携带

@@ -193,6 +193,38 @@ class DashboardSettings(BaseModel):
     refresh_interval: int = 5
 
 
+class DocumentParserSettings(BaseModel):
+    """Unified document parser configuration (plan §1/§8 Phase 1).
+
+    ``backend`` is the migration feature flag: ``legacy`` keeps the existing
+    Loader chain; ``docreader`` selects the standalone DocReader service. It
+    defaults to ``legacy`` so nothing changes until the migration is cut over
+    in Phase 7, and can be flipped back with no data migration.
+    """
+    backend: str = "legacy"  # legacy | docreader
+    enabled: bool = True
+    endpoint: str = "127.0.0.1:50051"
+    request_timeout_seconds: float = 300.0
+    max_file_bytes: int = 31457280
+    default_engine: str = "builtin"
+
+    @field_validator("backend")
+    @classmethod
+    def _validate_backend(cls, v: str) -> str:
+        if v not in ("legacy", "docreader"):
+            raise ValueError(
+                f"document_parser.backend must be 'legacy' or 'docreader', got {v!r}",
+            )
+        return v
+
+    @field_validator("request_timeout_seconds")
+    @classmethod
+    def _validate_timeout(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("document_parser.request_timeout_seconds must be > 0")
+        return v
+
+
 class McpAccessSettings(BaseModel):
     """HTTP MCP access-control configuration (PRD §8).
 
@@ -240,6 +272,9 @@ class Settings(BaseModel):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     dashboard: DashboardSettings = Field(default_factory=DashboardSettings)
+    document_parser: DocumentParserSettings = Field(
+        default_factory=DocumentParserSettings,
+    )
     mcp_access: McpAccessSettings = Field(default_factory=McpAccessSettings)
     mcp: McpPresentationSettings = Field(default_factory=McpPresentationSettings)
 
