@@ -1,0 +1,31 @@
+[project]
+name = "skdy-docreader"
+version = "0.1.0"
+description = "Local document parsing service (WeKnora DocReader migration) — standalone gRPC service"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio>=1.78.0",
+    "grpcio-health-checking>=1.78.0",
+    "grpcio-tools>=1.78.0",
+    "protobuf>=6.26.0",
+]
+
+# Format-specific parsing dependencies are deliberately NOT declared here yet.
+# Each Phase (6.1 DOCX, 6.2 XLSX/CSV, 6.3 PPTX, ..., plus PDF/ODL in Phases
+# 2–3) adds exactly the deps it needs, so Phase 0 keeps this service lean and
+# installable without pulling heavy converter stacks. See ../provenance and
+# docs/plan-2026-09-09-weknora-local-document-parser-migration.md §7.
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["docreader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
