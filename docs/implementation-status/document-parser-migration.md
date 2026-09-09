@@ -46,6 +46,46 @@
 - **测试**：`pytest tests/unit/test_document_parser_types.py` → 11 passed。
 - **未完成**：T1.1 起（protocol / adapter / client / flag / pipeline 接线）。
 
+### T1.1 feat(parser): add parsed parser protocol
+- **内容**：`src/document_parser/base.py` 新增 `ParserEngineInfo`（name/formats/available/unavailable_reason/extra）
+  与 `DocumentParser`（`runtime_checkable` Protocol：`parse` + `list_engines`）。
+- **测试**：`test_document_parser_base.py` → 5 passed。
+
+### T1.2 feat(parser): add legacy and parsed-document adapters
+- **内容**：`src/document_parser/adapters.py` 新增 `sanitize_file_name`/`guess_mime`、
+  `LegacyLoaderParserAdapter`（把现有 `BaseLoader` 包装成 `DocumentParser`：字节写临时目录→loader→
+  读回图片字节为内存 `ParsedImage`）、`ParsedDocumentAdapter`（新旧输出统一 `ParsedDocument -> Document`
+  的单一收敛点，id 确定性哈希）。
+- **设计决策**：图片字节回读为内存 `ParsedImage`，让统一 image 持久化路径有单一数据源；文件名
+  basename 净化（§11）。
+- **测试**：`test_document_parser_adapters.py` → 7 passed。
+
+### T1.3 feat(parser): add docreader streaming client
+- **内容**：`src/document_parser/client.py` 新增传输抽象 `DocReaderTransport` +
+  流帧 `ReadStreamMeta`/`StreamFrame` + `DocReaderClient`。读取流先 meta 后逐个 image；
+  meta.error、image 先于 meta、空流均转 `ParseFailedError`。
+- **设计决策**：客户端依赖注入 transport，不直接 import 生成的 pb2 → 可假 transport 单测、无需 gRPC 桩即可
+  开发；真实 pb2 transport 在接线时提供。错误语义按 §5 故障处理不给吞错。
+- **测试**：`test_document_parser_client.py` → 7 passed。
+
+### T1.4 feat(parser): add docreader parser and backend feature flag
+- **内容**：新增 `DocumentParserSettings`（backend/enabled/endpoint/request_timeout_seconds/max_file_bytes/
+  default_engine，带字段校验：backend ∈ {legacy,docreader}、timeout>0）并入 `Settings`；`config/settings.yaml`
+  新增 `document_parser:` 块（默认 legacy）。`docreader_parser.py` 新增 `DocReaderClientParser`；
+  `factory.py` 新增 `build_document_parser(...)`（backend=legacy→LegacyLoaderParserAdapter；docreader→需
+  transport，否则抛 `EngineUnavailableError`；enabled=false→回退 legacy）。
+- **测试**：`test_document_parser_factory.py` → 9 passed；config 相关测试全绿。
+- **关键**：`config/settings.yaml` 模型名仍为 `Qwen3.6-35B-A3B-NVFP4`（见已知问题，Phase 5 统一）。
+
+### T1.5 feat(ingestion): bridge unified parser into pipeline behind flag
+- **内容**：新增 `src/document_parser/loader_adapter.py` 的 `DocumentParserLoader(BaseLoader)`，把统一
+  `DocumentParser` 桥接回 pipeline 的既存 `BaseLoader` 槽位（load: 读文件→ParseRequest→parser→
+  `ParsedDocumentAdapter`）。`scripts/ingest.py build_pipeline` 增加可选 `document_parser` 参数：提供时用
+  `DocumentParserLoader`，否则沿用 `LoaderRegistry`（默认 legacy 不变）。
+- **设计决策**：不清扫/重写 pipeline，保持 `BaseLoader` 接口与既有测试不破坏；新链路默认被 flag 隔离。
+- **测试**：`test_document_parser_loader_adapter.py` → 3 passed；`test_ingestion_pipeline.py` → 26 passed
+  （既有未回退）。
+
 ---
 
 ## 关键设计决策与原因
@@ -192,12 +232,12 @@
 ## Phase 1 未完成小任务（按应做顺序）
 
 - [x] T1.0 解析契约（types/errors + tests）
-- [ ] T1.1 `DocumentParser` protocol + `ParserEngineInfo`（engines/list_engines）+ tests
-- [ ] T1.2 `LegacyLoaderParserAdapter` + `ParsedDocumentAdapter`（新旧输出同管）+ tests
-- [ ] T1.3 DocReader 客户端 `client.py`（gRPC/流式/超时）+ tests
-- [ ] T1.4 `DocReaderClientParser` + Feature Flag（`document_parser.backend: legacy|docreader`）+ tests
-- [ ] T1.5 pipeline load 阶段改为调用统一 `DocumentParser`（默认 legacy，可无数据迁移切回）
-- [ ] T1.6 docker-compose DocReader 服务 + `scripts/start_dev.sh`/`Makefile` 探活 + `config/settings.yaml` 解析配置
+- [x] T1.1 `DocumentParser` protocol + `ParserEngineInfo` + tests
+- [x] T1.2 `LegacyLoaderParserAdapter` + `ParsedDocumentAdapter` + tests
+- [x] T1.3 DocReader 客户端 `client.py`（流式/超时/错误语义）+ tests
+- [x] T1.4 `DocReaderClientParser` + Feature Flag（`document_parser.backend: legacy|docreader`）+ tests
+- [x] T1.5 pipeline load 阶段改为接受统一 `DocumentParser`（`DocumentParserLoader` 桥接，默认 legacy）
+- [ ] T1.6 DocReader 服务端核心迁移 + docker-compose 服务 + `scripts/start_dev.sh`/`Makefile` 探活
 - [ ] T1.7 汇总 Phase 1 审核并请求进入 Phase 2
 
 ---
