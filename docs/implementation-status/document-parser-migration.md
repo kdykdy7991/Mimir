@@ -133,9 +133,21 @@
   单图失败 skip 并告警、非视觉模型 skip，绝不当成功。
 - **测试**：`test_vision_ingest.py` → 7 passed（能力门、拒答/回显/空检测、真实图探测、子分块生成、拒答 skip）。
 
-### 未完成
-- T5.2 触发条件与失败语义接入 ingestion pipeline（scanned_pdf/文本质量门/force_vision、全部失败→失败、
-  digital 附属图失败→partial_success、指数退避重试）；模型名一致性；子 Chunk 进入 Embedding/BM25/向量。
+### T5.2 feat(vision): wire vision-ingest transform with triggers and failure semantics
+- **内容**：`src/ingestion/transform/vision_ingest_transform.py` —— 相位 5 触发条件（force_vision / scanned_pdf /
+  内容图 / 图片表格 / 文本过短(默认 <30 字)）；对齐 T5.1 生产器，给每个内容图生成 image_ocr / image_caption
+  子分块并写入 `vision_subchunks` metadata；失败语义：单图失败仅告警、不当作成功；扫描文档全部视觉解析失败
+  → 抛错使任务失败、绝不把空占位符标记为成功；数字文档附属图失败→ `has_unprocessed_images`（partial_success）。
+  默认 `enabled=False`（feature flagged，不改变现有摄入行为）；producer/加载器可注入便于单测。
+  `openai_compatible.py` `VISION_MODELS` 增补本地 `Qwen3.8-27B`（模型名一致性；能力全集仍 exact-string）。
+- **测试**：`test_vision_ingest_transform.py` → 7 passed（触发条件、disabled passthrough、子分块元数据、
+  装饰图跳过、扫描全失败抛错、扫描部分成功、数字部分成功）。
+
+### T5.3 审核交接（进行中，待批）
+
+## Phase 5 审核交接（进行中）
+> 相位 5 起于 T5.1/T5.2（子分块生产器 + 摄入接线/失败语义）。尚未交付：子 Chunk 进入 Embedding/BM25/向量
+> 索引的最终路由，与真实本机 Qwen3.8 27B 的端到端灰度（需在线服务，本环境离线仅 mock 覆盖）。
 
 ---
 
