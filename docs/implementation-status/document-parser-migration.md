@@ -9,7 +9,7 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 2 已完成（已提交审核交接）；下一步 Phase 3 —— OpenDataLoader 与表格规范化
+- **当前 Phase**：Phase 3+4 已完成（审核交接待批）；下一步 Phase 5 —— 本地 Qwen3.8 27B 多模态入库
 - **未完成改动**：见“工作区状态”。
 
 ---
@@ -21,8 +21,8 @@
 | Phase 0 基准、来源和骨架 | **完成（已审核）** | 样本集、基线指标、来源清单、服务骨架 |
 | Phase 1 DocReader 核心与兼容接入 | **完成（已审核）** | 契约/客户端/flag/pipeline + 服务端核心+gRPC+部署探活 |
 | Phase 2 WeKnora 内置 PDFParser | **完成（已审核）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
-| Phase 3 OpenDataLoader 与表格规范化 | **核心已实现**（T3.1/T3.2） | 引擎+规范化+路径卫生；与 Phase 4「同时交付」 |
-| Phase 4 表格感知分块 | 未开始 | 计划要求与 Phase 3 同时交付 |
+| Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
+| Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
@@ -102,6 +102,52 @@
 
 ### 未完成
 - Phase 4 表格感知分块（主工程 DocumentChunker/Chunk 契约扩展，计划「同时交付」）。
+
+## Phase 4 进度（完成）
+
+> 计划 §Phase-4：识别 GFM/HTML 表为 protected spans，分块边界不得落在表内；小表原子化；大表按完整行拆、
+> 后续块自动补表头（context_header）；表头只进 metadata 不破坏正文 offset；最大保护长度 7500。
+
+### T4.1 feat(chunking): add table-aware chunking with protected spans and context headers
+- **内容**：`src/ingestion/chunking/table_protection.py` —— GFM 表（页眉行+分隔行+数据行）与完整 HTML
+  `<table>` 的 protected span 扫描（阅读顺序、重叠合并、严格前进避免单行 HTML 死循环）；`split_table`
+  原子化或按完整行拆分（GFM 每块重复表头；HTML 保留 thead 行）。`document_chunker.py` —— 无表文档走原
+  `_split_plain`（完全等价，旧测试不变）；有表文档走表感知路径，`_build_chunk`/`_inherit_metadata` 增
+  `extra_meta` 合并。分块元数据：`content_type=table`、`table_index`、`context_header`（拆分时）、
+  `table_part_index`（多块时）；补充表头只在 metadata 中，不改变正文文本与 offset。
+- **测试**：`test_table_aware_chunking.py` → 7 passed；`test_document_chunker.py` → 29 passed（无回归）；
+  首轮发现并修复：GFM 末行丢失（off-by-two）、单行 HTML 表 `index_at` 不前进导致死循环。
+
+## Phase 3+4 审核交接（T3.5/T4.2）
+> Phase 3 与 Phase 4 按计划「同时交付」共同验收。
+
+### 1) 提交列表
+| 提交 | 内容 |
+| --- | --- |
+| `f1eb696` | feat(docreader): add table/markdown normalization (gfm, clean html, path hygiene) |
+| `8d46f7e` | feat(docreader): add local opendataloader engine, registry routing and scanned fallback |
+| `bb6c6d8` | feat(chunking): add table-aware chunking with protected spans and context headers |
+
+### 2) 完成内容
+- 本地 OpenDataLoader 引擎 `opendataloader`（裁剪：本地 only、可用性门控 Java+包、扫描回退）；registry
+  改为 (fmt,name) 复合键支持多引擎；`parse_file(parser_engine=...)` 显式选引擎；list_engines 上报可用性。
+- GFM/HTML 表格规范化与路径/base64 卫生（table_normalize）。
+- 表格感知分块（table_protection + DocumentChunker 表感知路径）。
+
+### 3) 测试与结果
+- services/docreader 全量 59 passed；主项目 chunker/splitter/parser/config 相关 152 passed（不含既有
+  prompt 相关 4 个环境失败：MODULAR-RAG-MCP-SERVER 挂载，非本迁移引入）。`git diff --check` 通过，工作区干净。
+
+### 4) 已知限制
+- OpenDataLoader 真实 convert 需 `opendataloader-pdf` 包 + Java；本环境离线无包，真实 convert 未跑（引擎以
+  available=False+原因上报，测试以 mock 覆盖 convert/回退/规范化）。
+- 表格感知分块在本地 PDFParser 输出的 GFM 表上验证；HTML rowspan 表按行拆分近似（注入的 `<table>` 标签使
+  offset 回退为单调，不破坏索引）。
+- 扫描页/图 OCR 仍由主服务侧 Phase 5 负责。
+
+### 5) 下一阶段建议
+- 进入 **Phase 5**：本地 Qwen3.8 27B 多模态入库（扫描页/图片表格 OCR、表格重建、Caption），触发条件
+  `scanined_pdf`/有效文档图。首个小任务：接入本地多模态引擎的文档图分批请求与失败回退。
 
 ---
 
