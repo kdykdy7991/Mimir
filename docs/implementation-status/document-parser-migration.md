@@ -98,6 +98,38 @@
   **基本迁移**自上游 `base_parser.py`（bytes→Document 契约、parse_into_text/parse）。
 - **测试**：`services/docreader/tests/test_base_parser.py` → 8 passed（含上游不转小写扩展名的忠实行为）。
 
+### T1.6c feat(docreader): port parser chain (not swallow final error)
+- **内容**：`services/docreader/docreader/parser/chain_parser.py` —— **基本迁移**自上游 `chain_parser.py`
+  （FirstParser/PipelineParser/create 工厂）。**强制适配**（§6）：`FirstParser` 全部失败时改为抛
+  `ChainParseError(attempts=...)`，不静默返回空 Document（不吞最终错误、返回完整尝试记录）。
+  仅内联 `encode_bytes`（上游 endecode 依赖 numpy/PIL 未使用则不迁，§6.1）。
+- **测试**：`test_chain_parser.py` → 通过。
+
+### T1.6d-1 feat(docreader): add registry + parser facade (trimmed)
+- **内容**：`parser/registry.py` —— **裁剪迁移**自上游 `registry.py`（去掉云引擎；引擎懒加载避免
+  import 即载重型依赖；`list_engines`/`parse_file`/`engine_for`）。`parser/parser.py` —— Facade，
+  含 `parse_file` 与 `parse_url`（URL 解析本轮不开放，抛 `UnsupportedError`）。
+  `parser/text_parser.py` —— 本地 txt/md 直通占位，使服务 Phase 1 即可运行/探活。
+- **测试**：`test_registry.py`、`test_server.py` → 通过。
+
+### T1.6e feat(docreader): add generated grpc stubs + entrypoint
+- **内容**：`proto/docreader.proto`（契约迁移）+ 上游生成式 `docreader_pb2*.py`（grpcio-tools 离线不可装，
+  使用上游已生成 Python stub，实为契约迁移产物，去掉 Go 依赖）。
+  `main.py` —— **裁剪迁移**自上游 `main.py`：去掉 auth/TLS、MinIO/云持久化、URL 分支、request-id
+  线程上下文；保留 unary Read + 流式 ReadStream（先 meta 后逐 image）+ ListEngines + 可选健康检查
+  （grpc_health 仅在可导入时启用）。`config.py` —— 本地配置，启动期失败即报（§9）。
+  服务现可真实通过 gRPC 运行与探活。
+- **测试**：`test_proto_contract.py`、`test_server.py`、`test_server_e2e.py`（in-process gRPC 走线）
+  → services/docreader 全量 28 passed。
+
+### T1.6f chore(docreader): add optional compose service and dev probe
+- **内容**：`docker-compose.yml` 新增 **profile-gated** `docreader` 服务（默认不启动；
+  `docker compose --profile docreader up -d`）；`Makefile` 新增 `docreader` /
+  `docreader-probe` / `docreader-probe-remote` 目标；`scripts/docreader_probe.py` 探活脚本。
+- **验证**：后台启动真实服务后 `python scripts/docreader_probe.py 127.0.0.1:50123` →
+  `OK engines=['builtin']`（exit 0），再 job_kill 停服；in-process gRPC e2e 通过。
+- **安全/清洁**：默认 legacy 不受影响；未提交调试数据。
+
 ---
 
 ## 关键设计决策与原因
@@ -251,13 +283,89 @@
 - [x] T1.5 pipeline load 阶段改为接受统一 `DocumentParser`（`DocumentParserLoader` 桥接，默认 legacy）
 - [x] T1.6a `services/docreader` 迁移 `concurrency.py`（直接迁移）
 - [x] T1.6b `services/docreader` 迁移 `base_parser.py` + `models/document.py`（基本/参考重写）
-- [ ] T1.6c `services/docreader` 迁移 `chain_parser.py`（FirstParser/PipelineParser，不吞最终错误）
-- [ ] T1.6d `services/docreader` 迁移 `registry.py`（裁剪：去掉云引擎）+ `parser.py` Facade
-- [ ] T1.6e 生成式 gRPC stub（docreader.proto）+ `main.py` entrypoint + 健康检查
-- [ ] T1.6f docker-compose DocReader 服务 + `scripts/start_dev.sh`/`Makefile` 探活
-- [ ] T1.7 汇总 Phase 1 审核并请求进入 Phase 2
+- [x] T1.6c `services/docreader` 迁移 `chain_parser.py`（FirstParser/PipelineParser，不吞最终错误）
+- [x] T1.6d `services/docreader` 迁移 `registry.py`（裁剪无云引擎）+ `parser.py` Facade + text_parser
+- [x] T1.6e 生成式 gRPC stub（docreader.proto）+ `main.py` entrypoint + 可选健康检查
+- [x] T1.6f docker-compose DocReader 服务（profile 隔离）+ `Makefile`/`start_dev.sh` 探活
+- [x] T1.7 汇总 Phase 1 审核材料（见下文「Phase 1 审核交接」）
 
 ---
+
+## Phase 1 审核交接（T1.7）
+
+> 本节点标志 Phase 1 的全部小任务完成；审核通过后再推进 Phase 2。
+
+### 1) Phase 1 提交列表（自 Phase 0 之后）
+| 提交 | 内容 |
+| --- | --- |
+| `307a81c` | feat(parser): add parsed document contract |
+| `7063a2a` | docs: record phase 1 contract task progress |
+| `a6948da` | feat(parser): add parsed parser protocol |
+| `fd5f91c` | feat(parser): add legacy and parsed-document adapters |
+| `1ad27b7` | feat(parser): add docreader streaming client |
+| `b6e138e` | feat(parser): add docreader parser and backend feature flag |
+| `a36e7c0` | feat(ingestion): bridge unified parser into pipeline behind flag |
+| `99d3f79` | docs: record phase 1 contract through pipeline bridge |
+| `6d87806` | feat(docreader): port parser concurrency limiter from weknora |
+| `b129fa3` | feat(docreader): port base parser and result model from weknora |
+| `19c6ef2` | docs: record docreader service-core ports |
+| `4ecb154` | feat(docreader): port parser chain and don't swallow final error |
+| `31c6231` | feat(docreader): add generated grpc stubs and proto contract |
+| `5222246` | feat(docreader): add grpc service entrypoint, registry and facade |
+| `d6f222e` | chore(docreader): add optional compose service and dev probe |
+
+### 2) 完成的小任务清单
+- T1.0 解析契约；T1.1 Protocol；T1.2 适配器；T1.3 流式客户端；T1.4 Feature Flag + ClientParser；
+  T1.5 pipeline 桥接；T1.6a–f DocReader 服务端核心 + gRPC + 部署/探活。
+
+### 3) 主要文件变更
+- 新增 `src/document_parser/`（types/errors/base/client/adapters/factory/docreader_parser/loader_adapter）。
+- 新增 `services/docreader/` 运行级内容（models/parser/* /proto/* /config/main + tests）。
+- `src/core/settings.py` + `config/settings.yaml` 新增 `document_parser` 配置（默认 legacy）。
+- `scripts/ingest.py build_pipeline` 可选 `document_parser` 参数。
+- `docker-compose.yml`（docreader profile）、`Makefile`（docreader 目标）、`scripts/docreader_probe.py`。
+
+### 4) WeKnora 代码迁移映射（Phase 1）
+| 上游 | 迁移方式 | 备注 |
+| --- | --- | --- |
+| `docreader/parser/concurrency.py` | 直接迁移 | 仅改包路径 |
+| `docreader/models/document.py` | 参考重写 | 去掉遗留 Chunk（§3.2） |
+| `docreader/parser/base_parser.py` | 基本迁移 | 包路径/导入 |
+| `docreader/parser/chain_parser.py` | 基本迁移+适配 | 全部失败不吞错误，raise ChainParseError(attempts) |
+| `docreader/parser/registry.py` | 裁剪迁移 | 去云引擎、懒加载 |
+| `docreader/parser/parser.py` | 裁剪迁移 | parse_url 本轮不开放 |
+| `docreader/proto/*` | 契约迁移 | 用生成 Python stub，去 Go |
+| `docreader/main.py` | 裁剪迁移 | 去 auth/TLS/MinIO/URL/request-id ctx |
+
+### 5) 测试命令和结果
+- `pytest tests/unit/test_document_parser_*.py tests/unit/test_config*.py test_config_loading.py
+  test_loader_*.py test_document_chunker.py` → 169 passed。
+- `PYTHONPATH=services/docreader pytest services/docreader/tests` → 28 passed（含 in-process gRPC e2e）。
+- 真实服务后台启动 + `scripts/docreader_probe.py` → `OK engines=['builtin']`。
+- `git diff --check` 通过（源文件）；二进制 PDF 夹具仅固有 xref 内容除外。
+- 全量 `tests/unit` 仍为既有 16 个失败（环境 socks 代理 / prompt 相关，非本迁移引入）。
+
+### 6) 基准数据前后对比
+- 本阶段不改变解析结果质量（仍默认 legacy），只是把解析入口抽象为统一 `DocumentParser` 并按 flag 切换；
+  迁移后的质量改进自 Phase 2（PDFParser）起由基线样本对比衡量。
+
+### 7) 已知限制
+- DocReader 服务当前仅有 txt/md 直通解析（`PlainTextParser`）；PDF/DOCX/XLSX/PPTX 等在 Phase 2/3/6 迁移。
+- gRPC 标准健康协议依赖 `grpcio-health-checking`（services/docreader pyproject 已声明）；当前共享 venv 未装，
+  服务端在不可导入时跳过健康服务、用 `ListEngines` 探活（已有脚本）。
+- `grpcio-tools` 未装（venv 无 pip），proto 用上游已生成 Python stub + 本地 `.proto` 协同维护；
+  接入 CI/生成流程时再补充 `docreader/scripts/generate_proto.sh` 对应的本地脚本。
+- 服务端厂商未纳入本轮（read_config/厂商 reserved）。
+
+### 8) 回滚方法
+- 默认 backend=legacy，`document_parser.backend` 单配置切回，无需数据迁移。
+- DocReader 服务是独立 profile 容器/独立 Makefile 目标，未启用时不运行、不影响主服务启动。
+- 如需整体回退：`git revert` 本轮 15 个提交即可恢复 Phase 0 之后的基线（Phase 0 内容为纯新增，可留可撤）。
+
+### 9) 下一阶段建议
+- 进入 **Phase 2**：迁移 WeKnora 内置 PDFParser（逐页分类/多栏/标题/噪声清理/扫描页与图片渲染），
+  配合基线样本验收（双栏不交错、扫描页全部生成页面图、混合 PDF 只渲染扫描页、malformed 稳定错误码）。
+  首个建议小任务：`feat(docreader): port pdf page classification`（含上游 `test_pdf_router.py` 适配）。
 
 ## Phase 0 审核交接（T0.5）
 
