@@ -1,0 +1,132 @@
+{
+  "generated_by": "scripts/run_parsing_baseline.py",
+  "date": "2026-09-09",
+  "splitter_type": "recursive",
+  "docs": "docs/plan-2026-09-09-weknora-local-document-parser-migration.md",
+  "samples": [
+    {
+      "sample": "bordered_table.pdf",
+      "bytes": 8455,
+      "load_ms": 4.596,
+      "split_ms": 0.144,
+      "text_chars": 191,
+      "line_count": 31,
+      "n_chunks": 1,
+      "avg_chunk_chars": 191.0,
+      "probes": {
+        "table_digits_found": [
+          "A-1001",
+          "A-1005",
+          "Notebook",
+          "Labels",
+          "125.00",
+          "18.00"
+        ],
+        "table_digits_total": 6,
+        "table_digits_hit_ratio": 1.0
+      },
+      "failure": null
+    },
+    {
+      "sample": "borderless_table.pdf",
+      "bytes": 4862,
+      "load_ms": 1.381,
+      "split_ms": 0.048,
+      "text_chars": 193,
+      "line_count": 31,
+      "n_chunks": 1,
+      "avg_chunk_chars": 193.0,
+      "probes": {
+        "table_digits_found": [
+          "A-1001",
+          "A-1003",
+          "Folder",
+          "12.50",
+          "41.00"
+        ],
+        "table_digits_total": 5,
+        "table_digits_hit_ratio": 1.0
+      },
+      "failure": null
+    },
+    {
+      "sample": "cross_page_table.pdf",
+      "bytes": 21737,
+      "load_ms": 2.652,
+      "split_ms": 0.067,
+      "text_chars": 545,
+      "line_count": 83,
+      "n_chunks": 1,
+      "avg_chunk_chars": 545.0,
+      "probes": {
+        "table_digits_found": [
+          "B-2001",
+          "B-2006",
+          "C-3001",
+          "Monitor",
+          "360.00",
+          "90.00"
+        ],
+        "table_digits_total": 6,
+        "table_digits_hit_ratio": 1.0
+      },
+      "failure": null
+    },
+    {
+      "sample": "docs.md",
+      "bytes": 333,
+      "load_ms": 0.076,
+      "split_ms": 0.028,
+      "text_chars": 219,
+      "line_count": 13,
+      "n_chunks": 1,
+      "avg_chunk_chars": 218.0,
+      "probes": {},
+      "failure": null
+    },
+    {
+      "sample": "scanned.pdf",
+      "bytes": 12752,
+      "load_ms": 2.681,
+      "split_ms": 0.125,
+      "text_chars": 29,
+      "line_count": 1,
+      "n_chunks": 1,
+      "avg_chunk_chars": 29.0,
+      "probes": {
+        "has_real_text": false,
+        "image_placeholder_count": 1
+      },
+      "failure": null
+    },
+    {
+      "sample": "single_column.pdf",
+      "bytes": 1537,
+      "load_ms": 1.107,
+      "split_ms": 0.029,
+      "text_chars": 236,
+      "line_count": 4,
+      "n_chunks": 1,
+      "avg_chunk_chars": 236.0,
+      "probes": {},
+      "failure": null
+    },
+    {
+      "sample": "two_column.pdf",
+      "bytes": 2120,
+      "load_ms": 1.015,
+      "split_ms": 0.031,
+      "text_chars": 239,
+      "line_count": 8,
+      "n_chunks": 1,
+      "avg_chunk_chars": 239.0,
+      "probes": {
+        "two_column": {
+          "left_marker_lines": 4,
+          "right_marker_lines": 2
+        }
+      },
+      "failure": null
+    }
+  ]
+}
