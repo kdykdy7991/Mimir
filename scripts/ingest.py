@@ -94,6 +94,7 @@ def build_pipeline(
     embedding: Any,
     vector_store: Any,
     llm: Any = None,
+    document_parser: Any = None,
 ) -> IngestionPipeline:
     """
     Wire the C2–C13 modules into a single :class:`IngestionPipeline`.
@@ -102,6 +103,13 @@ def build_pipeline(
     ``settings`` are injected so the test harness can swap in fake
     backends. ``data_dir`` is the root under which
     ``data_dir/db/`` and ``data_dir/images/`` live.
+
+    ``document_parser`` (optional): a unified :class:`DocumentParser`
+    selected by the ``document_parser.backend`` feature flag. When provided it
+    is bridged into the pipeline's ``BaseLoader`` slot via
+    :class:`DocumentParserLoader`; when omitted (default) the existing
+    ``LoaderRegistry`` (PDF + Markdown) is used — keeping the legacy path
+    unchanged and runnable at all times (plan §8 Phase 1).
     """
     db = Path(data_dir) / "db"
     img = Path(data_dir) / "images"
@@ -113,12 +121,18 @@ def build_pipeline(
         db_path=str(db / "image_index.db"),
         base_dir=str(img),
     )
-    # M5: one registry dispatches per file extension (PDF / Markdown), so
-    # a mixed-format batch flows through a single pipeline loader slot.
-    loader = LoaderRegistry.from_settings(
-        image_dir=str(img),
-        image_classifier=settings.ingestion.image_classifier,
-    )
+    if document_parser is not None:
+        # M5: a unified DocumentParser behind the feature flag fronts the same
+        # single ``loader`` slot the pipeline always had.
+        from src.document_parser.loader_adapter import DocumentParserLoader
+        loader = DocumentParserLoader(document_parser)
+    else:
+        # M5: one registry dispatches per file extension (PDF / Markdown), so
+        # a mixed-format batch flows through a single pipeline loader slot.
+        loader = LoaderRegistry.from_settings(
+            image_dir=str(img),
+            image_classifier=settings.ingestion.image_classifier,
+        )
     chunker = DocumentChunker(splitter)
 
     # Transforms — both run rule-only when llm is None; if the user
