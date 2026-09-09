@@ -52,6 +52,8 @@ class OpenAICompatibleLLM(BaseLLM):
         "gpt-4-turbo", "gpt-4-vision-preview",
         # Local vLLM / NVIDIA
         "Qwen3.6-35B-A3B-NVFP4",
+        # Local Qwen3.8-27B OpenAI-compatible endpoint (Phase 5)
+        "Qwen3.8-27B", "Qwen3.8-27B-Instruct",
     }
 
     def __init__(self, settings: Any):
