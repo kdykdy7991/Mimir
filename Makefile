@@ -16,7 +16,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: install mcp api web dev dashboard test test-e2e smoke benchmark gen-types docker-build docker-up docker-down
+.PHONY: install mcp api web dev dashboard test test-e2e smoke benchmark gen-types docker-build docker-up docker-down docreader docreader-probe docreader-probe-remote
 
 PYTHON   := .venv/bin/python
 UVICORN  := .venv/bin/uvicorn
@@ -63,6 +63,24 @@ dev:
 
 dashboard:
 	$(PYTHON) -m scripts.start_dashboard
+
+# ---------------------------------------------------------------------------
+# DocReader（可选解析服务，WeKnora 迁移）
+#
+# 仅在 config/settings.yaml document_parser.backend: docreader 时使用；
+# 默认 legacy 完全不依赖它。本地运行需要 services/docreader 的依赖已装入
+# 当前 venv（grpcio / grpcio-tools / protobuf）。
+# ---------------------------------------------------------------------------
+DOCREADER_PORT := 50051
+
+docreader:
+	cd services/docreader && PYTHONPATH=. DOCREADER_GRPC_PORT=$(DOCREADER_PORT) $(CURDIR)/.venv/bin/python -m docreader.main
+
+docreader-probe:
+	$(PYTHON) scripts/docreader_probe.py 127.0.0.1:$(DOCREADER_PORT)
+
+docreader-probe-remote:
+	$(PYTHON) scripts/docreader_probe.py $(DOCREADER_ENDPOINT)
 
 # ---------------------------------------------------------------------------
 # 测试

@@ -23,3 +23,16 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  # 可选 DocReader 解析服务（WeKnora 迁移）。仅当 config/settings.yaml
+  # document_parser.backend: docreader 时才需要。默认 profile 不启动：
+  #   docker compose --profile docreader up -d
+  # 主服务默认 backend=legacy，未启用 DocReader 时完全不受影响，可随时切回。
+  docreader:
+    profiles: ["docreader"]
+    build: ./services/docreader
+    image: skdy-docreader:local
+    container_name: skdy-docreader
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
