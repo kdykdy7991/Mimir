@@ -23,7 +23,7 @@
 | Phase 2 WeKnora 内置 PDFParser | **完成（已审核）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
-| Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
+| Phase 5 本地 Qwen3.8 27B 多模态入库 | **进行中** | T5.1 已提交（OCR/Caption 子分块生产器+能力门） |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
 
@@ -117,6 +117,27 @@
   `table_part_index`（多块时）；补充表头只在 metadata 中，不改变正文文本与 offset。
 - **测试**：`test_table_aware_chunking.py` → 7 passed；`test_document_chunker.py` → 29 passed（无回归）；
   首轮发现并修复：GFM 末行丢失（off-by-two）、单行 HTML 表 `index_at` 不前进导致死循环。
+
+## Phase 5 进度（进行中）
+
+> 计划 §Phase-5：本地 Qwen3.8 27B 多模态入库；触发条件（scanned_pdf / 内容图 / 文本空或质量低 /
+> 图片表格 / force_vision）；每图 OCR+Caption → image_ocr / image_caption 子 Chunk；单图失败仅告警继续、
+> 全部失败则文档任务失败，**不得把空占位符标记为成功**；保留 supports_vision / 模型路由 / 文本降级结构；
+> 不实现外部付费 VLM。现有 `src/libs/llm`（capability_validator / ContentBlock / VISION_MODELS）复用之。
+
+### T5.1 feat(vision): add multimodal ocr/caption sub-chunk producer with capability gate
+- **内容**：`src/document_parser/vision/multimodal_ingest.py` —— 复用 LLM capability 模型做视觉门
+  （`vision_supported`），`supports_vision_probe` 一次真实 1×1 PNG 探测校验；OCR/Caption 提示词构造；
+  拒答/提示回显/空/无效 OCR 清理（`cleanup_vision_response`/`_echo_likely`）；`produce_vision_subchunks`
+  产出 image_ocr / image_caption `VisionSubChunk`（含 parent 文档/分块、页码、图片 ID、模型版本）。
+  单图失败 skip 并告警、非视觉模型 skip，绝不当成功。
+- **测试**：`test_vision_ingest.py` → 7 passed（能力门、拒答/回显/空检测、真实图探测、子分块生成、拒答 skip）。
+
+### 未完成
+- T5.2 触发条件与失败语义接入 ingestion pipeline（scanned_pdf/文本质量门/force_vision、全部失败→失败、
+  digital 附属图失败→partial_success、指数退避重试）；模型名一致性；子 Chunk 进入 Embedding/BM25/向量。
+
+---
 
 ## Phase 3+4 审核交接（T3.5/T4.2）
 > Phase 3 与 Phase 4 按计划「同时交付」共同验收。
