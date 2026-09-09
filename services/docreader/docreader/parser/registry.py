@@ -19,9 +19,10 @@ from docreader.parser.base_parser import BaseParser
 
 logger = logging.getLogger(__name__)
 
-# format (lowercased, no dot) -> factory callable. Lazy so optional deps are
-# only imported when a parser is actually requested.
-_ENGINES: Dict[str, dict] = {}
+# (format, engine name) -> engine record. Lazy so optional deps are only
+# imported when a parser is actually requested. Keying on both format and name
+# lets several engines share one format (e.g. builtin vs opendataloader for pdf).
+_ENGINES: Dict[tuple, dict] = {}
 
 
 def _plain_text() -> BaseParser:
@@ -34,13 +35,28 @@ def _pdf() -> BaseParser:
     return PDFParser()
 
 
-def register_engine(fmt: str, *, name: str, factory, description: str = "") -> None:
-    """Register an engine for ``fmt`` (lowercased, no leading dot)."""
-    _ENGINES[fmt.lstrip(".").lower()] = {
+def _reset_registry() -> None:
+    _ENGINES.clear()
+
+
+def register_engine(fmt: str, *, name: str, factory, description: str = "", available=None) -> None:
+    """Register an engine for ``fmt`` (lowercased, no leading dot).
+
+    ``available`` may be a zero-arg callable returning ``(bool, reason)`` used
+    by ``list_engines`` to advertise runtime availability (e.g. optional JVM
+    engines), or None for always-available engines.
+    """
+    _ENGINES[(fmt.lstrip(".").lower(), name)] = {
         "name": name,
         "description": description,
         "factory": factory,
+        "available": available,
     }
+
+
+def _odl() -> BaseParser:
+    from docreader.parser.opendataloader_parser import OpenDataLoaderParser
+    return OpenDataLoaderParser()
 
 
 def _default_engines() -> None:
@@ -53,23 +69,29 @@ def _default_engines() -> None:
                         description="Markdown pass-through")
         register_engine("pdf", name="builtin", factory=_pdf,
                         description="PDF: layout-aware text / scanned routing")
+        register_engine(
+            "pdf", name="opendataloader", factory=_odl,
+            description="PDF (local OpenDataLoader, JVM layout engine)",
+            available=_odl_available,
+        )
+
+
+def _odl_available():
+    from docreader.parser.opendataloader_parser import opendataloader_available
+    return opendataloader_available()
 
 
 def engine_for(fmt: str) -> BaseParser:
-    """Instantiate the engine registered for ``fmt`` (raises on unknown)."""
+    """Instantiate the default engine registered for ``fmt`` (raises on unknown)."""
     _default_engines()
-    fmt = fmt.lstrip(".").lower()
-    entry = _ENGINES.get(fmt)
-    if entry is None:
-        raise ValueError(f"unsupported file type: {fmt!r}")
-    return entry["factory"]()
+    return _engine_for_fmt(fmt, None)["factory"]()
 
 
 def list_engines(overrides: Dict[str, Any] | None = None) -> list[dict]:
     """Advertise available engines (name/description/file_types/available)."""
     _default_engines()
     by_name: Dict[str, dict] = {}
-    for fmt, entry in _ENGINES.items():
+    for (fmt, _name), entry in _ENGINES.items():
         info = by_name.setdefault(
             entry["name"],
             {
@@ -81,8 +103,33 @@ def list_engines(overrides: Dict[str, Any] | None = None) -> list[dict]:
             },
         )
         info["file_types"].append(fmt)
-    by_name[entry["name"]]["file_types"].sort()
+        av = entry.get("available")
+        if callable(av):
+            ok, reason = av()
+            if not ok:
+                info["available"] = False
+                info["unavailable_reason"] = reason
+    for info in by_name.values():
+        info["file_types"].sort()
     return list(by_name.values())
+
+
+def _engine_for_fmt(fmt: str, parser_engine: str | None) -> dict:
+    """Pick the registered engine for ``fmt``, honoring an explicit name."""
+    _default_engines()
+    fmt = fmt.lstrip(".").lower()
+    candidates = [e for (f, _n), e in _ENGINES.items() if f == fmt]
+    if not candidates:
+        raise ValueError(f"unsupported file type: {fmt!r}")
+    if parser_engine:
+        for e in candidates:
+            if e["name"] == parser_engine:
+                return e
+        # explicit engine requested but not registered for this format
+        raise ValueError(
+            f"parser_engine {parser_engine!r} not available for file type {fmt!r}",
+        )
+    return candidates[0]
 
 
 def parse_file(
@@ -91,6 +138,7 @@ def parse_file(
 ) -> Document:
     """Parse file bytes using the engine for ``file_type`` (or explicit engine)."""
     fmt = (file_type or (file_name.rsplit(".", 1)[-1] if "." in file_name else "")).lower()
-    engine = engine_for(fmt)
-    logger.info("parse_file: engine=%s fmt=%s", engine.__class__.__name__, fmt)
+    entry = _engine_for_fmt(fmt, parser_engine)
+    engine = entry["factory"]()
+    logger.info("parse_file: engine=%s fmt=%s", entry["name"], fmt)
     return engine.parse(content)

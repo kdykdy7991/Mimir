@@ -208,6 +208,47 @@ def extract_embedded_images(doc, classes, base_name: str, quality: int):
     return result
 
 
+class PDFScannedParser(BaseParser):
+    """Render every PDF page to a JPEG image.
+
+    Robust last-resort fallback (and used by OpenDataLoaderParser when ODL
+    yields too little text). The caller that runs OCR/VLM processes the raw
+    page images; docreader itself never runs OCR.
+    """
+
+    def parse_into_text(self, content: bytes) -> Document:
+        base_name = os.path.splitext(self.file_name or "document")[0]
+        scale = max(1, CONFIG.pdf_render_dpi) / 72
+        quality = CONFIG.pdf_jpeg_quality
+        images: dict = {}
+        with _PDF_LOCK:
+            doc = pymupdf.open(stream=content, filetype="pdf")
+            try:
+                page_count = doc.page_count
+                for i in range(page_count):
+                    page = doc.load_page(i)
+                    jpeg = render_page_to_jpeg(
+                        page, scale, quality, CONFIG.pdf_render_max_edge,
+                    )
+                    page_filename = f"{base_name}_page_{i + 1}.jpg"
+                    images[f"images/{page_filename}"] = jpeg
+            finally:
+                doc.close()
+
+        markdown_lines = [
+            f"![{f'{(base_name)}_page_{i+1}.jpg'}](images/{base_name}_page_{i+1}.jpg)"
+            for i in range(page_count)
+        ]
+        return Document(
+            content="\n\n".join(markdown_lines),
+            images=images,
+            metadata={
+                "image_source_type": "scanned_pdf",
+                "page_count": page_count,
+            },
+        )
+
+
 class PDFParser(BaseParser):
     """Per-page router between native text extraction and scanned rendering.
 

@@ -41,6 +41,8 @@ class DocReaderConfig:
     pdf_render_dpi: int
     pdf_jpeg_quality: int
     pdf_render_max_edge: int
+    odl_max_workers: int
+    odl_markdown_with_html: bool
 
     @classmethod
     def from_env(cls) -> "DocReaderConfig":
@@ -61,6 +63,8 @@ class DocReaderConfig:
             pdf_render_dpi=_int("DOCREADER_PDF_RENDER_DPI", 200),
             pdf_jpeg_quality=_int("DOCREADER_PDF_JPEG_QUALITY", 85),
             pdf_render_max_edge=_int("DOCREADER_PDF_RENDER_MAX_EDGE", 2000),
+            odl_max_workers=_int("DOCREADER_ODL_MAX_WORKERS", 1),
+            odl_markdown_with_html=_bool("DOCREADER_ODL_MARKDOWN_WITH_HTML", True),
         )
         # Fail fast on invalid config (plan §9).
         if cfg.grpc_port <= 0 or cfg.grpc_port > 65535:
@@ -77,6 +81,8 @@ class DocReaderConfig:
             raise ValueError(f"invalid pdf_jpeg_quality: {cfg.pdf_jpeg_quality}")
         if cfg.pdf_render_max_edge <= 0:
             raise ValueError(f"invalid pdf_render_max_edge: {cfg.pdf_render_max_edge}")
+        if cfg.odl_max_workers <= 0:
+            raise ValueError(f"invalid odl_max_workers: {cfg.odl_max_workers}")
         return cfg
 
     def print_config(self) -> None:
@@ -91,6 +97,11 @@ class DocReaderConfig:
             self.pdf_jpeg_quality,
             self.pdf_render_max_edge,
             self.pdf_render_parallelism,
+        )
+        logger.info(
+            "  odl: max_workers=%d markdown_with_html=%s",
+            self.odl_max_workers,
+            self.odl_markdown_with_html,
         )
 
 
