@@ -167,7 +167,66 @@
 - [x] T0.3 编写第三方来源清单
 - [x] T0.4 创建 `services/docreader/` 独立服务骨架
 - [ ] T0.5 汇总 Phase 0 审核材料（提交列表、变更、迁移映射、测试命令、已知限制、回滚、下一阶段建议）
-      —— 以本进度记录下方的 Phase 0 审核交接节呈现，提交后暂停等待审核。
+      —— 已写入下方「Phase 0 审核交接」，待审核通过后进入 Phase 1。
+
+---
+
+## Phase 0 审核交接（T0.5）
+
+> 本节点 T0.0–T0.4 全部完成并各自小提交；审核通过后再推进 Phase 1。
+
+### 1) 本阶段提交列表
+| 提交 | 内容 |
+| --- | --- |
+| `1ca9ad3` | docs: add docreader migration progress record |
+| `3891171` | docs(baseline): add weknora provenance and corpus layout |
+| `fca99a4` | test(baseline): add fixed parsing samples and legacy baseline metrics |
+| `4f27df4` | chore(docreader): add standalone service skeleton |
+
+### 2) 完成的小任务清单
+- T0.0 调研：确认分支/上游提交/差异证据，记录已知基线问题。
+- T0.1 固定样本集：7 个非敏感样本（单栏/双栏/有框/无框/跨页表格 PDF、扫描 PDF、Markdown）。
+- T0.2 基线运行器 + 基线指标快照 `metrics/baseline-2026-09-09.json`。
+- T0.3 第三方来源清单 `provenance.md`（含许可：WeKnora MIT；utils/__init__.py InfiniFlow Apache-2.0）。
+- T0.4 DocReader 独立服务骨架（core gRPC 依赖 + 容器 + 版权通告 + 空包占位 + 骨架测试）。
+
+### 3) 主要文件变更
+- 新增 `scripts/generate_parsing_baseline_samples.py`、`scripts/run_parsing_baseline.py`。
+- 新增 `docs/baselines/document-parsing/{README.md,provenance.md,descriptors/future-formats.md,samples/,metrics/}`。
+- 新增 `services/docreader/**`（package/parser/model/proto/utils 占位 + config/main 占位 + 测试）。
+- 新增 `docs/implementation-status/document-parser-migration.md`。
+
+### 4) WeKnora 代码迁移映射
+- 本阶段**未迁移任何上游代码**（Phase 0 仅骨架与来源登记）。完整逐文件映射见 `provenance.md`。
+
+### 5) 测试命令和结果
+- `pytest tests/unit/test_loader_pdf_contract.py test_loader_markdown_contract.py
+  test_loader_factory.py test_document_chunker.py test_core_types.py` → 115 passed。
+- `PYTHONPATH=services/docreader pytest services/docreader/tests` → 3 passed。
+- `python scripts/generate_parsing_baseline_samples.py` 与 `python scripts/run_parsing_baseline.py` 均成功。
+- `git diff --check`：仅二进制 PDF 内部的 xref 表固有尾随空格被标注，非源代码问题；源文件无白错误。
+- 全量 `tests/unit` 仍为既有 16 个失败（环境 socks 代理 / prompt 相关，见已知问题），未新增。
+
+### 6) 基准数据前后对比
+- 基线（legacy loader 现状）：表格期望 ASCII 单元格字符串 100%文本存活，但**无表格结构**（列/表头保持
+  实为 0/不可测）；`two_column.pdf` 提取顺序交错（具体次序见 metrics JSON 与 README）；`scanned.pdf`
+  无真实文本、1 图片占位、无 OCR/VLM 路径；短样本各 1 chunk。
+- 迁移目标：Phase 2/3 恢复多栏顺序 + 表格结构，Phase 4 表格保护/表头跨块，Phase 5 扫描页/图片表格
+  VLM。目标门槛见 plan §13（表格关键数字≥95%、双栏 100% 不交错、扫描页 100% 覆盖等）。
+
+### 7) 已知限制
+- 无 docx/xlsx/pptx 二进制样本（Phase 0 依赖约束 + 这些格式尚未迁移），仅期望结构描述符。
+- PDF 样本文本为 ASCII（pymupdf base-14 无 CJK）；中文向量在真实文档迁移后验证。
+- `services/docreader` 尚无真实 entrypoint/解析器（Phase 1 起迁移）。
+
+### 8) 回滚方法
+- Phase 0 仅新增目录/脚本/文档，未触碰任何稳定链路。删除时 `git revert` 四个提交即可；
+  `services/docreader` 与 `docs/baselines` 均为新增，不影响现有启动方式。
+
+### 9) 下一阶段建议
+- 进入 **Phase 1**：迁移 BaseParser/Parser/Registry/ChainParser/Concurrency + 生成式 gRPC stub
+  + `src/document_parser/` 契约（`ParseRequest`/`ParsedDocument`/`ParsedImage`）+ 客户端 + 适配器 +
+  Feature Flag。建议首个小任务：`feat(parser): add parsed document contract`（纯契约 + 测试，无运行集成）。
 
 ---
 
@@ -182,7 +241,5 @@
 
 ## 工作区状态
 
-（每次提交后更新）
-
-- 未提交改动：初期建立进度记录文件后即提交；此后以 `git status` 为准。
-- 提交策略：遵循规范——小提交、每提交解决一个问题、`git diff --check` 校验、不在无谓文件上重写。
+- 未提交改动：见 `git status`（提交每完成一批即清空）。
+- 提交策略：遵循规范——小提交、每提交解决一个问题、`git diff --check` 校验（二进制 PDF 夹具除外）、不在无谓文件上重写。
