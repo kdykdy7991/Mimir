@@ -86,6 +86,18 @@
 - **测试**：`test_document_parser_loader_adapter.py` → 3 passed；`test_ingestion_pipeline.py` → 26 passed
   （既有未回退）。
 
+### T1.6a feat(docreader): port parser concurrency limiter from weknora
+- **内容**：`services/docreader/docreader/parser/concurrency.py` —— **直接迁移**自上游
+  `docreader/parser/concurrency.py`（`parser_worker_limit`，进程级 `BoundedSemaphore`），仅改包路径。
+- **测试**：`services/docreader/tests/test_parser_concurrency.py`（来自上游回归思想）→ 通过。
+
+### T1.6b feat(docreader): port base parser and result model
+- **内容**：`services/docreader/docreader/models/document.py` —— **参考重写**自上游
+  `docreader/models/document.py`，保留 `content/images/metadata` 契约，**不迁移**上游遗留 Chunk（§3.2）；
+  `to_json` 以字节长度代替 base64，避免泄漏。`services/docreader/docreader/parser/base_parser.py` ——
+  **基本迁移**自上游 `base_parser.py`（bytes→Document 契约、parse_into_text/parse）。
+- **测试**：`services/docreader/tests/test_base_parser.py` → 8 passed（含上游不转小写扩展名的忠实行为）。
+
 ---
 
 ## 关键设计决策与原因
@@ -237,7 +249,12 @@
 - [x] T1.3 DocReader 客户端 `client.py`（流式/超时/错误语义）+ tests
 - [x] T1.4 `DocReaderClientParser` + Feature Flag（`document_parser.backend: legacy|docreader`）+ tests
 - [x] T1.5 pipeline load 阶段改为接受统一 `DocumentParser`（`DocumentParserLoader` 桥接，默认 legacy）
-- [ ] T1.6 DocReader 服务端核心迁移 + docker-compose 服务 + `scripts/start_dev.sh`/`Makefile` 探活
+- [x] T1.6a `services/docreader` 迁移 `concurrency.py`（直接迁移）
+- [x] T1.6b `services/docreader` 迁移 `base_parser.py` + `models/document.py`（基本/参考重写）
+- [ ] T1.6c `services/docreader` 迁移 `chain_parser.py`（FirstParser/PipelineParser，不吞最终错误）
+- [ ] T1.6d `services/docreader` 迁移 `registry.py`（裁剪：去掉云引擎）+ `parser.py` Facade
+- [ ] T1.6e 生成式 gRPC stub（docreader.proto）+ `main.py` entrypoint + 健康检查
+- [ ] T1.6f docker-compose DocReader 服务 + `scripts/start_dev.sh`/`Makefile` 探活
 - [ ] T1.7 汇总 Phase 1 审核并请求进入 Phase 2
 
 ---
@@ -310,5 +327,5 @@
 
 ## 工作区状态
 
-- 未提交改动：见 `git status`（提交每完成一批即清空）。
+- 未提交改动：见 `git status`（每完成一批即提交清空）。
 - 提交策略：遵循规范——小提交、每提交解决一个问题、`git diff --check` 校验（二进制 PDF 夹具除外）、不在无谓文件上重写。
