@@ -42,7 +42,24 @@
   （**直接迁移**自上游 `_classify_page`，主信号为图片面积占比、次信号为低文本+有图）+
   pymupdf 后端 `page_image_area_ratio` / `page_text`。阈值常量以 env 覆盖（同上游）。
 - **测试**：`services/docreader/tests/test_pdf_classify.py` → 5 passed（纯规则 + 合成扫描页/文本页）。
-- **未完成**：T2.2 起（layout/多栏、噪声清理、扫描渲染、图框、registry 接入）。
+
+### T2.2 feat(docreader): port layout-aware multi-column pdf text over pymupdf
+- **内容**：新增 `services/docreader/docreader/parser/pdf_layout.py` —— 上游 XY-cut 多栏/阅读顺序
+  算法**逐字迁移**（find_split/split_columns/article-column 过滤/heading 提升/plain-vs-layout 回退）；
+  仅 `page_chars` 改写：pymupdf `rawdict` 取字级 bbox，并把 y 从 pymupdf 顶左原点翻转为 pdfium 的
+  **底左原点**，使迁移算法坐标语义一致。
+- **测试**：`test_pdf_layout.py` → 3 passed（合成双栏 PDF 验证按列线性化、非行交错；纯列拆分丢弃窄边栏）。
+
+### T2.3 feat(docreader): port pdf text post-processing (noise cleanup)
+- **内容**：新增 `services/docreader/docreader/parser/pdf_postprocess.py` —— 上游文本净化逐字迁移：
+  sanitize 占位符/断字、去 arXiv/页号行、去除图表轴标碎屑、清理 Figure 标题上方标签行。
+- **测试**：`test_pdf_postprocess.py` → 5 passed。
+
+### 未完成
+- T2.4 扫描页渲染 + 矢量图框 clip（pymupdf render）；T2.5 嵌入式图提取 + 去重；T2.6 PDFParser 路由
+  接入（合并外周文件）、registry 注册、基线样本回归、Phase 2 审核。
+- 需先给 `DocReaderConfig` 增加 pdf_render_* / pdf_jpeg_quality 等旋钮（上游 CONFIG 对应项）。
+- 隐藏文本（render-mode 3 / invisible box）过滤本轮 layout 未含，留作后续清理小任务。
 
 ---
 
