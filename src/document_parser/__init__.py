@@ -24,8 +24,14 @@ __all__ = [
     "ParseTimeoutError",
     "ParseFailedError",
     "ImagePersistenceError",
+    "DocumentParser",
+    "ParserEngineInfo",
 ]
 
+from src.document_parser.base import (  # noqa: E402
+    DocumentParser,
+    ParserEngineInfo,
+)
 from src.document_parser.errors import (  # noqa: E402
     EngineUnavailableError,
     ImagePersistenceError,
