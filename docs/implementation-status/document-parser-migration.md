@@ -9,8 +9,8 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 0 —— 基准、来源和骨架
-- **当前小任务**：建立解析基准样本集与基线指标 / 第三方来源清单 / DocReader 服务骨架
+- **当前 Phase**：Phase 1 —— DocReader 核心契约与兼容接入
+- **当前小任务**：T1.0 已提交；下一任务 T1.1（DocumentParser protocol + engine info + tests）
 - **未完成改动**：见“工作区状态”。
 
 ---
@@ -19,14 +19,32 @@
 
 | Phase | 状态 | 说明 |
 | --- | --- | --- |
-| Phase 0 基准、来源和骨架 | **进行中** | 样本集、基线指标、来源清单、服务骨架 |
-| Phase 1 DocReader 核心与兼容接入 | 未开始 | 依赖 Phase 0 审核通过 |
-| Phase 2 WeKnora 内置 PDFParser | 未开始 | 依赖 Phase 1 审核通过 |
+| Phase 0 基准、来源和骨架 | **完成（已审核）** | 样本集、基线指标、来源清单、服务骨架 |
+| Phase 1 DocReader 核心与兼容接入 | **进行中** | T1.0 已提交；后续小任务见下 |
+| Phase 2 WeKnora 内置 PDFParser | 未开始 | |
 | Phase 3 OpenDataLoader 与表格规范化 | 未开始 | |
 | Phase 4 表格感知分块 | 未开始 | |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
+
+---
+
+## Phase 1 进度（进行中）
+
+### T1.0 feat(parser): add parsed document contract
+- **内容**：新增 `src/document_parser/{__init__.py,types.py,errors.py}`，含
+  `ParseRequest`（frozen）+ `ParsedImage` + `ParsedDocument` + `ParseStatus`
+  （success/partial_success/failed），以及稳定错误分类 `ParseError` /
+  `UnsupportedFormatError` / `EngineUnavailableError` / `ParseTimeoutError` /
+  `ParseFailedError`(带 attempts) / `ImagePersistenceError`。
+- **设计决策**：契约纯 stdlib、无依赖，客户端/适配器/测试均可廉价导入；`ParseRequest` 仅
+  接受 bytes（内部统一为 bytes）；`engine_overrides` 复制语义（frozen、不共享调用方 dict）。
+  `ParsedDocument` 不决定存储路径（主服务持久化并重写引用），含 partial_success 语义位。
+- **已修改文件**：`src/document_parser/__init__.py`、`types.py`、`errors.py`、
+  `tests/unit/test_document_parser_types.py`
+- **测试**：`pytest tests/unit/test_document_parser_types.py` → 11 passed。
+- **未完成**：T1.1 起（protocol / adapter / client / flag / pipeline 接线）。
 
 ---
 
@@ -171,9 +189,20 @@
 
 ---
 
-## Phase 0 审核交接（T0.5）
+## Phase 1 未完成小任务（按应做顺序）
 
-> 本节点 T0.0–T0.4 全部完成并各自小提交；审核通过后再推进 Phase 1。
+- [x] T1.0 解析契约（types/errors + tests）
+- [ ] T1.1 `DocumentParser` protocol + `ParserEngineInfo`（engines/list_engines）+ tests
+- [ ] T1.2 `LegacyLoaderParserAdapter` + `ParsedDocumentAdapter`（新旧输出同管）+ tests
+- [ ] T1.3 DocReader 客户端 `client.py`（gRPC/流式/超时）+ tests
+- [ ] T1.4 `DocReaderClientParser` + Feature Flag（`document_parser.backend: legacy|docreader`）+ tests
+- [ ] T1.5 pipeline load 阶段改为调用统一 `DocumentParser`（默认 legacy，可无数据迁移切回）
+- [ ] T1.6 docker-compose DocReader 服务 + `scripts/start_dev.sh`/`Makefile` 探活 + `config/settings.yaml` 解析配置
+- [ ] T1.7 汇总 Phase 1 审核并请求进入 Phase 2
+
+---
+
+## Phase 0 审核交接（T0.5）
 
 ### 1) 本阶段提交列表
 | 提交 | 内容 |
