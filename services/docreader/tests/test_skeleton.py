@@ -1,13 +1,9 @@
-"""Phase-0 skeleton checks: the package is importable, versioned, and the
-service entrypoint is not (yet) callable — i.e. nothing pretends to serve.
-"""
+"""Package skeleton checks: importable, versioned, and a real service entrypoint
+(serve/main) is present without starting a server."""
 
 from __future__ import annotations
 
-import pytest
-
 from docreader import __version__
-from docreader import main
 
 
 def test_package_version_present() -> None:
@@ -22,6 +18,9 @@ def test_config_module_importable() -> None:
     import docreader.utils  # noqa: F401
 
 
-def test_serve_not_implemented_yet() -> None:
-    with pytest.raises(NotImplementedError):
-        main.serve([])
+def test_service_entrypoint_exists() -> None:
+    from docreader import main as main_mod
+    # serve() is a real (blocking) function now; just confirm it is present
+    # without starting a server.
+    assert callable(main_mod.serve)
+    assert callable(main_mod.main)
