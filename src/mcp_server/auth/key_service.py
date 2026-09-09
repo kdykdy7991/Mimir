@@ -264,6 +264,22 @@ class ApiKeyService:
         logger.info("api_key renamed key_id=%s name=%s new_name=%s", record.key_id, old_name, new_name)
         return _to_metadata(record)
 
+    def update_key_collections(
+        self, *, name: str, allowed_collections: set[str],
+    ) -> ApiKeyMetadata:
+        """Replace a key's whitelist without rotating its credential."""
+        _validate_name(name)
+        name = name.strip()
+        collections = _validate_collections(set(allowed_collections))
+        record = self._store.update_collections(
+            name=name, collections=collections,
+        )
+        logger.info(
+            "api_key collections updated key_id=%s name=%s collections=%s",
+            record.key_id, name, sorted(collections),
+        )
+        return _to_metadata(record)
+
     def rotate_key(self, *, name: str) -> tuple[str, ApiKeyMetadata]:
         """Issue a fresh credential for ``name``; the old key dies instantly.
 

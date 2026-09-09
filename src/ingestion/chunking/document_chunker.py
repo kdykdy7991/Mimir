@@ -23,17 +23,23 @@ ingestion pipeline needs:
    cheaply decide whether a chunk has attached media.
 6. **Type conversion** — output is a list of ``Chunk`` dataclasses
    that satisfy the C1 contract (serializable, fields stable).
+7. **Metadata-only filtering** — discard a split whose entire content is
+   a dataset ``doc_id: ...`` marker so it never reaches either index.
 """
 
 from __future__ import annotations
 
 import copy
 import hashlib
+import re
 from typing import Any
 
 from src.core.types import Chunk, Document, ImageRef
 from src.libs.loader.pdf_loader import extract_image_mentions
 from src.libs.splitter.base_splitter import BaseSplitter
+
+
+_DOC_ID_ONLY_RE = re.compile(r"^\s*doc_id\s*:\s*\S+\s*$", re.IGNORECASE)
 
 
 class ChunkerError(Exception):
@@ -66,7 +72,11 @@ class DocumentChunker:
         if not document.text:
             return []
 
-        raw_texts = self.splitter.split_text(document.text)
+        raw_texts = [
+            text
+            for text in self.splitter.split_text(document.text)
+            if not self._is_metadata_only(text)
+        ]
         if not raw_texts:
             return []
 
@@ -90,6 +100,15 @@ class DocumentChunker:
             chunks.append(chunk)
             running_offset = end
         return chunks
+
+    @staticmethod
+    def _is_metadata_only(text: str) -> bool:
+        """Return whether a split contains only a dataset ``doc_id`` line.
+
+        Such splits carry provenance rather than searchable content.  Drop
+        only this exact shape so legitimate short chunks remain indexable.
+        """
+        return _DOC_ID_ONLY_RE.fullmatch(text) is not None
 
     # ------------------------------------------------------------------
     # Chunk construction

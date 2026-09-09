@@ -140,8 +140,9 @@ class NotReadyError(APIError):
 class PayloadTooLargeError(BadRequestError):
     """``413`` — uploaded file exceeds the configured size cap.
 
-    Per v0.1 contract, the limit defaults to 20 MB and is configurable
-    via ``web_api.upload_max_bytes``.
+    Per v0.1 contract, the limit is configurable via the
+    ``WEB_API_UPLOAD_MAX_BYTES`` env var (see
+    ``src/web_api/settings.py`` for the current default).
     """
 
     status_code = 413

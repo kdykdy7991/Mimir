@@ -129,6 +129,41 @@ class TestBasicSplitting:
         assert len(chunks) == 1
         assert chunks[0].text == "all-in-one"
 
+    def test_doc_id_only_chunk_is_filtered(self):
+        doc = Document(
+            id="datasetdoc",
+            text="doc_id: crud_doc_0781\n\nActual searchable content.",
+            metadata={"source_path": "/tmp/crud_doc_0781.md"},
+        )
+        chunker = DocumentChunker(FakeSplitter([
+            "doc_id: crud_doc_0781",
+            "Actual searchable content.",
+        ]))
+
+        chunks = chunker.split_document(doc)
+
+        assert [chunk.text for chunk in chunks] == ["Actual searchable content."]
+        assert chunks[0].metadata["chunk_index"] == 0
+
+    @pytest.mark.parametrize(
+        "text",
+        [" DOC_ID : crud_doc_0781 ", "\ndoc_id:\tcrud-doc-781\n"],
+    )
+    def test_doc_id_only_filter_allows_case_and_whitespace(self, text):
+        doc = Document(id="datasetdoc", text=text, metadata={})
+        chunker = DocumentChunker(FakeSplitter([text]))
+
+        assert chunker.split_document(doc) == []
+
+    def test_doc_id_with_actual_content_is_preserved(self):
+        text = "doc_id: crud_doc_0781\nActual searchable content."
+        doc = Document(id="datasetdoc", text=text, metadata={})
+        chunker = DocumentChunker(FakeSplitter([text]))
+
+        chunks = chunker.split_document(doc)
+
+        assert [chunk.text for chunk in chunks] == [text]
+
 
 # ---------------------------------------------------------------------------
 # Chunk ID generation

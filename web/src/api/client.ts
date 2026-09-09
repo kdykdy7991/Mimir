@@ -189,6 +189,8 @@ export class ApiClient {
 
   renameMCPKey(name: string, newName: string, signal?: AbortSignal) { return this.request<MCPKeyMetadata>("/api/v1/mcp-keys/" + encodeURIComponent(name), { method: "PATCH", body: { name: newName }, signal }); }
 
+  updateMCPKeyCollections(name: string, allowedCollections: string[], signal?: AbortSignal) { return this.request<MCPKeyMetadata>(`/api/v1/mcp-keys/${encodeURIComponent(name)}/collections`, { method: "PUT", body: { allowed_collections: allowedCollections }, signal }); }
+
   revokeMCPKey(name: string, signal?: AbortSignal) { return this.request<MCPKeyMetadata>(`/api/v1/mcp-keys/${encodeURIComponent(name)}/revoke`, { method: "POST", signal }); }
 
   deleteMCPKey(name: string, signal?: AbortSignal) { return this.request<void>(`/api/v1/mcp-keys/${encodeURIComponent(name)}`, { method: "DELETE", signal }); }

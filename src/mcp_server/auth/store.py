@@ -213,6 +213,40 @@ class ApiKeyStore:
         finally:
             conn.close()
 
+    def update_collections(
+        self, *, name: str, collections: frozenset[str],
+    ) -> KeyRecord:
+        """Atomically replace a key's collection whitelist."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM mcp_api_keys WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                raise KeyNotFoundError(f"no API key named {name!r}")
+            try:
+                conn.execute(
+                    "DELETE FROM mcp_api_key_collections WHERE key_id = ?",
+                    (row["key_id"],),
+                )
+                conn.executemany(
+                    "INSERT INTO mcp_api_key_collections (key_id, collection) "
+                    "VALUES (?, ?)",
+                    [(row["key_id"], collection) for collection in collections],
+                )
+            except BaseException:
+                conn.rollback()
+                raise
+            conn.commit()
+            fresh = conn.execute(
+                "SELECT * FROM mcp_api_keys WHERE key_id = ?", (row["key_id"],)
+            ).fetchone()
+            return self._record_from_row(conn, fresh)
+        finally:
+            conn.close()
+
     def rotate(
         self,
         *,

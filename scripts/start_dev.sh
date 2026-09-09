@@ -98,7 +98,7 @@ export no_proxy="${DEV_NO_PROXY}"
 export PORT="${WEB_PORT}"
 export NEXT_PUBLIC_API_BASE_URL=""
 export INTERNAL_API_BASE_URL="http://127.0.0.1:${API_PORT}"
-export NEXT_ALLOWED_DEV_ORIGINS="${SKDY_NEXT_ALLOWED_DEV_ORIGINS:-${PUBLIC_HOST}}"
+export NEXT_ALLOWED_DEV_ORIGINS="${SKDY_NEXT_ALLOWED_DEV_ORIGINS:-${PUBLIC_HOST},127.0.0.1,localhost}"
 
 echo "Starting SKDY RAG development services"
 echo "  Web UI local: http://localhost:${WEB_PORT}"

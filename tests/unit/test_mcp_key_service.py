@@ -288,6 +288,40 @@ class TestRename:
             service.rename_key(name="agent-a", new_name="agent-b")
 
 
+class TestUpdateCollections:
+    def test_update_preserves_credential_and_replaces_whitelist(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        raw, old = service.create_key(name="agent-a", allowed_collections={"hr"})
+
+        updated = service.update_key_collections(
+            name="agent-a", allowed_collections={"policy", "finance"},
+        )
+
+        principal = service.authenticate(raw)
+        assert principal is not None
+        assert updated.key_id == old.key_id
+        assert updated.allowed_collections == frozenset({"policy", "finance"})
+        assert principal.allowed_collections == frozenset({"policy", "finance"})
+
+    def test_update_rejects_empty_whitelist_without_changing_existing(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        raw, _ = service.create_key(name="agent-a", allowed_collections={"hr"})
+
+        with pytest.raises(InvalidCollectionWhitelistError):
+            service.update_key_collections(name="agent-a", allowed_collections=set())
+
+        principal = service.authenticate(raw)
+        assert principal is not None
+        assert principal.allowed_collections == frozenset({"hr"})
+
+    def test_update_unknown_name_raises(self, tmp_path) -> None:
+        service = _service(tmp_path)
+        with pytest.raises(KeyNotFoundError):
+            service.update_key_collections(
+                name="nobody", allowed_collections={"hr"},
+            )
+
+
 class TestDelete:
     def test_delete_invalidates_key_and_removes_metadata(self, tmp_path) -> None:
         service = _service(tmp_path)

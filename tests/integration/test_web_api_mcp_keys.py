@@ -30,6 +30,16 @@ def test_create_list_rotate_revoke_and_delete_mcp_key(monkeypatch, tmp_path):
         assert renamed.status_code == 200
         assert renamed.json()["name"] == "partner-renamed"
 
+        updated = client.put(
+            "/api/v1/mcp-keys/partner-renamed/collections",
+            json={"allowed_collections": ["policy", "finance"]},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["key_id"] == created.json()["key_id"]
+        assert updated.json()["allowed_collections"] == ["finance", "policy"]
+        principal = service.authenticate(created.json()["api_key"])
+        assert principal is not None
+        assert principal.allowed_collections == frozenset({"finance", "policy"})
 
         rotated = client.post("/api/v1/mcp-keys/partner-renamed/rotate")
         assert rotated.status_code == 200

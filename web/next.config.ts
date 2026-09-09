@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const apiBaseUrl = (process.env.INTERNAL_API_BASE_URL ?? "http://127.0.0.1:8766")
   .replace(/\/+$/, "");
-const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
+const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "127.0.0.1")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

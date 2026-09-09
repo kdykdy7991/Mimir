@@ -16,7 +16,8 @@ from src.mcp_server.auth.models import (
 )
 from src.web_api.errors import BadRequestError, ConflictError, NotFoundError
 from src.web_api.schemas.mcp_keys import (
-    MCPKeyCreateRequest, MCPKeyListResponse, MCPKeyMetadata, MCPKeyRenameRequest, MCPKeySecretResponse,
+    MCPKeyCollectionsUpdateRequest, MCPKeyCreateRequest, MCPKeyListResponse,
+    MCPKeyMetadata, MCPKeyRenameRequest, MCPKeySecretResponse,
 )
 
 router = APIRouter(prefix="/mcp-keys", tags=["mcp-keys"])
@@ -64,6 +65,21 @@ async def rename_mcp_key(name: str, body: MCPKeyRenameRequest) -> MCPKeyMetadata
     except DuplicateKeyNameError as exc:
         raise ConflictError(str(exc)) from exc
     except ValueError as exc:
+        raise BadRequestError(str(exc)) from exc
+
+
+@router.put("/{name}/collections", response_model=MCPKeyMetadata,
+            summary="Update an MCP API key collection whitelist")
+async def update_mcp_key_collections(
+    name: str, body: MCPKeyCollectionsUpdateRequest,
+) -> MCPKeyMetadata:
+    try:
+        return _metadata(_service().update_key_collections(
+            name=name, allowed_collections=set(body.allowed_collections),
+        ))
+    except KeyNotFoundError as exc:
+        raise NotFoundError(str(exc)) from exc
+    except (InvalidCollectionWhitelistError, ValueError) as exc:
         raise BadRequestError(str(exc)) from exc
 
 @router.post("/{name}/rotate", response_model=MCPKeySecretResponse,

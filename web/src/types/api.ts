@@ -197,7 +197,7 @@ export interface paths {
         };
         /**
          * RAG overview metrics
-         * @description Aggregate quality, latency and ingestion signals for the overview UI.
+         * @description Aggregate all RAG query sources; MCP records are included in the total.
          */
         get: operations["get_overview_metrics_api_v1_metrics_overview_get"];
         put?: never;
@@ -382,6 +382,23 @@ export interface paths {
         head?: never;
         /** Rename an MCP API key */
         patch: operations["rename_mcp_key_api_v1_mcp_keys__name__patch"];
+        trace?: never;
+    };
+    "/api/v1/mcp-keys/{name}/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update an MCP API key collection whitelist */
+        put: operations["update_mcp_key_collections_api_v1_mcp_keys__name__collections_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/mcp-keys/{name}/rotate": {
@@ -1191,6 +1208,11 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "attention";
+        };
+        /** MCPKeyCollectionsUpdateRequest */
+        MCPKeyCollectionsUpdateRequest: {
+            /** Allowed Collections */
+            allowed_collections: string[];
         };
         /** MCPKeyCreateRequest */
         MCPKeyCreateRequest: {
@@ -2868,6 +2890,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MCPKeyRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPKeyMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mcp_key_collections_api_v1_mcp_keys__name__collections_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPKeyCollectionsUpdateRequest"];
             };
         };
         responses: {

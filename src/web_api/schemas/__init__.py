@@ -29,7 +29,8 @@ from src.web_api.schemas.documents import (
 from src.web_api.schemas.errors import TaskError
 from src.web_api.schemas.images import ImageMeta
 from src.web_api.schemas.mcp_keys import (
-    MCPKeyCreateRequest, MCPKeyListResponse, MCPKeyMetadata, MCPKeySecretResponse,
+    MCPKeyCollectionsUpdateRequest, MCPKeyCreateRequest, MCPKeyListResponse,
+    MCPKeyMetadata, MCPKeySecretResponse,
 )
 from src.web_api.schemas.queries import (
     Citation,
@@ -96,6 +97,7 @@ __all__ = [
     "QueryRequest",
     "QueryResponse",
     # mcp keys
+    "MCPKeyCollectionsUpdateRequest",
     "MCPKeyCreateRequest",
     "MCPKeyListResponse",
     "MCPKeyMetadata",
