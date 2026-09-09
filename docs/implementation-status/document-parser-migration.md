@@ -20,9 +20,9 @@
 | --- | --- | --- |
 | Phase 0 基准、来源和骨架 | **完成（已审核）** | 样本集、基线指标、来源清单、服务骨架 |
 | Phase 1 DocReader 核心与兼容接入 | **完成（已审核）** | 契约/客户端/flag/pipeline + 服务端核心+gRPC+部署探活 |
-| Phase 2 WeKnora 内置 PDFParser | **完成（审核交接已提交）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
-| Phase 3 OpenDataLoader 与表格规范化 | 未开始 | |
-| Phase 4 表格感知分块 | 未开始 | |
+| Phase 2 WeKnora 内置 PDFParser | **完成（已审核）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
+| Phase 3 OpenDataLoader 与表格规范化 | **核心已实现**（T3.1/T3.2） | 引擎+规范化+路径卫生；与 Phase 4「同时交付」 |
+| Phase 4 表格感知分块 | 未开始 | 计划要求与 Phase 3 同时交付 |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
@@ -76,6 +76,32 @@
 
 ### 未完成
 - Phase 2 审核交接（T2.6）见下。
+
+## Phase 3 进度（进行中）
+
+> 计划 §Phase-3：接入本地 OpenDataLoader（引擎 `opendataloader`），禁止非本机/白名单外地址，普通表格
+> 规范化 GFM，带 rowspan/colspan 且无法无损转换的保留 HTML（去样式），稳定独立块边界（不泄漏临时路径/
+> base64），过短/失败回退 builtin PDFParser 并记录尝试链。注意：计划「表格解析与表格感知分块必须同时交付」，
+> Phase 4 分块是本阶段验收的一部分。
+
+### T3.1 feat(docreader): add table/markdown normalization (gfm, clean html, path hygiene)
+- **内容**：`services/docreader/docreader/parser/table_normalize.py` —— GFM 分隔行规范化；带
+  `rowspan/colspan` 的 HTML 表格按需保留并剥离 style/class/border 等展示属性（HTMLParser 白名单）；
+  绝对/临时路径图片引用重写为 `images/<basename>`（不泄漏本机路径，不含 base64）。
+- **测试**：`test_table_normalize.py` → 5 passed。
+
+### T3.2 feat(docreader): add local opendataloader engine, registry routing and scanned fallback
+- **内容**：`parser/opendataloader_parser.py` —— 上游**裁剪迁移**：仅本地（去掉 Hybrid/远程/SSRF）；可用性
+  探针 `opendataloader_available`（Java + `opendataloader-pdf` 包）；临时目录 convert、图片收集
+  （**原始字节**）、markdown 图引用改写、输出过短回退 `PDFScannedParser`、经 `normalize_markdown` 净化。
+  新增 `PDFScannedParser`（全部页面渲图）。`config.py` 增 odl_max_workers / odl_markdown_with_html。
+  `registry.py` 重构为 **(fmt, name) 复合键**，支持同格式多引擎：pdf → builtin / opendataloader；
+  `parse_file(parser_engine=...)` 显式选引擎；`list_engines` 上报 opendataloader 可用性。
+- **测试**：`test_opendataloader.py` + registry → 59 passed（mock JVM 包装包）。本环境无
+  `opendataloader-pdf`（离线无 pip），真实 convert 未运行；引擎以 available=False + 原因上报。
+
+### 未完成
+- Phase 4 表格感知分块（主工程 DocumentChunker/Chunk 契约扩展，计划「同时交付」）。
 
 ---
 
