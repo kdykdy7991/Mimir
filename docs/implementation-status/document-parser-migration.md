@@ -9,8 +9,7 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 2 —— WeKnora 内置 PDFParser（pypdfium2 → pymupdf 后端改写）
-- **当前小任务**：T2.1 已提交；下一任务 T2.2（多栏/阅读顺序 layout text over pymupdf）
+- **当前 Phase**：Phase 2 已完成（已提交审核交接）；下一步 Phase 3 —— OpenDataLoader 与表格规范化
 - **未完成改动**：见“工作区状态”。
 
 ---
@@ -21,7 +20,7 @@
 | --- | --- | --- |
 | Phase 0 基准、来源和骨架 | **完成（已审核）** | 样本集、基线指标、来源清单、服务骨架 |
 | Phase 1 DocReader 核心与兼容接入 | **完成（已审核）** | 契约/客户端/flag/pipeline + 服务端核心+gRPC+部署探活 |
-| Phase 2 WeKnora 内置 PDFParser | **进行中** | T2.1 已提交；后端为 pymupdf（§10） |
+| Phase 2 WeKnora 内置 PDFParser | **完成（审核交接已提交）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
 | Phase 3 OpenDataLoader 与表格规范化 | 未开始 | |
 | Phase 4 表格感知分块 | 未开始 | |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
@@ -55,11 +54,28 @@
   sanitize 占位符/断字、去 arXiv/页号行、去除图表轴标碎屑、清理 Figure 标题上方标签行。
 - **测试**：`test_pdf_postprocess.py` → 5 passed。
 
+### T2.4 feat(docreader): port routed pdf parser (text/scanned/hybrid) over pymupdf
+- **内容**：新增 `services/docreader/docreader/parser/pdf_parser.py` —— 上游 PDFParser 逐页路由算法迁移：
+  文本页 layout/reconstruction + 后处理，扫描页渲图为 JPEG（`render_page_to_jpeg`，pymupdf pixmap，
+  按 max_edge 钳制长边、按 jpeg_quality 编码），`strip_repeating_lines` 去跨页页眉/页脚，
+  嵌入式图提取（`extract_embedded_images`：xref 去重、尺寸/面积过滤、跨页重复去 logo/水印、总量上限），
+  markdown 按阅读顺序装配 + 元数据。`models/Document.images` 存**原始字节**（上游存 base64；本项目
+  main.py 直接把 image_data 喂 gRPC proto，不做 base64）。`config.py` 新增 pdf_render_*
+  /pdf_jpeg_quality 旋钮（启动期校验 §9）。`registry.py` 注册 pdf 引擎。
+- **测试**：`test_pdf_parser.py`（文本/扫描/混合逐页路由/嵌入式图/force_scanned 覆盖）+ registry +
+  gRPC 真 PDF 走线 → services/docreader 全量 48 passed。
+- **基线回归**（docs/baselines/…/samples）：two_column 正确按列线性化（LEFT-C 全部先于 RIGHT-C）、
+  scanned 路由为扫描页且渲染页面图、bordered/borderless/cross_page/single_column 均正确走文本层。
+- **malformed**：非 PDF / 空字节抛干净异常（FileDataError/EmptyFileError），由服务端包成 error。
+
+### T2.x 说明与偏差
+- 矢量图区（chart region）渲染本轮**关闭**（`RENDER_VECTOR_FIGURES` 默认 0），避免产出不完整图表；
+  其 clip 检测/注入留作后续小任务（对应上游 `_extract_vector_figure_clips`）。
+- 隐藏文本（render-mode 3 / invisible box）过滤本轮未含（pdfium 特有 API）；留作后续清理小任务。
+- 扫描页渲染当前进程内串行（未用多进程 `pdf_render_parallelism`）。
+
 ### 未完成
-- T2.4 扫描页渲染 + 矢量图框 clip（pymupdf render）；T2.5 嵌入式图提取 + 去重；T2.6 PDFParser 路由
-  接入（合并外周文件）、registry 注册、基线样本回归、Phase 2 审核。
-- 需先给 `DocReaderConfig` 增加 pdf_render_* / pdf_jpeg_quality 等旋钮（上游 CONFIG 对应项）。
-- 隐藏文本（render-mode 3 / invisible box）过滤本轮 layout 未含，留作后续清理小任务。
+- Phase 2 审核交接（T2.6）见下。
 
 ---
 
@@ -399,6 +415,67 @@
 - 进入 **Phase 2**：迁移 WeKnora 内置 PDFParser（逐页分类/多栏/标题/噪声清理/扫描页与图片渲染），
   配合基线样本验收（双栏不交错、扫描页全部生成页面图、混合 PDF 只渲染扫描页、malformed 稳定错误码）。
   首个建议小任务：`feat(docreader): port pdf page classification`（含上游 `test_pdf_router.py` 适配）。
+
+---
+
+## Phase 2 审核交接（T2.6）
+
+> 本节点标志 Phase 2 完成。需要说明：本阶段把上游 pypdfium2 后端改写为 pymupdf（计划 §10），
+> 保留算法、逐份提交、每个带测试，并在固定基线样本上做了回归对比。
+
+### 1) Phase 2 提交列表
+| 提交 | 内容 |
+| --- | --- |
+| `4750167` | docs: record phase 2 start and t2.1 |
+| `d805461` | feat(docreader): port pdf page classification (pymupdf backend) |
+| `8173350` | feat(docreader): port layout-aware multi-column pdf text over pymupdf |
+| `a272c3a` | feat(docreader): port pdf text post-processing (noise cleanup) |
+| `dc30309` | docs: record phase 2 t2.1-t2.3 |
+| `07dc4b3` | feat(docreader): port routed pdf parser (text/scanned/hybrid) over pymupdf |
+| `b495411` | test(docreader): wire real pdf through grpc readstream e2e |
+
+### 2) 完成的小任务
+- T2.1 逐页分类；T2.2 layout 多栏/阅读顺序；T2.3 文本后处理（净化/去噪）；T2.4 PDFParser 路由
+  （文本/扫描/混合 + 扫描页渲染 + 嵌入式图提取）+ registry 注册 + 基线回归 + gRPC 走线。
+
+### 3) 新增文件
+- `services/docreader/docreader/parser/{pdf_classify,pdf_layout,pdf_postprocess,pdf_parser}.py`
+- `services/docreader/tests/{test_pdf_classify,test_pdf_layout,test_pdf_postprocess,test_pdf_parser}.py`
+- `config.py` 增加 pdf_render_* / pdf_jpeg_quality（启动期校验）。
+
+### 4) 迁移映射（Phase 2）
+| 上游 | 迁移方式 | 备注 |
+| --- | --- | --- |
+| `_classify_page` | 直接迁移 | pdf_classify 纯函数 |
+| `_page_image_area_ratio` / `_extract_page_text` | 后端改写 | pymupdf image_info / get_text |
+| layout 系列（XY-cut 等） | 逐字迁移 + `page_chars` 改写 | pymupdf rawdict，y 翻转为底左原点 |
+| 文本后处理 | 逐字迁移 | pdf_postprocess |
+| PDFParser 路由/扫描渲染/embedded | 算法迁移 + 后端改写 | pymupdf pixmap/extract_image；images 存原始字节 |
+| `_strip_repeating_lines` | 直接迁移 | |
+| `_extract_vector_figure_clips` | 未迁（默认关闭） | 留作后续 |
+
+### 5) 测试命令和结果
+- `PYTHONPATH=services/docreader pytest services/docreader/tests` → 48 passed。
+- 核心契约/配置测试 → 157 passed；`git diff --check` 通过；工作区干净。
+- 基线回归：two_column 按列线性化；scanned 渲染页面图；bordered/borderless/cross_page/single_column
+  走文本层；malformed/空字节抛干净异常（服务端包成 error）。
+
+### 6) 基准数据前后对比
+- 语义对比（非数值）：PDFParser 输出质量变化见图表（双栏不交错、扫描页生成图、表内容保留）。
+  数值基线对比待 Phase 7 切换默认后由 `run_parsing_baseline.py` 产出正式指标。
+
+### 7) 已知限制
+- 矢量图区渲染（chart region）默认关闭；隐藏文本（render-mode 3）过滤未含；扫描渲染进程内串行。
+  三者均为后续小任务，不阻塞本阶段。
+- 本项目 DocReader 不做 OCR/VLM：扫描页/图输出原始图像字节，由主服务侧（Phase 5 本地 Qwen3.8 27B）
+  负责识图/入库。
+
+### 8) 回滚方法
+- 默认 backend=legacy 不受影响；PDFParser 仅在 `--backend docreader` 时被调用。
+- 未迁移的上游不变量（video/表格跨页等）不影响 legacy 路径。
+
+### 9) 下一阶段建议
+- 进入 **Phase 3**：OpenDataLoader 与表格规范化（Plan §O）。按计划拆小任务、逐份提交、基线回归。
 
 ## Phase 0 审核交接（T0.5）
 
