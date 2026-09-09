@@ -9,8 +9,8 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 1 —— DocReader 核心契约与兼容接入
-- **当前小任务**：T1.0 已提交；下一任务 T1.1（DocumentParser protocol + engine info + tests）
+- **当前 Phase**：Phase 2 —— WeKnora 内置 PDFParser（pypdfium2 → pymupdf 后端改写）
+- **当前小任务**：T2.1 已提交；下一任务 T2.2（多栏/阅读顺序 layout text over pymupdf）
 - **未完成改动**：见“工作区状态”。
 
 ---
@@ -20,13 +20,29 @@
 | Phase | 状态 | 说明 |
 | --- | --- | --- |
 | Phase 0 基准、来源和骨架 | **完成（已审核）** | 样本集、基线指标、来源清单、服务骨架 |
-| Phase 1 DocReader 核心与兼容接入 | **进行中** | T1.0 已提交；后续小任务见下 |
-| Phase 2 WeKnora 内置 PDFParser | 未开始 | |
+| Phase 1 DocReader 核心与兼容接入 | **完成（已审核）** | 契约/客户端/flag/pipeline + 服务端核心+gRPC+部署探活 |
+| Phase 2 WeKnora 内置 PDFParser | **进行中** | T2.1 已提交；后端为 pymupdf（§10） |
 | Phase 3 OpenDataLoader 与表格规范化 | 未开始 | |
 | Phase 4 表格感知分块 | 未开始 | |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | 未开始 | |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
+
+---
+
+## Phase 2 进度（进行中）
+
+> 说明：上游 `docreader/parser/pdf_parser.py`（1618 行）深度依赖 pypdfium2，而本项目 PDF 栈是
+> pymupdf（§10）。因此 Phase 2 是**重点迁移 + 后端改写**：保留上游算法（逐页分类、XY-cut 多栏、
+> 标题/噪声清理、扫描页渲染、嵌入式图/图表区），把 pdfium 底层原语改写为 pymupdf 等价物。
+> 按小任务逐个提交，每个带测试；测试在 services/docreader 内用合成 PDF（pymupdf+PIL）驱动。
+
+### T2.1 feat(docreader): port pdf page classification (pymupdf backend)
+- **内容**：新增 `services/docreader/docreader/parser/pdf_classify.py` —— 纯函数 `classify_page`
+  （**直接迁移**自上游 `_classify_page`，主信号为图片面积占比、次信号为低文本+有图）+
+  pymupdf 后端 `page_image_area_ratio` / `page_text`。阈值常量以 env 覆盖（同上游）。
+- **测试**：`services/docreader/tests/test_pdf_classify.py` → 5 passed（纯规则 + 合成扫描页/文本页）。
+- **未完成**：T2.2 起（layout/多栏、噪声清理、扫描渲染、图框、registry 接入）。
 
 ---
 
