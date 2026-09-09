@@ -63,15 +63,97 @@ class DocumentChunker:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def split_document(self, document: Document) -> list[Chunk]:
+    def split_document(
+        self, document: Document, max_protected: int | None = None,
+    ) -> list[Chunk]:
         """
         Split a Document into Chunks with full metadata wiring.
+
+        When the document contains protected table spans (GFM Markdown or HTML
+        tables), a table-aware path is used: ordinary split boundaries never
+        fall inside a table, small tables are atomic, large tables are split by
+        complete rows with the header repeated as ``context_header``. Documents
+        without tables follow the original body-only path unchanged.
 
         Returns an empty list if the document has no text.
         """
         if not document.text:
             return []
 
+        from src.ingestion.chunking.table_protection import (
+            DEFAULT_MAX_PROTECTED,
+            find_table_spans,
+            split_table,
+        )
+
+        if max_protected is None:
+            max_protected = DEFAULT_MAX_PROTECTED
+        spans = find_table_spans(document.text, max_protected)
+        if not spans:
+            return self._split_plain(document)
+
+        # --- table-aware path -------------------------------------------------
+        doc_images: list[ImageRef] = document.images
+        chunks: list[Chunk] = []
+        chunk_index = 0
+        running_offset = 0
+        cursor = 0
+        for span in spans:
+            # body before the table
+            chunks, chunk_index, running_offset = self._emit_body_region(
+                document=document,
+                doc_images=doc_images,
+                region=(cursor, span.start),
+                chunks=chunks,
+                chunk_index=chunk_index,
+                running_offset=running_offset,
+                space_end=span.start,
+            )
+            # table: atomic (single part) or row-split with repeated header
+            parts = split_table(span, max_protected)
+            header = span.header
+            start = span.start
+            for part_pos, part in enumerate(parts):
+                end = start + len(part)
+                extra: dict[str, Any] = {
+                    "content_type": "table",
+                    "table_index": span.index,
+                }
+                if header:
+                    extra["context_header"] = header
+                if len(parts) > 1:
+                    extra["table_part_index"] = part_pos
+                chunks.append(
+                    self._build_chunk(
+                        document=document,
+                        doc_images=doc_images,
+                        index=chunk_index,
+                        text=part,
+                        start_offset=start,
+                        end_offset=end,
+                        extra_meta=extra,
+                    ),
+                )
+                chunk_index += 1
+                running_offset = end
+                start = end
+            cursor = span.end
+            running_offset = max(running_offset, span.end)
+
+        # trailing body after the last table
+        chunks, _, _ = self._emit_body_region(
+            document=document,
+            doc_images=doc_images,
+            region=(cursor, len(document.text)),
+            chunks=chunks,
+            chunk_index=chunk_index,
+            running_offset=running_offset,
+            space_end=len(document.text),
+        )
+        return chunks
+
+    def _split_plain(self, document: Document) -> list[Chunk]:
+        """Original body-only chunking (used when no tables are present)."""
         raw_texts = [
             text
             for text in self.splitter.split_text(document.text)
@@ -79,27 +161,68 @@ class DocumentChunker:
         ]
         if not raw_texts:
             return []
-
-        # Pre-resolve Document.images once (every chunk may need it).
         doc_images: list[ImageRef] = document.images
-
         chunks: list[Chunk] = []
         running_offset = 0
         for index, chunk_text in enumerate(raw_texts):
             start, end = self._find_offsets(
-                document.text, chunk_text, running_offset
+                document.text, chunk_text, running_offset,
             )
-            chunk = self._build_chunk(
-                document=document,
-                doc_images=doc_images,
-                index=index,
-                text=chunk_text,
-                start_offset=start,
-                end_offset=end,
+            chunks.append(
+                self._build_chunk(
+                    document=document,
+                    doc_images=doc_images,
+                    index=index,
+                    text=chunk_text,
+                    start_offset=start,
+                    end_offset=end,
+                ),
             )
-            chunks.append(chunk)
             running_offset = end
         return chunks
+
+    def _emit_body_region(
+        self,
+        *,
+        document: Document,
+        doc_images: list[ImageRef],
+        region: tuple[int, int],
+        chunks: list[Chunk],
+        chunk_index: int,
+        running_offset: int,
+        space_end: int,
+    ) -> tuple[list[Chunk], int, int]:
+        """Emit chunks for a body region, pinned so boundaries stay in-region."""
+        region_start, region_end = region
+        if region_end <= region_start:
+            return chunks, chunk_index, running_offset
+        body = document.text[region_start:region_end]
+        probe = running_offset
+        for part in self.splitter.split_text(body):
+            if self._is_metadata_only(part):
+                continue
+            # locate the part within the region (avoid crossing into a table)
+            start = document.text.find(part, region_start)
+            if start == -1 or start + len(part) > space_end:
+                start = min(probe, space_end)
+            end = start + len(part)
+            if end > space_end:
+                end = space_end
+                part = document.text[start:end] or part
+            chunks.append(
+                self._build_chunk(
+                    document=document,
+                    doc_images=doc_images,
+                    index=chunk_index,
+                    text=part,
+                    start_offset=start,
+                    end_offset=end,
+                ),
+            )
+            chunk_index += 1
+            probe = end
+            running_offset = end
+        return chunks, chunk_index, running_offset
 
     @staticmethod
     def _is_metadata_only(text: str) -> bool:
@@ -122,6 +245,7 @@ class DocumentChunker:
         text: str,
         start_offset: int,
         end_offset: int,
+        extra_meta: dict[str, Any] | None = None,
     ) -> Chunk:
         chunk_id = self._generate_chunk_id(document.id, index, text)
         chunk_meta = self._inherit_metadata(
@@ -129,6 +253,7 @@ class DocumentChunker:
             chunk_index=index,
             chunk_text=text,
             doc_images=doc_images,
+            extra_meta=extra_meta,
         )
         return Chunk(
             id=chunk_id,
@@ -165,6 +290,7 @@ class DocumentChunker:
         chunk_index: int,
         chunk_text: str,
         doc_images: list[ImageRef],
+        extra_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Build the chunk's metadata dict.
@@ -172,7 +298,9 @@ class DocumentChunker:
         1. Shallow-copy Document.metadata so every chunk carries the
            same top-level fields (source_path, doc_type, page_count…).
         2. Add ``chunk_index``.
-        3. If the chunk text mentions any ``[IMAGE: id]`` placeholders
+        3. If ``extra_meta`` is given (e.g. table context: ``content_type``,
+           ``context_header``, ``table_index``), merge it on last.
+        4. If the chunk text mentions any ``[IMAGE: id]`` placeholders
            and the parent document has matching ``ImageRef``s, set
            ``images`` (filtered list) and ``image_refs`` (id list).
            Otherwise the chunk gets no ``images`` key — downstream
@@ -180,14 +308,10 @@ class DocumentChunker:
            document-level image set.
         """
         chunk_meta: dict[str, Any] = dict(document.metadata)
-        # Strip the document-level ``images`` list — chunks get a
-        # per-chunk filtered copy only when they reference at least
-        # one image (see step 3 below). Per spec, chunks with no
-        # placeholders MUST NOT carry the full document images list;
-        # otherwise downstream C7 ImageCaptioner would not be able to
-        # tell which images belong to which chunk.
         chunk_meta.pop("images", None)
         chunk_meta["chunk_index"] = chunk_index
+        if extra_meta:
+            chunk_meta.update(extra_meta)
 
         if doc_images:
             mentioned_ids = set(extract_image_mentions(chunk_text))
