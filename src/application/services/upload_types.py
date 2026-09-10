@@ -35,14 +35,17 @@ class UploadPolicy:
 
     max_file_bytes: int = 30 * 1024 * 1024  # 30 MB per file
     allowed_extensions: FrozenSet[str] = field(
-        default_factory=lambda: frozenset({".pdf", ".md", ".markdown", ".docx"}),
+        default_factory=lambda: frozenset({".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx"}),
     )
     allowed_mime: FrozenSet[str] = field(
         default_factory=lambda: frozenset({
             "application/pdf",
             "text/markdown",
             "text/plain",
+            "text/csv",
+            "application/csv",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }),
     )
     max_batch_files: int = 100

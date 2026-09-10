@@ -56,13 +56,18 @@ DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
     "application/pdf",
     "text/markdown",
     "text/plain",
+    "text/csv",
+    "application/csv",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 })
 DEFAULT_UPLOAD_ALLOWED_EXTENSIONS: FrozenSet[str] = frozenset({
     ".pdf",
     ".md",
     ".markdown",
     ".docx",
+    ".csv",
+    ".xlsx",
 })
 DEFAULT_UPLOAD_MAX_BATCH_FILES = 100
 DEFAULT_UPLOAD_MAX_BATCH_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per batch
