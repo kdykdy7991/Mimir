@@ -10,13 +10,21 @@ from __future__ import annotations
 from concurrent import futures
 
 import grpc
+import pytest
 
-from docreader.main import DocReaderServicer
-from docreader.parser.parser import Parser
-from docreader.proto import docreader_pb2, docreader_pb2_grpc
+# The docreader service package is a separate deployable (importable when
+# services/docreader is on ``sys.path``). Skip cleanly instead of erroring when
+# running the main ``tests/unit`` suite without it.
+docreader_main = pytest.importorskip("docreader.main")
+docreader_parser = pytest.importorskip("docreader.parser.parser")
+docreader_proto = pytest.importorskip("docreader.proto")
 
-from src.document_parser.grpc_transport import DocReaderGrpcTransport
-from src.document_parser.types import ParseRequest
+from docreader.main import DocReaderServicer  # noqa: E402
+from docreader.parser.parser import Parser  # noqa: E402
+from docreader.proto import docreader_pb2, docreader_pb2_grpc  # noqa: E402
+
+from src.document_parser.grpc_transport import DocReaderGrpcTransport  # noqa: E402
+from src.document_parser.types import ParseRequest  # noqa: E402
 
 
 def _start() -> tuple[grpc.Server, str]:
