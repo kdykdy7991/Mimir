@@ -269,3 +269,38 @@
   ```
   结果：`114 passed`。
 - **Gate 结论**：通过，自动进入 Phase 3。
+
+---
+
+## Phase 3：稳定分页读取 Chunk
+
+### P3.1 + P3.2 稳定排序与分页客户端
+
+- 状态：done
+- 提交：`7d679c8`
+- 修改文件：`src/mcp_server/clients/in_process.py`（改：`_ordered_chunks`/`_chunk_sort_key` + `get_document_chunks` 实现替换 NotImplementedError）、`tests/unit/test_readonly_client_chunks.py`（新增）
+- 已运行测试：`/home/hello/workspace/SKDY-RAG-SERVER/tests/unit/test_readonly_client_chunks.py` → `8 passed`
+- 排序证明：3 种来源均覆盖——`chunk_index` 元数据（权威）、旧数据缺失时从 chunk id `_(\d{4})_` 解析、纯旧数据按 id 稳定排序；均不依赖向量库自然顺序。
+- 分页：first/middle/last/out-of-range、`page_size 1..50`、`page>=1`、未解析文档与越权统一报错。
+
+### P3.3 `get_document_chunks` 工具
+
+- 状态：done
+- 提交：见本提交（tools + 注册 + 测试）
+- 修改文件：
+  - `src/mcp_server/tools/get_document_chunks.py`（新增：document_id + doc_id 别名、page/page_size、统一 not-found 文案）
+  - `src/mcp_server/server.py`（改：注册 `get_document_chunks`）
+  - `tests/unit/test_get_document_chunks.py`（新增）
+  - `tests/unit/test_mcp_contract_snapshot.py` + `tests/integration/test_mcp_server.py` + `tests/fixtures/mcp_contract/phase0_tool_schemas.json`（改：5 工具 + 基线）
+- 已运行测试：`/home/hello/workspace/SKDY-RAG-SERVER/tests/unit/test_get_document_chunks.py` → `6 passed`；全 Phase 3 门禁 `128 passed`。
+- 旧数据可读：无 `chunk_index` 的旧记录通过 `_(\d{4})_` 解析或按 id 稳定排序，均不抛错。
+
+### Phase 3 Gate 验收记录
+
+- **chunk 顺序稳定**：`_chunk_sort_key`（chunk_index → id 内 index → id），见 `7d679c8`。
+- **不依赖自然顺序**：排序在客户端显式完成（`_ordered_chunks`），测试以乱序输入验证。
+- **旧数据可读**：P3.1 三来源排序测试证明。
+- **分页首/中/尾/越界**：`test_readonly_client_chunks.py::test_pagination_*` 通过。
+- **工具已注册**：`get_document_chunks`，共 5 只工具。
+- **验证**：`git diff --check` 无输出；`128 passed`。
+- **Gate 结论**：通过，自动进入 Phase 4。

@@ -101,6 +101,107 @@
         "type": "object"
       }
     },
+    "get_document_chunks": {
+      "description": "Read a stable-ordered page of a document's indexed chunks by its document_id. Ordering is independent of storage order and stable across calls. Reads only — never mutates.",
+      "input_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "document_id"
+            ]
+          },
+          {
+            "required": [
+              "doc_id"
+            ]
+          }
+        ],
+        "properties": {
+          "doc_id": {
+            "description": "Deprecated alias for `document_id`.",
+            "type": "string"
+          },
+          "document_id": {
+            "description": "The stable document UUID.",
+            "type": "string"
+          },
+          "page": {
+            "default": 1,
+            "description": "1-based page number.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 20,
+            "description": "Chunks per page (1..50).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_document_chunks",
+      "output_schema": {
+        "properties": {
+          "chunks": {
+            "items": {
+              "properties": {
+                "chunk_id": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "section": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "index"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "page",
+          "page_size",
+          "total",
+          "has_next",
+          "chunks"
+        ],
+        "type": "object"
+      }
+    },
     "get_document_summary": {
       "description": "Compatibility alias of get_document. Return read-only metadata for a document by its legacy doc_id.",
       "input_schema": {

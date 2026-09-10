@@ -94,9 +94,13 @@ def _register_default_tools(handler: ProtocolHandler) -> None:
     from src.mcp_server.tools.get_document_summary import (
         register as register_summary,
     )
+    from src.mcp_server.tools.get_document_chunks import (
+        register as register_chunks,
+    )
 
     for register_fn in (
-        register_query, register_list, register_document, register_summary,
+        register_query, register_list, register_document,
+        register_summary, register_chunks,
     ):
         try:
             register_fn(handler)

@@ -141,13 +141,13 @@ def _behavior_samples(tmp_path) -> dict:
 
 def test_registered_tool_names_are_stable_and_readonly():
     """The read surface is exactly the approved tools (get_document and its
-    get_document_summary alias, list_collections, query_knowledge_hub); none
-    is a write / chat / agent tool."""
+    get_document_summary alias, get_document_chunks, list_collections,
+    query_knowledge_hub); none is a write / chat / agent tool."""
     handler = _build_handler()
     names = sorted(handler.list_names())
     assert names == [
-        "get_document", "get_document_summary", "list_collections",
-        "query_knowledge_hub",
+        "get_document", "get_document_chunks", "get_document_summary",
+        "list_collections", "query_knowledge_hub",
     ]
     lowered = " ".join(names).lower()
     for word in _FORBIDDEN_WORDS:
