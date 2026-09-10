@@ -1,0 +1,232 @@
+{
+  "behavior_samples": {
+    "get_document_summary_not_found": {
+      "is_error": true,
+      "message": "document not found: doc_id='00000000-0000-0000-0000-000000000000'. Confirm the id is correct and the document has been ingested."
+    },
+    "list_collections_empty_state": {
+      "markdown_has_no_collections": true,
+      "structured": {
+        "collections": [],
+        "n_collections": 0
+      }
+    },
+    "query_knowledge_hub_empty_query": {
+      "is_error": true,
+      "message": "'query' is required and must be a non-empty string"
+    }
+  },
+  "tool_schemas": {
+    "get_document_summary": {
+      "description": "Return a document summary from an authorized SKDY knowledge base by its doc_id.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "doc_id": {
+            "description": "The document id (= source_ref on every chunk). Matches the parent Document.id generated at ingest.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_document_summary",
+      "output_schema": {
+        "properties": {
+          "chunk_count": {
+            "type": "integer"
+          },
+          "doc_id": {
+            "type": "string"
+          },
+          "doc_type": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id",
+          "title",
+          "summary",
+          "tags",
+          "source_path",
+          "doc_type",
+          "chunk_count"
+        ],
+        "type": "object"
+      }
+    },
+    "list_collections": {
+      "description": "List knowledge bases authorized for the current MCP API key. Each entry includes its internal collection name, configured business description, and index statistics.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_collections",
+      "output_schema": {
+        "properties": {
+          "collections": {
+            "items": {
+              "properties": {
+                "bm25_chunks": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "data_dir": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "bm25",
+                    "vector_store",
+                    "both"
+                  ],
+                  "type": "string"
+                },
+                "vector_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "source",
+                "data_dir"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "n_collections": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n_collections",
+          "collections"
+        ],
+        "type": "object"
+      }
+    },
+    "query_knowledge_hub": {
+      "description": "Search an authorized SKDY knowledge base for evidence relevant to a question. Use list_collections first to identify the collection name. Returns cited results.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "default": "default",
+            "description": "Collection name (= BM25 index name) to query.",
+            "type": "string"
+          },
+          "no_rerank": {
+            "default": false,
+            "description": "Skip the (optional) rerank stage even if a reranker is configured. Useful for latency-sensitive calls.",
+            "type": "boolean"
+          },
+          "query": {
+            "description": "The natural-language question to ask the knowledge hub.",
+            "type": "string"
+          },
+          "top_k": {
+            "default": 10,
+            "description": "Maximum number of results to return.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "query_knowledge_hub",
+      "output_schema": {
+        "properties": {
+          "citations": {
+            "items": {
+              "properties": {
+                "chunk_id": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "score": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string"
+                },
+                "text_excerpt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index",
+                "chunk_id",
+                "source",
+                "score",
+                "source_type",
+                "text_excerpt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "n_results": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "n_results",
+          "citations"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}
