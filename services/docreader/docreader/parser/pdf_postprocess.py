@@ -23,9 +23,14 @@ STRIP_CHART_TEXT_DEBRIS = os.environ.get("DOCREADER_PDF_STRIP_CHART_DEBRIS", "1"
 # (pymupdf emits the same placeholder silently.)
 _PDF_ARTIFACT_RE = re.compile(r"[\u00ad\u200b-\u200f\ufeff\ufffe\uffff]")
 _PDF_ARTIFACT_JOIN_RE = re.compile(r"(\w)[\u00ad\ufffe](\w)")
+# A bare all-numeric line (e.g. a table cell `12.50`, a page number, a data
+# value) is ambiguous and is NOT chart debris on its own (see
+# ``_is_chart_debris_line``). To be treated as an axis tick-label row a line
+# must visibly hold several space-separated tick values (e.g. ``0 1 2 3 4 5``)
+# or be one of the explicit chart-label patterns below.
 _CHART_DEBRIS_LINE_RE = re.compile(
     r"^(?:"
-    r"[\d\s.]+|"
+    r"[\d.]+\s+[\d.\s]+|"
     r"\d{1,2}|"
     r"\d+-layer|"
     r"iter\.\s*\(1e4\)|"
@@ -57,8 +62,17 @@ def _is_chart_debris_line(line: str) -> bool:
         return True
     if _CHART_LAYER_RE.match(t):
         return True
-    # Tick labels like "0 1 2 3 4 5 6 0"
-    if re.fullmatch(r"[\d\s.()-]+", t) and len(t) <= 24 and sum(c.isdigit() for c in t) >= 3:
+    # Tick-label rows: several space-separated numeric tokens on one line
+    # (e.g. ``0 1 2 3 4 5 6 0``). A solitary numeric/decimal token per line is
+    # ambiguous — it is just as likely to be a real table cell/value (e.g.
+    # ``12.50``) as leaked chart debris — so it is NOT rejected here; only rows
+    # that visibly contain multiple distinct tick values are stripped.
+    if (
+        re.fullmatch(r"[\d\s.()-]+", t)
+        and " " in t
+        and len(t) <= 24
+        and sum(c.isdigit() for c in t) >= 3
+    ):
         return True
     return False
 
