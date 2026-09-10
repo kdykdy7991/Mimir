@@ -131,7 +131,7 @@
       }
     },
     "query_knowledge_hub": {
-      "description": "Search an authorized SKDY knowledge base for evidence relevant to a question. Use list_collections first to identify the collection name. Returns cited results.",
+      "description": "Search an authorized SKDY knowledge base and return ranked retrieval evidence (chunks + citations). Returns NO answer — the evidence is for your own synthesis. Use list_collections first to identify the collection name.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
@@ -142,16 +142,23 @@
           },
           "no_rerank": {
             "default": false,
-            "description": "Skip the (optional) rerank stage even if a reranker is configured. Useful for latency-sensitive calls.",
+            "description": "Deprecated alias for `rerank`. Use `rerank` instead.",
             "type": "boolean"
           },
           "query": {
-            "description": "The natural-language question to ask the knowledge hub.",
+            "description": "The text to retrieve evidence for. Up to 2000 characters.",
+            "maxLength": 2000,
+            "minLength": 1,
             "type": "string"
+          },
+          "rerank": {
+            "default": true,
+            "description": "Whether to apply the optional rerank stage when one is configured. Highly recommended for precision.",
+            "type": "boolean"
           },
           "top_k": {
             "default": 10,
-            "description": "Maximum number of results to return.",
+            "description": "Maximum number of evidence results to return.",
             "maximum": 50,
             "minimum": 1,
             "type": "integer"
@@ -166,13 +173,50 @@
       "output_schema": {
         "properties": {
           "citations": {
+            "description": "Deprecated alias for `evidence`.",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "diagnostics": {
+            "properties": {
+              "degraded": {
+                "type": "boolean"
+              },
+              "reasons": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "trace_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "degraded",
+              "reasons"
+            ],
+            "type": "object"
+          },
+          "evidence": {
             "items": {
               "properties": {
                 "chunk_id": {
                   "type": "string"
                 },
-                "index": {
-                  "type": "integer"
+                "document_id": {
+                  "type": "string"
                 },
                 "page": {
                   "type": [
@@ -180,32 +224,35 @@
                     "null"
                   ]
                 },
+                "rank": {
+                  "type": "integer"
+                },
                 "score": {
                   "type": "number"
                 },
                 "source": {
                   "type": "string"
                 },
-                "source_type": {
+                "text": {
                   "type": "string"
                 },
-                "text_excerpt": {
+                "title": {
                   "type": "string"
                 }
               },
               "required": [
-                "index",
+                "rank",
                 "chunk_id",
+                "document_id",
                 "source",
-                "score",
-                "source_type",
-                "text_excerpt"
+                "text"
               ],
               "type": "object"
             },
             "type": "array"
           },
           "n_results": {
+            "description": "Deprecated alias for `count`.",
             "type": "integer"
           },
           "query": {
@@ -214,8 +261,10 @@
         },
         "required": [
           "query",
-          "n_results",
-          "citations"
+          "collection",
+          "count",
+          "evidence",
+          "diagnostics"
         ],
         "type": "object"
       }

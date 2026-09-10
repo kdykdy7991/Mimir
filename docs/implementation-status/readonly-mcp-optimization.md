@@ -213,3 +213,20 @@
   结果：`28 passed`；`MCP_REGENERATE_SNAPSHOT=1` 更新基线后正常 `3 passed`。
 - 遗留问题：`document_count` 依赖 ingestion-history DB 可用，缺失时返回 null（不伪造 0）。
 - 下一步：P2.2 增强 `query_knowledge_hub`。
+
+### P2.2 增强 `query_knowledge_hub`
+
+- 状态：done
+- 提交：`见本提交`（`feat(mcp): normalize knowledge evidence query contract`）
+- 修改文件：
+  - `src/mcp_server/tools/query_knowledge_hub.py`（改：`rerank` 为准 + `no_rerank` 兼容别名；query 长度校验 1..2000；结构化输出 `count`/`evidence`/`diagnostics`/`collection`，兼容 `n_results`/`citations`；描述去掉答/问措辞）
+  - `tests/unit/test_query_knowledge_hub.py`（改：新契约 + 兼容字段 + rerank 优先级）
+  - `tests/fixtures/mcp_contract/phase0_tool_schemas.json` + `tests/unit/test_mcp_contract_snapshot.py`（改：基线更新）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_query_knowledge_hub.py -q
+  .venv/bin/python -m pytest tests/integration/test_mcp_server.py tests/unit/test_readonly_client_query.py tests/unit/test_mcp_contract_snapshot.py -q
+  ```
+  结果：`10 passed`；`15 passed`。
+- 遗留问题：E6 多模态图片内容不再由工具直接产出（方案查询契约不含图片工具）。
+- 下一步：P2.3 get_document 演进。

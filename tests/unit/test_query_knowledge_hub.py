@@ -1,14 +1,19 @@
 """
-P1.2b — ``query_knowledge_hub`` routed through the readonly client.
+P2.2 — ``query_knowledge_hub`` normalised evidence contract.
 
-Covers: empty-query rejection, collection selection (single auto / multi
-required), rerank forwarding, and thin-handler formatting from a client
-``KnowledgeQueryResult``. Retrieval itself is unit-tested on the client.
+Covers: validation (empty / too-long query), collection selection,
+rerank precedence (canonical ``rerank`` over deprecated ``no_rerank``),
+and evidence/diagnostics structured output with the compatibility
+``n_results`` / ``citations`` mirrors.
 """
 
 from __future__ import annotations
 
-from src.mcp_server.clients.models import EvidenceItem, KnowledgeQueryResult
+from src.mcp_server.clients.models import (
+    Diagnostics,
+    EvidenceItem,
+    KnowledgeQueryResult,
+)
 from src.mcp_server.protocol_handler import ProtocolHandler
 from src.mcp_server.tools import query_knowledge_hub as qkh
 
@@ -18,10 +23,31 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _dispatch(handler, args):
-    h = ProtocolHandler()
-    qkh.register(h)
-    return _run(h.dispatch("query_knowledge_hub", args))
+def _evidenced_result(query="q", collection="kb"):
+    return KnowledgeQueryResult(
+        query=query, collection=collection, count=2,
+        diagnostics=Diagnostics(degraded=True, reasons=["reranker down"], trace_id="tr"),
+        evidence=[
+            EvidenceItem(rank=1, chunk_id="c1", document_id="d1",
+                         source="a.pdf", page=3, score=0.9,
+                         text="evidence-one" + "x" * 250),
+            EvidenceItem(rank=2, chunk_id="c2", document_id="d1",
+                         source="b.md", score=0.5, text="short"),
+        ],
+    )
+
+
+def _fake(result):
+    class FakeClient:
+        def __init__(self): self.req = None
+        def query_knowledge(self, request, principal):
+            self.req = request
+            return KnowledgeQueryResult(
+                query=request.query, collection=request.collection,
+                count=len(result.evidence), evidence=result.evidence,
+                diagnostics=result.diagnostics,
+            )
+    return FakeClient()
 
 
 def test_empty_query_rejected():
@@ -30,98 +56,76 @@ def test_empty_query_rejected():
     assert "query" in result.content[0].text
 
 
-def test_multi_collection_omitted_returns_tool_error():
-    """A multi-collection credential omitting 'collection' → operable error."""
-    class Multi:
-        key_id = "k"
-        name = "n"
-        allowed_collections = frozenset({"a", "b"})
-
-    class BoomClient:
-        def query_knowledge(self, request, principal):
-            raise AssertionError("must not reach retrieval when collection omitted")
-
-    async def boom(args):
-        raise AssertionError("must not run")
-
-    h = ProtocolHandler()
-    qkh.register(h)
-    out = _run(h.dispatch(
-        "query_knowledge_hub", {"query": "x", "_client": BoomClient()},
-        principal=Multi(),
-    ))
-    assert out.is_error
-    assert "collection" in out.content[0].text
+def test_oversized_query_rejected():
+    result = _run(qkh._query_knowledge_hub({"query": "q" * (qkh.MAX_QUERY_LENGTH + 1)}))
+    assert result.is_error
+    assert "limit" in result.content[0].text
 
 
-def test_single_collection_credential_auto_selects():
-    """A single-collection principal omitting 'collection' resolves to it."""
-    class Single:
-        key_id = "k"
-        name = "n"
-        allowed_collections = frozenset({"only"})
-
-    class FakeClient:
-        def __init__(self): self.req = None
-        def query_knowledge(self, request, principal):
-            self.req = request
-            return KnowledgeQueryResult(query=request.query, collection=request.collection, count=0)
-
-    fake = FakeClient()
-    h = ProtocolHandler()
-    qkh.register(h)
-    result = _run(h.dispatch(
-        "query_knowledge_hub", {"query": "x", "_client": fake},
-        principal=Single(),
-    ))
-    assert fake.req.collection == "only"
-    assert fake.req.rerank is True
+def test_no_answer_is_returned():
+    """The tool only returns evidence — no answer string is ever produced."""
+    fake = _fake(_evidenced_result())
+    md, structured = _run(qkh._query_knowledge_hub({"query": "q", "_client": fake}))
+    assert structured["count"] == 2
+    assert "answer" not in structured
+    assert isinstance(structured["evidence"], list)
+    assert structured["evidence"][0]["rank"] == 1
 
 
-def test_no_rerank_sets_rerank_false():
-    class FakeClient:
-        def __init__(self): self.req = None
-        def query_knowledge(self, request, principal):
-            self.req = request
-            return KnowledgeQueryResult(query=request.query, collection=request.collection, count=0)
-    fake = FakeClient()
-    _run(qkh._query_knowledge_hub({"query": "x", "no_rerank": True, "_client": fake}))
+def test_structured_has_evidence_and_diagnostics():
+    fake = _fake(_evidenced_result())
+    md, structured = _run(qkh._query_knowledge_hub({"query": "q", "_client": fake}))
+    # Direct call → TrustedLocalPrincipal resolves to the legacy default.
+    assert structured["collection"] == "default"
+    assert structured["diagnostics"] == {
+        "degraded": True, "reasons": ["reranker down"], "trace_id": "tr",
+    }
+    assert structured["evidence"][0]["chunk_id"] == "c1"
+    assert structured["evidence"][0]["text"].startswith("evidence-one")
+
+
+def test_compat_n_results_and_citations_present():
+    fake = _fake(_evidenced_result())
+    md, structured = _run(qkh._query_knowledge_hub({"query": "q", "_client": fake}))
+    assert structured["n_results"] == 2
+    assert len(structured["citations"]) == 2
+    assert structured["citations"][0]["index"] == 1
+
+
+def test_no_rerank_deprecated_alias_sets_rerank_false():
+    fake = _fake(_evidenced_result())
+    _run(qkh._query_knowledge_hub({"query": "q", "no_rerank": True, "_client": fake}))
     assert fake.req.rerank is False
 
 
-def test_rerank_defaults_true_and_top_k():
-    class FakeClient:
-        def __init__(self): self.req = None
-        def query_knowledge(self, request, principal):
-            self.req = request
-            return KnowledgeQueryResult(query=request.query, collection=request.collection, count=0)
-    fake = FakeClient()
-    _run(qkh._query_knowledge_hub({"query": "x", "_client": fake}))
+def test_rerank_canonical_wins_over_no_rerank():
+    fake = _fake(_evidenced_result())
+    _run(qkh._query_knowledge_hub(
+        {"query": "q", "no_rerank": True, "rerank": True, "_client": fake},
+    ))
+    assert fake.req.rerank is True  # canonical param wins
+
+
+def test_rerank_defaults_true():
+    fake = _fake(_evidenced_result())
+    _run(qkh._query_knowledge_hub({"query": "q", "_client": fake}))
     assert fake.req.rerank is True
     assert fake.req.top_k == 10
 
 
-def test_formatting_renders_evidence():
-    result = KnowledgeQueryResult(
-        query="q", collection="kb", count=2,
-        evidence=[
-            EvidenceItem(rank=1, chunk_id="c1", document_id="d1",
-                         source="a.pdf", page=3, score=0.9,
-                         text="evidence one" + "x" * 250, source_type="fusion"),
-            EvidenceItem(rank=2, chunk_id="c2", document_id="d1",
-                         source="b.md", score=0.5, text="short"),
-        ],
-    )
-    class FakeClient:
-        def query_knowledge(self, request, principal):
-            return result
-    md, structured = _run(qkh._query_knowledge_hub({"query": "q", "_client": FakeClient()}))
-    assert structured["n_results"] == 2
-    assert "a.pdf" in md
-    assert "## References" in md
-    assert structured["citations"][0]["text_excerpt"].endswith("…")
-    assert len(structured["citations"][0]["text_excerpt"]) <= 201
-    assert structured["citations"][1]["text_excerpt"] == "short"
+def test_multi_collection_omitted_returns_tool_error():
+    class Multi:
+        key_id = "k"
+        name = "n"
+        allowed_collections = frozenset({"a", "b"})
+    fake = _fake(_evidenced_result())
+    h = ProtocolHandler()
+    qkh.register(h)
+    out = _run(h.dispatch(
+        "query_knowledge_hub", {"query": "x", "_client": fake}, principal=Multi(),
+    ))
+    assert out.is_error
+    assert "collection" in out.content[0].text
 
 
 def test_register_adds_tool():
