@@ -9,10 +9,30 @@
 
 ## 当前定位
 
-- **当前状态**：**审核整改中（Phase 5–7 rework）**。审核结论：Phase 0–4 部分解析基础可保留，Phase 5–7 需
-  退回整改后再验收。已按审核意见逐项整改（见下方「审核意见整改记录」）；仍待：OOXML 格式保真增强、PDF
-  表格数字单元格回退修复、迁移后指标对比收敛、真实业务灰度与无回滚部署。
+- **当前状态**：**第三轮审核整改中（部署闭环批次）**。上一轮（Phase 5–7 rework）已按审核意见逐项整改并通过
+  大部分复核，但第三轮复审仍指出 3 个阻断项 + 2 个一般问题（见下方「第三轮审核意见整改记录」）：DocReader
+  容器无入口/无 PDF 运行依赖、启动 fail-fast 实为惰性 channel、指标 README 与快照不一致、CLI 白名单未随
+  Web 同步。本轮针对这些逐项补成部署闭环（容器入口/health/启动探活、镜像内 PyMuPDF、真实镜像 PDF gRPC
+  烟测、指标报告由脚本生成、CLI 从统一上传白名单派生）。
 - **未完成改动**：见“工作区状态”。
+
+---
+
+## 第三轮审核意见整改记录（部署闭环批次）
+
+> 依据第三轮复审（上一轮整改方向基本正确，但仍有 3 阻断 + 2 一般）。默认 backend 保持 legacy（代码）、
+> 生产 config/settings.yaml=docreader 不变；不推送、不删除旧 Loader；每项独立小提交 + 独立验证。
+
+| # | 审核问题 | 整改 | 状态 |
+| --- | --- | --- | --- |
+| 阻断1 | `services/docreader/Dockerfile` 无 CMD，仍保留“尚未提供服务入口”骨架注释；compose 解析 command/entrypoint 均 null，容器起来即反复重启 | 补 `CMD ["python", "-m", "docreader.main"]`（直接跑 Python，信号直达进程）；删陈旧骨架注释；Dockerfile 加 `HEALTHCHECK`（`docreader.health_check`），新增 `services/docreader/docreader/health_check.py`：等 channel READY + 真实 ListEngines + builtin engine 覆盖最低格式；docker-compose docreader 加 healthcheck、api `depends_on` 改为 `service_healthy`。 | 完成 `a8b97e5` |
+| 阻断2 | “启动期 fail-fast”实未实现：`grpc_transport.py` 仅 `grpc.insecure_channel(endpoint)` 构造惰性 channel，DocReader 不存在时 pipeline 构建仍成功，错误延迟到首次上传解析 | `DocReaderGrpcTransport.probe()`：`channel_ready_future().result(timeout)` + 真实 ListEngines + builtin engine 可用且覆盖 `MIN_READY_FORMATS`（pdf/md/markdown/txt/csv/docx/xlsx/pptx/epub/xmind/html；DOC/XLS/PPT 门控占位与 opendataloader 故意不含）。`build_document_parser_from_settings` 在构造真实 transport 后即调用 `probe()`，失败抛 `EngineUnavailableError`（启动期暴露，非首次解析）。 | 完成 `a8b97e5` |
+| 阻断3 | DocReader 镜像缺 PDF 运行依赖：`pyproject.toml` 只有 gRPC/protobuf；Dockerfile 只装本包；105 测试在宿主 .venv 跑，不能证明镜像内 PDF 可解析 | `pyproject.toml` 补 `pymupdf`（PDF builtin 后端）+ `pillow`（图片 magic 校验），镜像运行时即含 PDF 依赖；新增 `scripts/smoke_docreader_container.py` 真实镜像烟测：build→start→health ready→gRPC ReadStream 真 PDF→返回非空 Markdown/扫描页图片帧。 | 代码就绪；镜像烟测见下方命令/日志 |
+| 一般4 | 指标 README 与 JSON 快照不一致：快照 bordered/borderless/cross-page 各 174/176/545 字符，README 却写 116/118/392（行数 9/9/22 vs 实际 19/19/47）；建议比较报告由脚本生成 | 新增 `scripts/render_parsing_metrics_report.py`：直接从 baseline/after 两个 JSON 计算 delta 表并产出 `comparison.md`；修正 README 文本形状表为 174/176/545（行数 19/19/47），标注旧草稿不一致；README 引用脚本生成产物与再生成命令。 | 完成 `41311e4` |
+| 一般5 | CLI `scripts/ingest.py SUPPORTED_EXTS` 只有 pdf/md/markdown，无法枚举 DOCX/XLSX/PPTX/EPUB/XMind 等（Web 已含）；两套白名单会漂移 | 统一上传格式白名单收敛为单一来源 `src/application/services/upload_types.py::DEFAULT_UPLOAD_ALLOWED_EXTENSIONS/_MIME`；`WebAPISettings` 默认值导入它；`scripts/ingest.SUPPORTED_EXTS = tuple(sorted(...))` 派生。测试断言 CLI 白名单 == 规范化白名单且含 docreader 各格式。 | 完成 `5ea0ec9` |
+
+**本轮状态与验证**：相关单元/集成测试均绿（docreader 109、主工程相关单测、e2e test_data_ingestion 21、
+web_api 依赖 12）；`git diff --check` 干净；迁移后指标 hit_ratio=1.0（raw-text 存活，非表格结构准确率，README 已如此表述）。
 
 ---
 
