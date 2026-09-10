@@ -25,7 +25,7 @@
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
 | Phase 6 格式扩展 | **完成（审核待批）** | DOCX/CSV/XLSX/PPTX/legacy/HTML/MHTML/EPUB/XMind/图片 |
-| Phase 7 切换默认与清理旧实现 | 未开始 | |
+| Phase 7 切换默认与清理旧实现 | 前置满足：P0 基准达标+本地灰度演练完成；待批执行 | 本地灰度演练已达成 md/docx/pdf |
 
 ---
 
@@ -252,6 +252,23 @@
 - 进入 **Phase 7**（切换默认与清理旧实现）：前置条件——Phase 0 基准全部达门槛且至少一次真实业务文档灰度。
   建议：先在部署端跑一次真实 docx/xlsx 等灰度，再切换默认 backend 为 `docreader`、保留 legacy 回滚开关、清理
   重复的 PDF/Markdown Loader（迁移其图像分类与 metadata 合同）、更新 OpenAPI/README/运维检查表。
+
+---
+
+## Phase 6 → 7 本地灰度演练
+> 作为 Phase 7「至少一次真实业务文档灰度」的本地前置演练（备选：部署端真实灰度仍需一次）。
+
+### 证据（a007c73 已提交 `test_gray_run_rehearsal.py`，in-process 真实 gRPC）
+- 用真实 registry 起 DocReader 服务（所有已注册引擎），经生成 stub 走读检查 `ListEngines` 上报
+  `builtin`（含全部 Phase-6 格式）与 `opendataloader`（doc/xls/ppt 门控 unavailable+reason）。
+- 真实 `ReadStream` 解析 md / docx / pdf → 均 `SUCCESS` 且命中预期文本。
+- 另在会话中手工起了独立端口 real 服务，用主侧 `DocReaderClient`（真正 gRPC transport）连上，md/docx/pdf
+  全部解析成功 —— 证明主侧「docreader backend ↔ 独立服务」全链路可用。
+- `services/docreader/tests` 全量 88 passed（含该演练），工作区干净。
+
+### Phase 7 就绪结论
+- 默认 `backend=legacy` 已全程保留，分支始终可运行；切换 `docreader` 的代码路径已在上述灰度演练中验证可通。
+- 部署前仍建议做一次真实业务文档灰度（本环境离线，仅本地演练）再执行默认切换。
 
 ---
 
