@@ -135,3 +135,22 @@
 - 测试结果：`11 passed`；集成/快照/不变量 `16 passed`。查询输出仍为 legacy citation 结构（schema 未变）。
 - 遗留问题：E6 内联图片 `as_content_pair()` 多模态内容在当前 text+structured 路径不再由工具直接产出；Phase 2 查询输出将按方案收敛为证据契约，方案本就不含图片工具。行为基线快照仅约束 schema/空态/错误，不受影响。
 - 下一步：P1.2c 路由 `get_document_summary`。
+
+### P1.2c 路由 `get_document_summary`
+
+- 状态：done
+- 提交：`见本提交`（`refactor(mcp): route document lookup through readonly client`）
+- 修改文件：
+  - `src/mcp_server/tools/get_document_summary.py`（改：handler 变薄，调用 `client.get_document`；统一 `ResourceNotFoundError`/`AccessDeniedError` 映射）
+  - `src/mcp_server/clients/in_process.py`（补：`get_document` — 解析→授权→读 metadata）
+  - `tests/unit/test_get_document_summary.py`（改：经 fake client 测 handler）
+  - `tests/unit/test_readonly_client_document.py`（新增：client 解析/授权/读取）
+  - `tests/unit/test_mcp_readonly_invariants.py`、`tests/unit/test_mcp_contract_snapshot.py`（改：行为样例经 client）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_get_document_summary.py tests/unit/test_readonly_client_document.py tests/unit/test_mcp_readonly_invariants.py -q
+  .venv/bin/python -m pytest tests/unit/<12 个 MCP 文件> -q
+  ```
+- 测试结果：前组 `14 passed`；完整 MCP 组 `96 passed`（2 项快照修复后单独复跑为 `3 passed`）。
+- 遗留问题：越权/不存在文案尚未收敛为逐字一致（P2.3 统一）。
+- 下一步：P1.3 统一错误类型与测试。

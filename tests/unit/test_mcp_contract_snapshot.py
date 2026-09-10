@@ -107,13 +107,17 @@ def _behavior_samples(tmp_path) -> dict:
     # Empty query → known parameter error (CallToolResult.is_error=True).
     qr = _run(qkh._query_knowledge_hub({"query": "  "}))
 
-    # Not-found document → same-shape error (resolve returns None).
-    with patch.object(gds, "_resolve_doc", return_value=None):
-        gr = _run(gds._get_document_summary({
-            "doc_id": "00000000-0000-0000-0000-000000000000",
-            "_config_path": str(tmp_path / "no-such.yaml"),
-            "_data_dir": str(tmp_path),
-        }))
+    # Not-found document → same-shape error (client raises ResourceNotFound).
+    from src.mcp_server.clients.errors import ResourceNotFoundError
+
+    class NotFoundClient:
+        def get_document(self, document_id, principal):
+            raise ResourceNotFoundError("document not found")
+
+    gr = _run(gds._get_document_summary({
+        "doc_id": "00000000-0000-0000-0000-000000000000",
+        "_client": NotFoundClient(),
+    }))
 
     return {
         "list_collections_empty_state": {
