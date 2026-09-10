@@ -356,3 +356,19 @@
 
 - 状态：部分（见 Phase 5 交付说明；容器交互依赖外部 embedding/LLM 服务）
 - 说明：MCP 进程仅通过主服务内部 HTTP API 取数；隔离与容器间联需要 docker compose 全栈（依赖 vLLM embedding/LLM，基线即为外部失败）。
+
+### P4.4 独立部署与容器隔离（交付物）
+
+- 状态：部分（工件已交付；完整容器联调取决于外部 embedding/LLM 服务）
+- 提交：见本提交（`build(mcp): isolate standalone mcp runtime dependencies`）
+- 修改文件：
+  - `deploy/mcp/Dockerfile` + `deploy/mcp/requirements-mcp.txt`（仅 mcp/httpx/pydantic/pyyaml，无向量/Embedding/Reranker/解析依赖）
+  - `deploy/mcp/mcp-settings.yaml`（`rag_client_backend: http`，`rag_api_base_url` 指向主服务）
+  - `deploy/mcp/health_check.py` + `health_check.sh`（list_collections 探测 + `--expect-upstream-down`）
+  - `docker-compose.yml`（新增 `mcp` service：无 data 挂载，`depends_on api health`，HEALTHCHECK 门禁）
+  - `docs/THIRD_PARTY.md`（WeKnora 归属）
+  - `tests/unit/test_readonly_client_http.py`（增：上游中断 → 协议级异常而非空答案）
+- 验证：
+  - `docker compose config --quiet` → 有效
+  - `health_check.py --expect-upstream-down` → exit 0
+  - MCP 镜像 build：后台 `docker build -f deploy/mcp/Dockerfile -t skdy-mcp:local .`（结果见最终交付）

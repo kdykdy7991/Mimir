@@ -68,3 +68,29 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  # Standalone read-only MCP runtime (plan Phase 4 §P4.4).
+  # - No heavy RAG deps (see deploy/mcp/Dockerfile) and NO data mount:
+  #   it only calls the main service's internal read-only HTTP API.
+  # - `rag_client_backend: http` is the explicit, non-fallback backend.
+  # - HEALTHCHECK fails until the main API is reachable, so MCP never
+  #   serves from a down upstream.
+  mcp:
+    build:
+      context: .
+      dockerfile: deploy/mcp/Dockerfile
+    image: skdy-mcp:local
+    container_name: skdy-mcp
+    network_mode: host
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      MCP_INTERNAL_API_KEY: "${MCP_INTERNAL_API_KEY:-}"
+    healthcheck:
+      test: ["CMD", "./health_check.sh", "--base-url", "http://127.0.0.1:8766"]
+      interval: 30s
+      timeout: 20s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped

@@ -175,3 +175,29 @@ def test_bounded_pool_is_configured():
     # Per-instance limits cap the connection pool regardless of transport.
     assert c._limits.max_connections == 10
     assert c._limits.max_keepalive_connections == 5
+
+def test_upstream_down_surfaces_explicit_error_not_quiet_answer():
+    """中断主 API 时 MCP 返回明确的上游不可用错误（协议级异常），
+    而不是静默降级或空答案。"""
+    from src.mcp_server.protocol_handler import ProtocolHandler
+    from src.mcp_server.tools import query_knowledge_hub as qkh
+
+    class Down:
+        def query_knowledge(self, request, principal):
+            raise UpstreamUnavailableError("main API is down")
+
+    h = ProtocolHandler()
+    qkh.register(h)
+
+    import asyncio
+
+    async def _call():
+        return await h.dispatch(
+            "query_knowledge_hub", {"query": "x", "_client": Down()},
+            principal=_principal(),
+        )
+
+    # The upstream-down error is NOT swallowed into a fake answer: it
+    # surfaces as an explicit protocol-level exception.
+    with pytest.raises(UpstreamUnavailableError):
+        asyncio.run(_call())

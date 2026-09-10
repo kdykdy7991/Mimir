@@ -1,0 +1,16 @@
+# Standalone MCP runtime config — always talk to the main API over HTTP.
+# No heavy local RAG stack, no data mount (Phase 4 §P4.3/P4.4).
+mcp_server:
+  rag_client_backend: http
+  rag_api_base_url: "http://127.0.0.1:8766"   # main service (host network)
+  request_timeout_seconds: 30
+  api_key: "${MCP_INTERNAL_API_KEY}"
+
+# Shared identity so the MCP client sees the same SKDY knowledge bases.
+mcp:
+  server_name: skdy-knowledge-query
+  server_title: SKDY Knowledge Query (standalone http)
+  server_description: SKDY 知识库只读查询（经主服务内部 HTTP API）。
+  instructions: >-
+    先调用 list_collections 确认可用知识库，再用 query_knowledge_hub 检索。
+  collection_descriptions: {}
