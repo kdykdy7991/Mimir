@@ -24,7 +24,7 @@
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
-| Phase 6 格式扩展 | 未开始 | |
+| Phase 6 格式扩展（DOCX 先行） | **进行中** | DOCX 已交付（解析器/路由/白名单/MIME/样本/验收） |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
 
 ---
@@ -150,6 +150,28 @@
   父 chunk 仍保留 `vision_subchunks` metadata 供追踪。
 - **测试**：新增子分块被展开为 3 个可索引 Chunk（父 + ocr + caption）断言；全量相关 108 passed、
   batch_processor/ingestion_service 29 passed，无回归。
+
+## Phase 6 进度（进行中，逐格式交付）
+> 计划 §Phase-6 顺序：DOCX → XLSX/CSV → PPTX → DOC/XLS/PPT → TXT/HTML/MHTML → EPUB/XMind → 图片。
+> 每格式必须同时交付：解析器、依赖、格式路由、上传白名单、Magic/MIME 校验、测试样本、验收测试；
+> 禁止一次 PR 混入全部格式。Phase 0 上传/解析基准相应扩展。
+
+### D6.1 DOCX（交付，待审）
+- **解析器**：`docreader/parser/docx_parser.py` —— 依赖自由（stdlib `zipfile`+`xml.etree`，no python-docx）；
+  读 `word/document.xml`，段落 `<w:p>` → 文本、表格 `<w:tbl>` → GFM Markdown（含表头/分隔行），保持阅读顺序。
+- **格式路由**：registry 注册 `docx`→`builtin`（`parse_file`/`list_engines` 含 docx）。
+- **上传白名单/MIME**：`web_api/settings.py` 与 `application/services/upload_types.py` 的
+  allowed_extension 增 `.docx`、allowed_mime 增
+  `application/vnd.openxmlformats-officedocument.wordprocessingml.document`。
+- **Magic 校验**：解包确认为 ZIP 且含 `word/document.xml`，否则 ValueError（无效 docx 拒绝）。
+- **测试样本/验收**：`test_docx_parser.py` 内存生成样本（段落+表格）→ 4 passed；全量 docreader 63 passed；
+  上传相关 batch/web_api/collections 25 passed。
+- **依赖**：无新增（stdlib only），离线环境无需 pip。
+
+### 未完成
+- D6.2 XLSX/CSV、D6.3 PPTX、D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
+
+---
 
 ## Phase 5 审核交接（T5.4）
 > 相位 5 交付：本机 Qwen3.8 27B（OpenAI 兼容）多模态 OCR/Caption 子分块，触发条件、失败语义、索引路由。
