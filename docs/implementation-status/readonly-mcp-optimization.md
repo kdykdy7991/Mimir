@@ -321,3 +321,17 @@
   - 错误为稳定 `code` 平面 JSON（not_found/access_denied/invalid_request/upstream_*），不回传堆栈。
 - 已运行测试：`tests/unit/test_internal_mcp_api.py` → `9 passed`。
 - 遗留问题：无（容器暴露边界见 P4.4）。
+
+### P4.2 `HttpRagReadOnlyClient`
+
+- 状态：done
+- 提交：见本提交（`feat(mcp): add bounded readonly http client`）
+- 修改文件：`src/mcp_server/clients/http_client.py`（新增）、`tests/unit/test_readonly_client_http.py`（新增）
+- 要求落实：
+  - 统一 base URL；显式 connect/read/write/pool 超时；
+  - 默认验证 TLS；有界连接池（httpx.Limits）；每线程复用 Session；
+  - `X-API-Key`（内部服务凭证）走 Header 传递，credential 存于对象、绝不日志；
+  - 仅实现 4 个只读方法，无通用 `request(method, path)` 逃逸口（测试断言）；
+  - 错误映射：404→not_found、403→access_denied、400→invalid_request、5xx→upstream_unavailable、timeout→upstream_timeout、连接失败→upstream_unavailable。
+  - **WeKnora 借鉴**：base-URL + 线程本地复用 Session + Header 凭证模式，受 WeKnora `weknora_mcp_server.py` 启发；文件头已标注来源归属。
+- 已运行测试：`tests/unit/test_readonly_client_http.py` → `12 passed`。
