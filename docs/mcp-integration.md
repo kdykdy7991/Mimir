@@ -227,3 +227,57 @@ pytest tests/integration/test_mcp_http_access_control.py -v
 > 数据准备：`python scripts/ingest.py --path <pdf> --collection product-docs`（或
 > Web API 上传）。查询时的 `collection` 必须与摄取目标一致。无数据时
 > `query_knowledge_hub` 返回空/降级结果（`is_error=False`）。
+
+---
+
+## 4. Read-Only MCP 优化（weknora 迁移，见 `docs/plan-2026-09-10-weknora-readonly-mcp-optimization.md`）
+
+本节是只读优化（Phase 2–5）的增量说明；既有工具名/参数在兼容期内继续可用。
+
+### 4.1 工具面（只读，共 5 只）
+
+| 工具 | 用途 | 规范化输出 |
+|---|---|---|
+| `list_collections` | 列出已授权知识库 | `count`、`collections[]`（`name`/`description`/`document_count`/`chunk_count`） |
+| `query_knowledge_hub` | 检索**证据**（不回答案） | `count`、`evidence[]`、`diagnostics`、`collection` |
+| `get_document` | 文档元数据（`document_id`） | `document_id`、`collection`、`title`、`document_type`、`source`、`summary`、`tags`、`chunk_count` |
+| `get_document_chunks` | 稳定顺序分页读取 chunk | `page`/`page_size`/`total`/`has_next`/`chunks[]` |
+| `get_document_summary` | `get_document` 兼容别名（`doc_id`） | 与 `get_document` 一致 |
+
+新建文档/未命中统一返回 `document not found or not accessible`；上游不可用返回协议级异常（不静默降级）。
+
+### 4.2 兼容窗口（至少一个发布周期）
+
+- `get_document_summary` 工具名、`doc_id` 入参、`n_collections`、`n_results`+`citations`、`no_rerank` 均保留。
+- 自动断言见 `tests/unit/test_readonly_compat.py`。
+
+### 4.3 主服务内部只读 API（独立 MCP 使用）
+
+```
+GET  /internal/mcp/v1/collections
+POST /internal/mcp/v1/query
+GET  /internal/mcp/v1/documents/{document_id}
+GET  /internal/mcp/v1/documents/{document_id}/chunks?page=1&page_size=20
+```
+
+- 仅 GET/POST 查询语义，无变更端点；复用主服务应用服务，不复制检索实现。
+- 错误为稳定 `code` 平面 JSON，不回传堆栈。OpenAPI 标记 `internal-mcp-readonly`。
+
+### 4.4 只读后端选择
+
+```yaml
+mcp_server:
+  rag_client_backend: in_process   # in_process | http
+  rag_api_base_url: ""             # backend=http 必填
+  request_timeout_seconds: 30
+  api_key: ""
+```
+
+缺 base_url / 非法 backend → fail-fast，**无静默回退**。默认仍 `in_process`。
+
+### 4.5 独立部署
+
+`deploy/mcp/Dockerfile` 独立 MCP 镜像：不装向量/Embedding/Reranker/解析依赖，
+不挂载数据目录，仅经主服务内部只读 API 取数；`docker-compose.yml` 新增 `mcp` service
+并依赖 `api` 健康。健康门禁 `deploy/mcp/health_check.py`：主 API 不可达即失败，
+`--expect-upstream-down` 验证上游中断的显式错误。

@@ -372,3 +372,21 @@
   - `docker compose config --quiet` → 有效
   - `health_check.py --expect-upstream-down` → exit 0
   - MCP 镜像 build：后台 `docker build -f deploy/mcp/Dockerfile -t skdy-mcp:local .`（结果见最终交付）
+
+---
+
+## Phase 5：兼容、文档和交付
+
+### P5.1 兼容期规则自动测试
+
+- 状态：done
+- 提交：见本提交
+- 修改文件：`tests/unit/test_readonly_compat.py`（新增）
+- 覆盖：5 只只读工具面与无写工具；`get_document_summary` 别名注册；`doc_id` 在 get_document/get_document_chunks 均可；`count`+`n_collections`；`n_results`+`citations`+`no_rerank`→rerank。
+- 已运行测试：`tests/unit/test_readonly_compat.py` → `6 passed`。
+
+### P5.2 文档
+
+- 状态：done
+- 提交：见本提交
+- 修改文件：`docs/mcp-integration.md`（追加「4. Read-Only MCP 优化」节）、`docs/THIRD_PARTY.md`（已有，见 P4.4）、OpenAPI `internal-mcp-readonly` tag（P4.1 已加）。
