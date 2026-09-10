@@ -59,6 +59,8 @@ DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
     "text/csv",
     "application/csv",
     "text/html",
+    "application/epub+zip",
+    "application/xmind",
     "application/msword",
     "application/vnd.ms-excel",
     "application/vnd.ms-powerpoint",
@@ -82,6 +84,8 @@ DEFAULT_UPLOAD_ALLOWED_EXTENSIONS: FrozenSet[str] = frozenset({
     ".htm",
     ".mhtml",
     ".mht",
+    ".epub",
+    ".xmind",
 })
 DEFAULT_UPLOAD_MAX_BATCH_FILES = 100
 DEFAULT_UPLOAD_MAX_BATCH_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per batch

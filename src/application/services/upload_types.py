@@ -39,6 +39,7 @@ class UploadPolicy:
             ".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx",
             ".doc", ".xls", ".ppt",
             ".txt", ".html", ".htm", ".mhtml", ".mht",
+            ".epub", ".xmind",
         }),
     )
     allowed_mime: FrozenSet[str] = field(
@@ -49,6 +50,8 @@ class UploadPolicy:
             "text/csv",
             "application/csv",
             "text/html",
+            "application/epub+zip",
+            "application/xmind",
             "application/msword",
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint",
