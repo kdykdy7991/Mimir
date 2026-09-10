@@ -287,6 +287,20 @@
   回滚命令、旧 Loader 图片分类/metadata 合同迁移要点。
 - 灰度演练（a007c73，in-process 真实 gRPC md/docx/pdf SUCCESS）+ 主侧 docreader 链可达已记录。
 
+### P7.1b feat(parser): wire docreader backend into CLI and web pipeline construction
+- 早期 Phase 1 只在独立 factory 支持后端路由；运行时 CLI/Web 摄取入口实际始终走旧 `LoaderRegistry`，
+  未真正消费 `document_parser.backend`。本提交补齐这处缝隙：
+  - `src/document_parser/grpc_transport.py`：真实 gRPC transport（经 docreader 生成 stub，`_load_proto`
+    兼容 services.docreader 与 docreader 两种布局，lazy import 不污染 stub-free 单元测试）。
+  - `src/document_parser/factory.py::build_document_parser_from_settings`：按 backend 构建
+    docreader（注入或新建 grpc transport → `DocReaderClientParser`）/ legacy（loader 适配）。
+  - `scripts/ingest.py main()` 与 `src/application/engines.py::_build_pipeline`：据此切换，将
+    `DocumentParserLoader` 桥接入 pipeline loader 槽；构造失败（如服务包/proto 不可达）则回退
+    `LoaderRegistry`，保持分支始终可运行。
+- **验证**：`tests/unit/test_document_parser_grpc_transport.py`（in-process 真实 gRPC：读流+引擎列表+断连
+  ConnectionError）、factory 新用例；affected 84 passed（含 e2e/test_web_api_endpoints real-ingest 全过）；
+  `git diff --check` 干净。
+
 ### 未完成（需部署后推进）
 - P7.3 删除重复的 PDF/Markdown Loader：**前置=至少一个发布周期无回滚 + 完成一次真实业务文档灰度**。删除前
   须把旧 Loader 的 `ImageRef(is_content, classification_reason)` 合同完整并入新链路（视觉变换已按
