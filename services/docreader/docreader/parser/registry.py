@@ -79,6 +79,16 @@ def _pptx() -> BaseParser:
     return PptxParser()
 
 
+def _legacy_office() -> BaseParser:
+    from docreader.parser.legacy_office_parser import LegacyOfficeParser
+    return LegacyOfficeParser()
+
+
+def _legacy_office_available():
+    from docreader.parser.legacy_office_parser import legacy_office_available
+    return legacy_office_available()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -102,6 +112,12 @@ def _default_engines() -> None:
                         description="XLSX: OOXML worksheets to Markdown tables")
         register_engine("pptx", name="builtin", factory=_pptx,
                         description="PPTX: OOXML slides to Markdown text")
+        for fmt in ("doc", "xls", "ppt"):
+            register_engine(
+                fmt, name="opendataloader", factory=_legacy_office,
+                description="Legacy Office (OLE2) via optional local converter",
+                available=_legacy_office_available,
+            )
 
 
 def _odl_available():
