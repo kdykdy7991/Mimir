@@ -411,3 +411,7 @@
 - 提交：见本提交
 - 修复：`in_process.py` 中 `self._services` 实例属性曾遮蔽同名方法，`_document_service`/`_query_service` 调用会抛 `'NoneType' object is not callable`。方法改名 `_services_resolved()`。
 - 测试：`tests/unit/test_readonly_client_inprocess_services.py`（真实注入 services bundle，断言取回 document/query）。
+
+### 整改 B（P1 #4）：`run_server --config` 接入客户端工厂
+- 修复：`server.py` 新增 `_bootstrap_rag_client(config_path)`，在 `run_server` 内于 `build_server` 前依据 `--config` + DEFAULT_DATA 构建 `RagReadOnlyClient` 并注入默认客户端；缺失文件宽容回退 in_process；非法 backend / http 缺 base_url 启动即失败（fail-fast）。此前 `--config` 未接工厂，工具回退到 `./config/settings.yaml`。
+- 测试：`tests/unit/test_server_bootstrap_client.py`（in_process/http/非法 backend/缺 base_url/缺文件）。

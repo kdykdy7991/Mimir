@@ -208,6 +208,12 @@ async def run_server(
         "registered tools: %s", ", ".join(handler.list_names()) or "(none)",
     )
 
+    # Phase 4 §P4.3: build the RAG client from the *same* --config so the
+    # configured backend (in_process | http) drives the tools and invalid /
+    # http-without-base-url configs fail fast AT STARTUP, not on first call.
+    # A missing settings file keeps the old missing-file tolerance (defaults).
+    _bootstrap_rag_client(config_path)
+
     server = handler.build_server()
 
     if transport == "stdio":
@@ -219,6 +225,29 @@ async def run_server(
         )
     else:
         raise ValueError(f"unknown transport: {transport!r}")
+
+
+def _bootstrap_rag_client(config_path: str) -> None:
+    """Build the configured RAG client and set it as the default.
+
+    Uses the same ``--config`` that drives tool registration so backend
+    selection is honored and invalid / http-without-base-url configs fail
+    fast at startup. A missing file is tolerated (old behavior): fall back
+    to a default in-process client.
+    """
+    from src.mcp_server.clients.factory import build_readonly_client
+    from src.mcp_server.tools.common import DEFAULT_DATA, set_default_client
+
+    try:
+        client = build_readonly_client(config_path=config_path, data_dir=DEFAULT_DATA)
+    except FileNotFoundError:
+        logger.warning(
+            "settings file %s not found — using in_process default client",
+            config_path,
+        )
+        client = build_readonly_client(config_path=None, data_dir=DEFAULT_DATA)
+    set_default_client(client)
+    logger.info("rag client backend ready: %s", type(client).__name__)
 
 
 async def _run_stdio(server) -> None:
