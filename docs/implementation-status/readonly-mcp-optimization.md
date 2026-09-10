@@ -11,7 +11,7 @@
 | --- | --- | --- | --- |
 | Phase 0 | 固定基线和边界 | done | 2 |
 | Phase 1 | 建立只读 Client 边界 | done | 5 |
-| Phase 2 | 规范现有工具 | todo | — |
+| Phase 2 | 规范现有工具 | done | 3 |
 | Phase 3 | 新增文档 Chunk 分页 | todo | — |
 | Phase 4 | HTTP 解耦 | todo | — |
 | Phase 5 | 兼容、文档和交付 | todo | — |
@@ -230,3 +230,42 @@
   结果：`10 passed`；`15 passed`。
 - 遗留问题：E6 多模态图片内容不再由工具直接产出（方案查询契约不含图片工具）。
 - 下一步：P2.3 get_document 演进。
+
+### P2.3 get_document 演进（含兼容别名）
+
+- 状态：done
+- 提交：`见本提交`（`feat(mcp): add get_document compatibility handler`，别名端并入）
+- 修改文件：
+  - `src/mcp_server/tools/get_document.py`（新增：`get_document` 规范工具，`document_id` 为准 + `doc_id` 兼容别名；`get_document_summary` 共用 `_get_document_item`；统一 not-found/越权文案 `document not found or not accessible`）
+  - `src/mcp_server/tools/get_document_summary.py`（改：改为兼容别名，注册共享 handler）
+  - `src/mcp_server/server.py`（改：注册 `get_document` + `get_document_summary`）
+  - 测试：`test_get_document.py`（新增）、`test_get_document_summary.py`（改）、`test_mcp_readonly_invariants.py`（改：统一文案逐字断言）、`test_mcp_contract_snapshot.py`（改）、`tests/integration/test_mcp_server.py`（改：4 工具）
+  - `tests/fixtures/mcp_contract/phase0_tool_schemas.json`（改：基线更新）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_get_document.py tests/unit/test_get_document_summary.py tests/unit/test_mcp_readonly_invariants.py -q
+  .venv/bin/python -m pytest tests/unit/test_readonly_client_errors.py tests/unit/test_get_document.py tests/integration/test_mcp_server.py -q
+  ```
+  结果：`16 passed`；`20 passed`。
+- 遗留问题：无。
+- 下一步：Phase 2 Gate。
+
+### Phase 2 Gate 验收记录
+
+- **`list_collections` 契约规范完成**：`a93eb05`。
+- **`query_knowledge_hub` 只返回 evidence，不生成答案**：`ed9d6e6`（测试断言无 answer 字段）。
+- **`get_document` 与 `get_document_summary` 共用实现**：`tools/get_document.py::_get_document_item` + 别名注册。
+- **所有兼容字段和旧参数都有测试**：`count`/`n_collections`（P2.1）、`n_results`/`citations`/`no_rerank`/`rerank`（P2.2）、`doc_id`/`doc_type`/`source_path`（P2.3）。
+- **验证**：
+  ```bash
+  git diff --check   # 无输出
+  .venv/bin/python -m pytest tests/unit/test_protocol_handler.py tests/unit/test_list_collections.py \
+    tests/unit/test_get_document.py tests/unit/test_get_document_summary.py tests/unit/test_query_knowledge_hub.py \
+    tests/unit/test_readonly_client_contracts.py tests/unit/test_readonly_client_query.py \
+    tests/unit/test_readonly_client_document.py tests/unit/test_readonly_client_errors.py \
+    tests/unit/test_mcp_authorization.py tests/unit/test_mcp_contract_snapshot.py \
+    tests/unit/test_mcp_readonly_invariants.py tests/integration/test_mcp_server.py \
+    tests/integration/test_mcp_http_access_control.py -q
+  ```
+  结果：`114 passed`。
+- **Gate 结论**：通过，自动进入 Phase 3。

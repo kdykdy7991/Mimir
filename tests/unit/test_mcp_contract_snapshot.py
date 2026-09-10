@@ -74,7 +74,6 @@ def _behavior_samples(tmp_path) -> dict:
     """Offline, deterministic samples from the existing three tools."""
     import asyncio
 
-    from src.mcp_server.tools import get_document_summary as gds
     from src.mcp_server.tools import list_collections as lc
     from src.mcp_server.tools import query_knowledge_hub as qkh
 
@@ -107,14 +106,15 @@ def _behavior_samples(tmp_path) -> dict:
     # Empty query → known parameter error (CallToolResult.is_error=True).
     qr = _run(qkh._query_knowledge_hub({"query": "  "}))
 
-    # Not-found document → same-shape error (client raises ResourceNotFound).
+    # Not-found document → unified error (client raises ResourceNotFound).
     from src.mcp_server.clients.errors import ResourceNotFoundError
+    from src.mcp_server.tools import get_document as gd
 
     class NotFoundClient:
         def get_document(self, document_id, principal):
             raise ResourceNotFoundError("document not found")
 
-    gr = _run(gds._get_document_summary({
+    gr = _run(gd._get_document_item({
         "doc_id": "00000000-0000-0000-0000-000000000000",
         "_client": NotFoundClient(),
     }))
@@ -140,12 +140,14 @@ def _behavior_samples(tmp_path) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_registered_tool_names_are_stable_and_readonly():
-    """The read surface is exactly the baseline three tools (before the
-    Phase 2/3 additions); none is a write / chat / agent tool."""
+    """The read surface is exactly the approved tools (get_document and its
+    get_document_summary alias, list_collections, query_knowledge_hub); none
+    is a write / chat / agent tool."""
     handler = _build_handler()
     names = sorted(handler.list_names())
     assert names == [
-        "get_document_summary", "list_collections", "query_knowledge_hub",
+        "get_document", "get_document_summary", "list_collections",
+        "query_knowledge_hub",
     ]
     lowered = " ".join(names).lower()
     for word in _FORBIDDEN_WORDS:

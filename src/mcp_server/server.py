@@ -88,11 +88,16 @@ def _register_default_tools(handler: ProtocolHandler) -> None:
     from src.mcp_server.tools.list_collections import (
         register as register_list,
     )
+    from src.mcp_server.tools.get_document import (
+        register as register_document,
+    )
     from src.mcp_server.tools.get_document_summary import (
         register as register_summary,
     )
 
-    for register_fn in (register_query, register_list, register_summary):
+    for register_fn in (
+        register_query, register_list, register_document, register_summary,
+    ):
         try:
             register_fn(handler)
         except Exception as exc:  # noqa: BLE001

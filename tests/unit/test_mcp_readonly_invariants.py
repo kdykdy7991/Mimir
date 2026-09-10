@@ -201,6 +201,7 @@ def test_list_collections_reads_without_mutating(tmp_path):
 def test_get_document_summary_reads_without_mutating(tmp_path):
     """The handler reaches the store only through client.get_document (read)."""
     from src.mcp_server.clients.models import DocumentInfo
+    from src.mcp_server.tools import get_document as gd
 
     class SpyClient:
         def __init__(self): self.calls = []
@@ -211,8 +212,7 @@ def test_get_document_summary_reads_without_mutating(tmp_path):
         # No write methods exist on a client → structural read-only.
 
     client = SpyClient()
-    from src.mcp_server.tools import get_document_summary as gds
-    result = _run(gds._get_document_summary({
+    result = _run(gd._get_document_item({
         "doc_id": "10000000-0000-0000-0000-000000000000",
         "_client": client,
     }))
@@ -229,33 +229,27 @@ def test_get_document_summary_reads_without_mutating(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_forbidden_and_nonexistent_doc_return_same_error_shape(tmp_path):
-    """Both an access-denied and a not-found document return an ``is_error``
-    tool result whose message carries the same "document not found" marker —
-    the exact-string normalisation to ``document not found or not accessible``
-    is finalised in P2.3 (get_document evolution)."""
+    """An access-denied and a not-found document return the *identical*
+    unified message ``document not found or not accessible`` (P2.3)."""
     from src.mcp_server.clients.errors import (
         AccessDeniedError,
         ResourceNotFoundError,
     )
-    from src.mcp_server.tools import get_document_summary as gds
+    from src.mcp_server.tools import get_document as gd
 
     def run(exc):
         class FakeClient:
             def get_document(self, document_id, principal):
                 raise exc
-        return _run(gds._get_document_summary({
-            "doc_id": "00000000-0000-0000-0000-000000000000",
+        return _run(gd._get_document_item({
+            "document_id": "00000000-0000-0000-0000-000000000000",
             "_client": FakeClient(),
         }))
 
     not_found = run(ResourceNotFoundError("document not found"))
-    forbidden = run(AccessDeniedError("document not found or not accessible"))
-    # Both are tool-level known errors (is_error), never protocol errors.
+    forbidden = run(AccessDeniedError("denied"))
+    # Both are tool-level known errors (is_error), identical, non-revealing.
     assert not_found.is_error
     assert forbidden.is_error
-    for result in (not_found, forbidden):
-        text = result.content[0].text
-        assert "document not found" in text
-        # Never leak the target path or collection.
-        assert "/x.pdf" not in text
-        assert "  kb  " not in text
+    assert not_found.content[0].text == "document not found or not accessible"
+    assert forbidden.content[0].text == "document not found or not accessible"

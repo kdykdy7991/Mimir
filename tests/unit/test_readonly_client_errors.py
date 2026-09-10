@@ -43,14 +43,14 @@ def _dispatch_tool(args, fake_client):
 
 def test_tool_level_errors_return_is_error():
     """Invalid request errors surface as CallToolResult(is_error=True)."""
-    from src.mcp_server.tools import get_document_summary as gds
+    from src.mcp_server.tools import get_document as gd
 
     class Raiser:
         def get_document(self, document_id, principal):
             raise E.InvalidRequestError("bad document_id")
 
     import asyncio
-    result = asyncio.run(gds._get_document_summary(
+    result = asyncio.run(gd._get_document_item(
         {"doc_id": "x", "_client": Raiser()},
     ))
     assert result.is_error
