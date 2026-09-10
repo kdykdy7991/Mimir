@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -56,16 +55,13 @@ _CODE_TO_CLIENT_ERROR: dict[str, type] = {
     "not_found": ResourceNotFoundError,
     "access_denied": AccessDeniedError,
     "upstream_unavailable": UpstreamUnavailableError,
+    "upstream_timeout": UpstreamTimeoutError,
 }
-
-
-@dataclass
-class _TimeoutSpec:
-    """Explicit connect / read / write / pool timeouts (Phase 4 §P4.2)."""
-    connect: float = 5.0
-    read: float = 30.0
-    write: float = 10.0
-    pool: float = 5.0
+_STATUS_TO_CLIENT_ERROR: dict[int, type] = {
+    400: InvalidRequestError,
+    403: AccessDeniedError,
+    404: ResourceNotFoundError,
+}
 
 
 class HttpRagReadOnlyClient(RagReadOnlyClient):
@@ -81,6 +77,7 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         max_keepalive: int = 5,
         verify_tls: bool = True,
         transport: httpx.BaseTransport | None = None,
+        trust_env: bool = True,
     ) -> None:
         if not base_url:
             raise ValueError("HttpRagReadOnlyClient requires a non-empty base_url")
@@ -88,18 +85,20 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
             raise ValueError("timeout_s must be > 0")
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key  # stored, never logged
-        self._timeout = httpx.Timeout(timeout=_TimeoutSpec(
+        # Explicit connect/read/write/pool timeouts (Phase 4 §P4.2).
+        self._timeout = httpx.Timeout(
             connect=min(timeout_s, 5.0),
             read=timeout_s,
             write=min(timeout_s, 10.0),
             pool=min(timeout_s, 5.0),
-        ))
+        )
         self._limits = httpx.Limits(
             max_connections=max_connections,
             max_keepalive_connections=max_keepalive,
         )
         self._verify_tls = verify_tls
         self._transport = transport
+        self._trust_env = trust_env
         # Per-instance, per-thread reused Session (WeKnora borrow).
         self._local = threading.local()
 
@@ -120,6 +119,7 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
                 verify=self._verify_tls,
                 headers=headers,
                 transport=self._transport,
+                trust_env=self._trust_env,
             )
             self._local.session = session
         return session
@@ -142,9 +142,12 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         NOTE: this private helper is for the four read methods only; it is
         never exposed on the public read interface.
         """
+        headers = kw.get("headers")
+        if headers is None:
+            headers = {}
+            kw["headers"] = headers
         if self._api_key:
-            kw.setdefault("headers", {})
-            kw["headers"]["X-API-Key"] = self._api_key
+            headers["X-API-Key"] = self._api_key
         try:
             resp = self._session.request(method, path, **kw)
         except httpx.TimeoutException:
@@ -162,27 +165,49 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         if resp.status_code >= 400:
             code = str((payload.get("code") or "") or "")
             message = str(payload.get("message") or f"HTTP {resp.status_code}")
-            err_cls = _CODE_TO_CLIENT_ERROR.get(code)
-            if err_cls is not None and err_cls is not UpstreamUnavailableError:
-                raise err_cls(message)
-            if 500 <= resp.status_code < 600 or code == "upstream_unavailable":
-                raise UpstreamUnavailableError(message)
-            if resp.status_code == 408 or code == "timeout":
+            if code in _CODE_TO_CLIENT_ERROR:
+                raise _CODE_TO_CLIENT_ERROR[code](message)
+            status_cls = _STATUS_TO_CLIENT_ERROR.get(resp.status_code)
+            if status_cls is not None:
+                raise status_cls(message)
+            if resp.status_code in (408, 504):
                 raise UpstreamTimeoutError(message)
             raise UpstreamUnavailableError(message)
         return payload
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        return self._request("GET", path, params=params)
+    @staticmethod
+    def _scope_headers(principal) -> dict[str, str] | None:
+        """Forward only the caller's explicit collection grants.
 
-    def _post(self, path: str, json: dict[str, Any]) -> Any:
-        return self._request("POST", path, json=json)
+        A ``TrustedLocalPrincipal`` (or empty grants) sends NO scope header,
+        so the internal API can never be coerced into treating a remote
+        caller as all-collections trusted.
+        """
+        allowed = getattr(principal, "allowed_collections", None)
+        if not allowed:
+            return None
+        return {"X-MCP-Allowed-Collections": ",".join(sorted(allowed))}
+
+    def _get(
+        self, path: str, params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        return self._request("GET", path, params=params, headers=headers)
+
+    def _post(
+        self, path: str, json: dict[str, Any],
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        return self._request("POST", path, json=json, headers=headers)
 
     # ------------------------------------------------------------------
     # The four read operations.
     # ------------------------------------------------------------------
     def list_collections(self, principal) -> list[CollectionInfo]:
-        data = self._get("/internal/mcp/v1/collections")
+        data = self._get(
+            "/internal/mcp/v1/collections",
+            headers=self._scope_headers(principal),
+        )
         return [
             CollectionInfo(
                 name=str(item.get("name")),
@@ -201,7 +226,7 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
             "collection": request.collection,
             "top_k": request.top_k,
             "rerank": request.rerank,
-        })
+        }, headers=self._scope_headers(principal))
         diag = data.get("diagnostics") or {}
         evidence = []
         for item in data.get("evidence", []):
@@ -230,6 +255,7 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
     def get_document(self, document_id: str, principal) -> DocumentInfo:
         data = self._get(
             f"/internal/mcp/v1/documents/{document_id}",
+            headers=self._scope_headers(principal),
         )
         return DocumentInfo(
             document_id=data.get("document_id", document_id),
@@ -248,6 +274,7 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         data = self._get(
             f"/internal/mcp/v1/documents/{document_id}/chunks",
             {"page": int(page), "page_size": int(page_size)},
+            headers=self._scope_headers(principal),
         )
         return DocumentChunkPage(
             document_id=data.get("document_id", document_id),

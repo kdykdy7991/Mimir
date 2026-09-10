@@ -65,6 +65,8 @@ services:
     depends_on:
       docreader:
         condition: service_healthy
+    environment:
+      MCP_INTERNAL_API_KEY: "${MCP_INTERNAL_API_KEY:-}"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

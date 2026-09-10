@@ -237,4 +237,4 @@ mcp_server:
   rag_client_backend: in_process        # in_process | http
   rag_api_base_url: ""                  # backend=http 时必填
   request_timeout_seconds: 30
-  api_key: ""                           # X-API-Key / 内部服务凭证
+  api_key: "${MCP_INTERNAL_API_KEY}"    # 内部只读 API 共享凭证（backend=http 时用于鉴权；未设置即失败关闭）

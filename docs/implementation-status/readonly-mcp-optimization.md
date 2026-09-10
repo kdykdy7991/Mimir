@@ -415,3 +415,10 @@
 ### 整改 B（P1 #4）：`run_server --config` 接入客户端工厂
 - 修复：`server.py` 新增 `_bootstrap_rag_client(config_path)`，在 `run_server` 内于 `build_server` 前依据 `--config` + DEFAULT_DATA 构建 `RagReadOnlyClient` 并注入默认客户端；缺失文件宽容回退 in_process；非法 backend / http 缺 base_url 启动即失败（fail-fast）。此前 `--config` 未接工厂，工具回退到 `./config/settings.yaml`。
 - 测试：`tests/unit/test_server_bootstrap_client.py`（in_process/http/非法 backend/缺 base_url/缺文件）。
+
+### 整改 C（P0 #1/#2 + P2 #5b）：内部只读端点鉴权与隔离 + HTTP 错误映射
+- 认证（#1）：`/internal/mcp/v1` 现要求 `X-API-Key == mcp_server.api_key`（core Settings），错误 401/503；未配置 key 即拒绝（fail-closed）。记入 `docs/mcp-integration.md`。
+- 隔离（#2）：聚合端把调用方集合授权经 `X-MCP-Allowed-Collections` 转发；内部 API 据此构造受限 principal（`filter_accessible_collections` / `resolve_query_collection` 复验证）。缺该头 → deny-all；`TrustedLocalPrincipal` 跨 HTTP 永不视为全权。query 集合越权 → 稳定 403。
+- HTTP 客户端（#5b + 构造）：`upstream_timeout`/HTTP 504/408 映射 `UpstreamTimeoutError`（此前误入 UpstreamUnavailable）；`httpx.Timeout` 改显式四相；新增 `trust_env`（默认 on，可关）；session 头合并可空安全。
+- 真实部署：主服务 `api_key: ${MCP_INTERNAL_API_KEY}`，compose 对 api/mcp 同时注入共享密钥。
+- 测试：`test_internal_mcp_api.py` 重写（认证/deny-all/scope 透传/稳定错误码/OpenAPI）、新增 `test_readonly_http_e2e.py`（真实 uvicorn 全链路隔离，不泄漏受信全权）。
