@@ -91,13 +91,18 @@ class InProcessRagReadOnlyClient:
         return self._settings
 
     def _document_service(self) -> Any:
-        return self._services().document
+        return self._services_resolved().document
 
     def _query_service(self) -> Any:
-        return self._services().query
+        return self._services_resolved().query
 
-    def _services(self) -> Any:
-        """Return the injected bundle or lazily build+build the app stack."""
+    def _services_resolved(self) -> Any:
+        """Return the injected bundle or lazily build the app stack.
+
+        NOTE: named ``_services_resolved`` (not ``_services``) so the cached
+        ``self._services`` attribute cannot shadow it — a collision that made
+        first real services access raise ``'NoneType' object is not callable``.
+        """
         if self._injected_services is not None:
             return self._injected_services
         if self._services is None:

@@ -402,3 +402,12 @@
   失败（环境网络问题，非代码问题）；`docker compose config --quiet` 通过、
   `health_check.py --expect-upstream-down` exit 0。镜像构建以「受网络阻塞」记录。
 - **最终状态**：已完成 Phase 0–5 全部实现与门禁；P4.4 容器镜像构建受外部网络阻塞（工件已交付）。
+
+---
+
+## 审查整改（Review fixes）
+
+### 整改 A（P1 #3）：进程内客户端服务访问崩溃
+- 提交：见本提交
+- 修复：`in_process.py` 中 `self._services` 实例属性曾遮蔽同名方法，`_document_service`/`_query_service` 调用会抛 `'NoneType' object is not callable`。方法改名 `_services_resolved()`。
+- 测试：`tests/unit/test_readonly_client_inprocess_services.py`（真实注入 services bundle，断言取回 document/query）。
