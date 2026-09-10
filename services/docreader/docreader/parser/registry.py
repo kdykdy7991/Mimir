@@ -64,6 +64,16 @@ def _docx() -> BaseParser:
     return DocxParser()
 
 
+def _csv() -> BaseParser:
+    from docreader.parser.csv_parser import CsvParser
+    return CsvParser()
+
+
+def _xlsx() -> BaseParser:
+    from docreader.parser.xlsx_parser import XlsxParser
+    return XlsxParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -81,6 +91,10 @@ def _default_engines() -> None:
         )
         register_engine("docx", name="builtin", factory=_docx,
                         description="DOCX: OOXML paragraphs and tables to Markdown")
+        register_engine("csv", name="builtin", factory=_csv,
+                        description="CSV: rows to a Markdown table")
+        register_engine("xlsx", name="builtin", factory=_xlsx,
+                        description="XLSX: OOXML worksheets to Markdown tables")
 
 
 def _odl_available():
