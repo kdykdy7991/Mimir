@@ -79,13 +79,17 @@ def test_render_exposes_canonical_and_legacy_fields():
     assert "Doc" in md and "## Summary" in md
 
 
-def test_requiring_document_id_or_doc_id():
+def test_schema_accepts_either_document_id_or_doc_id():
     h = ProtocolHandler()
     gd.register(h)
     schema = h.get("get_document").input_schema
     assert "document_id" in schema["properties"]
     assert "doc_id" in schema["properties"]
-    assert schema["required"] == ["document_id"]
+    # No top-level required so a doc_id-only invocation is schema-valid; oneOf
+    # still guarantees at least one id.
+    assert "required" not in schema
+    assert {"required": ["document_id"]} in schema["oneOf"]
+    assert {"required": ["doc_id"]} in schema["oneOf"]
 
 
 def test_register_adds_get_document():

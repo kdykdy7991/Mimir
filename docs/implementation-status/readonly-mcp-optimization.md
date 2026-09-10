@@ -422,3 +422,7 @@
 - HTTP 客户端（#5b + 构造）：`upstream_timeout`/HTTP 504/408 映射 `UpstreamTimeoutError`（此前误入 UpstreamUnavailable）；`httpx.Timeout` 改显式四相；新增 `trust_env`（默认 on，可关）；session 头合并可空安全。
 - 真实部署：主服务 `api_key: ${MCP_INTERNAL_API_KEY}`，compose 对 api/mcp 同时注入共享密钥。
 - 测试：`test_internal_mcp_api.py` 重写（认证/deny-all/scope 透传/稳定错误码/OpenAPI）、新增 `test_readonly_http_e2e.py`（真实 uvicorn 全链路隔离，不泄漏受信全权）。
+
+### 整改 D（P2 #5a）：`get_document` doc_id-only 输入模式合法
+- 修复：移除 `get_document` 顶层 `required:["document_id"]`，仅保留 `oneOf[document_id|doc_id]`（与 `get_document_chunks` 一致），使 doc_id-only 调用在 JSON Schema 层面合法，别名得以成立。
+- 测试：`test_get_document.py` 断言无顶层 required 且 oneOf 覆盖两种 id；快照 `phase0_tool_schemas.json` 重新生成。

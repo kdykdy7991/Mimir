@@ -136,7 +136,9 @@ def register(handler: ProtocolHandler) -> None:
                     "description": "Deprecated alias for `document_id`.",
                 },
             },
-            "required": ["document_id"],
+            # Either the canonical id or the compat alias must be present (but
+            # at least one — oneOf guarantees it). NOT a top-level required on
+            # document_id, which would make a doc_id-only invocation invalid.
             "oneOf": [
                 {"required": ["document_id"]},
                 {"required": ["doc_id"]},

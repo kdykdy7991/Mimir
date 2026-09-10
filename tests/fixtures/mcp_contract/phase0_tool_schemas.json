@@ -44,9 +44,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "document_id"
-        ],
         "type": "object"
       },
       "name": "get_document",
