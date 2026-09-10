@@ -59,3 +59,31 @@ def _legacy(loader: BaseLoader | None) -> DocumentParser:
             "document_parser.backend='legacy' requires a BaseLoader; none was provided.",
         )
     return LegacyLoaderParserAdapter(loader)
+
+
+def build_document_parser_from_settings(
+    settings: DocumentParserSettings,
+    *,
+    loader: BaseLoader | None = None,
+    grpc_transport=None,
+) -> DocumentParser:
+    """Build the parser selected by ``settings.backend`` end-to-end.
+
+    For ``docreader`` this proves out the wire path: constructs a
+    :class:`DocReaderGrpcTransport` against ``settings.endpoint`` and wraps it in
+    :class:`DocReaderClient`. For ``legacy`` it wraps ``loader`` (the legacy
+    LoaderRegistry chain), keeping the old path reachable. ``grpc_transport`` may
+    be injected (tests / alternate transport).
+    """
+    if not settings.enabled:
+        return _legacy(loader)
+    if settings.backend == "docreader":
+        transport = grpc_transport or _grpc_from(settings)
+        client = DocReaderClient(transport, timeout=float(settings.request_timeout_seconds))
+        return DocReaderClientParser(client)
+    return _legacy(loader)
+
+
+def _grpc_from(settings: DocumentParserSettings):
+    from src.document_parser.grpc_transport import DocReaderGrpcTransport
+    return DocReaderGrpcTransport(settings.endpoint, timeout=float(settings.request_timeout_seconds))

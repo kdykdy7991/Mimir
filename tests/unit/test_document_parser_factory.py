@@ -12,7 +12,10 @@ from src.document_parser.adapters import LegacyLoaderParserAdapter
 from src.document_parser.client import DocReaderClient, StreamFrame
 from src.document_parser.docreader_parser import DocReaderClientParser
 from src.document_parser.errors import EngineUnavailableError
-from src.document_parser.factory import build_document_parser
+from src.document_parser.factory import (
+    build_document_parser,
+    build_document_parser_from_settings,
+)
 from src.document_parser.types import ParseRequest, ParsedDocument
 from src.core.types import Document
 from src.libs.loader.base_loader import BaseLoader
@@ -96,6 +99,32 @@ class TestBuildDocumentParser:
 
     def test_disabled_falls_back_to_legacy(self) -> None:
         parser = build_document_parser(
+            DocumentParserSettings(backend="docreader", enabled=False),
+            loader=_FakeLoader(),
+        )
+        assert isinstance(parser, LegacyLoaderParserAdapter)
+
+
+class TestBuildDocumentParserFromSettings:
+    def test_docreader_uses_injected_grpc_transport(self) -> None:
+        parser = build_document_parser_from_settings(
+            DocumentParserSettings(backend="docreader", request_timeout_seconds=9),
+            grpc_transport=_FakeTransport(),
+        )
+        assert isinstance(parser, DocReaderClientParser)
+        doc = parser.parse(
+            ParseRequest(source_path="x", file_name="a.pdf", file_type="pdf", content=b"%PDF"),
+        )
+        assert doc.markdown == "from docreader"
+
+    def test_legacy_with_loader_returns_adapter(self) -> None:
+        parser = build_document_parser_from_settings(
+            DocumentParserSettings(backend="legacy"), loader=_FakeLoader(),
+        )
+        assert isinstance(parser, LegacyLoaderParserAdapter)
+
+    def test_disabled_returns_legacy_adapter(self) -> None:
+        parser = build_document_parser_from_settings(
             DocumentParserSettings(backend="docreader", enabled=False),
             loader=_FakeLoader(),
         )

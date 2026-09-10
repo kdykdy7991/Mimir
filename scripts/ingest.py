@@ -287,6 +287,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         LLMFactory.create(settings.llm) if settings.llm else None
     )
 
+    # Phase 7: honor the document_parser.backend feature flag. When it selects
+    # ``docreader`` (the default after cut-over), bridge the unified parser into
+    # the pipeline's loader slot via DocumentParserLoader; when ``legacy`` (or,
+    # deliberately, when a grpc transport can't be built) fall back to the old
+    # LoaderRegistry by passing no document_parser.
+    document_parser = None
+    try:
+        from src.document_parser.factory import build_document_parser_from_settings
+        document_parser = build_document_parser_from_settings(settings.document_parser)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "document_parser.backend=%r not fully wired (%s) — falling back to "
+            "legacy LoaderRegistry for this run.",
+            settings.document_parser.backend, exc,
+        )
+        document_parser = None
+
     pipeline = build_pipeline(
         settings=settings,
         data_dir=args.data_dir,
@@ -295,6 +312,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         embedding=embedding,
         vector_store=vector_store,
         llm=llm,
+        document_parser=document_parser,
     )
     # Wrap the pipeline in the application service so the CLI shares the
     # same stable dependency as MCP / Streamlit / Web API (M1 thin facade).

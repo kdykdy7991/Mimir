@@ -161,6 +161,14 @@ class EngineCache:
     def _build_pipeline(self, collection: str) -> Any:
         from scripts.ingest import build_pipeline
 
+        # Phase 7: honor document_parser.backend the same way the CLI does.
+        document_parser = None
+        try:
+            from src.document_parser.factory import build_document_parser_from_settings
+            document_parser = build_document_parser_from_settings(self._settings.document_parser)
+        except Exception:  # noqa: BLE001
+            document_parser = None  # keep legacy LoaderRegistry as the fallback
+
         return build_pipeline(
             settings=self._settings,
             data_dir=self._data_dir,
@@ -172,6 +180,7 @@ class EngineCache:
             # per-collection Chroma store.
             vector_store=self._scoped_store(collection),
             llm=self._llm,
+            document_parser=document_parser,
         )
 
     def _scoped_store(self, collection: str) -> Any:
