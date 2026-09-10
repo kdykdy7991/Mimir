@@ -183,17 +183,17 @@ class TestBatchRejected:
     def test_unsupported_extension_rejected(self, tmp_path) -> None:
         svc, pipeline = _make_service(tmp_path)
         resp = svc.upload_batch(
-            items=[_item("ok.pdf"), _item("bad.txt")],
+            items=[_item("ok.pdf"), _item("bad.xyz")],
             collection="default", collection_id=uuid4(),
         )
         assert resp.accepted == 1 and resp.rejected == 1
         rejected = next(f for f in resp.files if f.status == "rejected")
-        assert rejected.filename == "bad.txt"
+        assert rejected.filename == "bad.xyz"
         assert rejected.error is not None
         assert rejected.error.code == "UNSUPPORTED_FILE_TYPE"
         assert rejected.task_id is None and rejected.document_id is None
         # rejected file never reached disk / worker
-        assert not (tmp_path / "uploads" / "default" / "bad.txt").exists()
+        assert not (tmp_path / "uploads" / "default" / "bad.xyz").exists()
         accepted = next(f for f in resp.files if f.status == "accepted")
         _wait_terminal(svc, accepted.task_id)
         assert len(pipeline.runs) == 1

@@ -38,6 +38,7 @@ class UploadPolicy:
         default_factory=lambda: frozenset({
             ".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx",
             ".doc", ".xls", ".ppt",
+            ".txt", ".html", ".htm", ".mhtml", ".mht",
         }),
     )
     allowed_mime: FrozenSet[str] = field(
@@ -47,6 +48,7 @@ class UploadPolicy:
             "text/plain",
             "text/csv",
             "application/csv",
+            "text/html",
             "application/msword",
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint",
