@@ -14,13 +14,20 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
+_KEY_ENV = "MCP_INTERNAL_API_KEY"
 
-def _load_client(base_url: str):
+
+def _load_client(base_url: str, api_key: str = ""):
     from src.mcp_server.clients.http_client import HttpRagReadOnlyClient
     from src.mcp_server.auth.context import TrustedLocalPrincipal
-    client = HttpRagReadOnlyClient(base_url=base_url, timeout_s=10.0)
+    # trust_env=False: an internal loopback probe must not inherit ambient
+    # HTTP/HTTPS/SOCKS proxy variables.
+    client = HttpRagReadOnlyClient(
+        base_url=base_url, api_key=api_key, timeout_s=10.0, trust_env=False,
+    )
     return client, TrustedLocalPrincipal()
 
 
@@ -30,11 +37,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--expect-upstream-down", action="store_true")
     args = ap.parse_args(argv)
 
-    client, principal = _load_client(args.base_url)
+    # The internal API is authenticated; read the shared service credential
+    # and pass it. Without it the probe is correctly rejected (fail-closed:
+    # 'unhealthy'), so a key MUST be injected together with deployment.
+    api_key = os.environ.get(_KEY_ENV, "") or ""
+
+    client, principal = _load_client(args.base_url, api_key)
     if args.expect_upstream_down:
         from src.mcp_server.clients.errors import UpstreamUnavailableError
         # Point at a dead port: the client must raise, not fabricate data.
-        dead, _ = _load_client(args.base_url.replace("8766", "1"))
+        dead, _ = _load_client(args.base_url.replace("8766", "1"), api_key)
         try:
             dead.list_collections(principal)
         except (UpstreamUnavailableError, Exception):
