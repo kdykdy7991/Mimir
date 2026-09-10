@@ -426,3 +426,9 @@
 ### 整改 D（P2 #5a）：`get_document` doc_id-only 输入模式合法
 - 修复：移除 `get_document` 顶层 `required:["document_id"]`，仅保留 `oneOf[document_id|doc_id]`（与 `get_document_chunks` 一致），使 doc_id-only 调用在 JSON Schema 层面合法，别名得以成立。
 - 测试：`test_get_document.py` 断言无顶层 required 且 oneOf 覆盖两种 id；快照 `phase0_tool_schemas.json` 重新生成。
+
+### 整改验收（综上）
+- 五项审查发现已全部修复并有回归测试：进程内服务访问崩溃（#3）、`--config` 接入工厂（#4）、内部 API 鉴权+隔离（#1/#2）、HTTP `upstream_timeout` 映射（#5b）、`get_document` doc_id-only 模式合法（#5a）。
+- 全链路只读 MCP 门禁：`177 passed`（含 stdio 子进程集成、HTTP 端到端隔离、内部 API 认证、快照、兼容层）；`git diff --check` 通过；工作区干净。
+- 兼容性保持：`get_document_summary`、`doc_id`、`n_collections`、`n_results`+`citations`、`no_rerank`。
+- 已知限制不变：P4.4 独立镜像构建受本环境 PyPI 网络超时（`files.pythonhosted.org`）阻塞；全量基线 41 failed/1 error 为既有外部依赖（LLM/Embedding vLLM、streamable-http /health 等）失败，非本计划回归。
