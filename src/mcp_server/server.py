@@ -241,11 +241,17 @@ def _bootstrap_rag_client(config_path: str) -> None:
     try:
         client = build_readonly_client(config_path=config_path, data_dir=DEFAULT_DATA)
     except FileNotFoundError:
+        # Tolerate a missing settings file (old behavior), but GUARANTEE an
+        # in-process default: do NOT re-enter the factory with config_path=None,
+        # which would reload ./config/settings.yaml and could pick a non-default
+        # backend. Construct the in-process client directly instead.
+        from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
+
         logger.warning(
             "settings file %s not found — using in_process default client",
             config_path,
         )
-        client = build_readonly_client(config_path=None, data_dir=DEFAULT_DATA)
+        client = InProcessRagReadOnlyClient(data_dir=DEFAULT_DATA)
     set_default_client(client)
     logger.info("rag client backend ready: %s", type(client).__name__)
 
