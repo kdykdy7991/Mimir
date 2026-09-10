@@ -74,6 +74,11 @@ def _xlsx() -> BaseParser:
     return XlsxParser()
 
 
+def _pptx() -> BaseParser:
+    from docreader.parser.pptx_parser import PptxParser
+    return PptxParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -95,6 +100,8 @@ def _default_engines() -> None:
                         description="CSV: rows to a Markdown table")
         register_engine("xlsx", name="builtin", factory=_xlsx,
                         description="XLSX: OOXML worksheets to Markdown tables")
+        register_engine("pptx", name="builtin", factory=_pptx,
+                        description="PPTX: OOXML slides to Markdown text")
 
 
 def _odl_available():
