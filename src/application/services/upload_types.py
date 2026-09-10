@@ -40,6 +40,7 @@ class UploadPolicy:
             ".doc", ".xls", ".ppt",
             ".txt", ".html", ".htm", ".mhtml", ".mht",
             ".epub", ".xmind",
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
         }),
     )
     allowed_mime: FrozenSet[str] = field(
@@ -55,6 +56,7 @@ class UploadPolicy:
             "application/msword",
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint",
+            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",

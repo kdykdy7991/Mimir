@@ -64,6 +64,7 @@ DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
     "application/msword",
     "application/vnd.ms-excel",
     "application/vnd.ms-powerpoint",
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -86,6 +87,12 @@ DEFAULT_UPLOAD_ALLOWED_EXTENSIONS: FrozenSet[str] = frozenset({
     ".mht",
     ".epub",
     ".xmind",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
 })
 DEFAULT_UPLOAD_MAX_BATCH_FILES = 100
 DEFAULT_UPLOAD_MAX_BATCH_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per batch
