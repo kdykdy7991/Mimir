@@ -9,7 +9,8 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 3+4 已完成（审核交接待批）；下一步 Phase 5 —— 本地 Qwen3.8 27B 多模态入库
+- **当前 Phase**：Phase 7 P7.1/P7.2 已交付（默认 docreader + 回滚开关 + 文档）；P7.3 删除旧 Loader 与 P7.4
+  OpenAPI/检查表留待一次真实业务灰度且≥一个发布周期无回滚后执行。
 - **未完成改动**：见“工作区状态”。
 
 ---
@@ -291,6 +292,32 @@
   须把旧 Loader 的 `ImageRef(is_content, classification_reason)` 合同完整并入新链路（视觉变换已按
   `is_content` 过滤装饰图，缺省 True）。
 - P7.4 更新 OpenAPI / 部署文档 / 运维检查表（随删除一起做）。
+
+## Phase 7 审核交接（P7.review）—— 迁移实施完成
+> WeKnora DocReader 受控迁移（Phase 0→7）实施完毕。缺省已切 `docreader`，回滚开关 `DOCUMENT_PARSER_BACKEND
+> =legacy`；删除旧 Loader 与最终 OpenAPI/检查表留待部署灰体验证后（计划门控）。
+
+### 1) 各 Phase 交付
+| Phase | 交付 |
+| --- | --- |
+| 0 | 固定样本集+基线+来源/许可+独立服务骨架 |
+| 1 | 统一契约/客户端/feature-flag/桥接 + DocReader gRPC 服务端+部署探活 |
+| 2 | PDFParser 迁移（pymupdf 后端改写）：逐页分类/多栏/去噪/扫描渲染/嵌入式图 |
+| 3+4 | 本地 OpenDataLoader 引擎 + GFM/HTML 表格规范化 + 表格感知分块（同时交付） |
+| 5 | 本地 Qwen3.8-27B 多模态 OCR/Caption 子分块（能力门+真实图探测+索引路由） |
+| 6 | 七类格式（依赖自由）：DOCX/CSV/XLSX/PPTX/legacy门控/HTML/MHTML/EPUB/XMind/图片 |
+| 7 | 默认切 docreader + env 回滚 + 文档；灰度演练（真实 gRPC md/docx/pdf SUCCESS） |
+
+### 2) 测试与结果
+- services/docreader 全量 88 passed（含多格式灰度演练）；主工程本迁移相关 65+ passed；上传相关 25 passed。
+- 既有环境失败 16 项（socks proxy / prompt 跨挂载）与基线一致，非本迁移引入。
+- 工作区干净；`git diff --check` 通过。
+
+### 3) 部署期待办（超出本离线环境）
+1. 真实业务文档灰度一次（docx/pdf/xlsx 等）并确认无回滚。
+2. P7.3 删除重复 PDF/Markdown Loader——删前并入 `is_content/classification_reason` 合同。
+3. P7.4 更新 OpenAPI、README、部署文档与运维检查表。
+4. 在线本机 VLM 端到端灰度（supports_vision 真实图探测 + 扫描页 OCR）。
 
 ---
 
