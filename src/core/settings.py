@@ -201,7 +201,7 @@ class DocumentParserSettings(BaseModel):
     defaults to ``legacy`` so nothing changes until the migration is cut over
     in Phase 7, and can be flipped back with no data migration.
     """
-    backend: str = "legacy"  # legacy | docreader
+    backend: str = "docreader"  # legacy | docreader (Phase 7: default=docreader, legacy rollback via env/DOCUMENT_PARSER_BACKEND)
     enabled: bool = True
     endpoint: str = "127.0.0.1:50051"
     request_timeout_seconds: float = 300.0
@@ -369,7 +369,15 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         config_path = Path(config_path)
 
     raw_config = _load_yaml_config(config_path)
-    return Settings(**raw_config)
+    settings = Settings(**raw_config)
+    # Phase 7 rollback switch: an operator can force the legacy Loader chain
+    # (for at least the first release cycle after cut-over) without editing YAML.
+    env_backend = os.environ.get("DOCUMENT_PARSER_BACKEND")
+    if env_backend and env_backend.lower() != settings.document_parser.backend.lower():
+        settings = settings.model_copy(
+            update={"document_parser": settings.document_parser.model_copy(update={"backend": env_backend.lower()})},
+        )
+    return settings
 
 
 def get_settings() -> Settings:

@@ -184,15 +184,16 @@ dashboard:
   refresh_interval: 5
 
 # ----------------------------------------------------------------
-# 统一文档解析（WeKnora DocReader 迁移，Phase 1）
+# 统一文档解析（WeKnora DocReader 迁移，Phase 1→Phase 7）
 #
-# backend 是迁移 Feature Flag：legacy=沿用现有 Loader 链（默认），
-# docreader=走独立 DocReader 服务。Phase 7 前默认保持 legacy，任何阶段
-# 都可单配置切回，无需数据迁移。（完整解析配置块随后续 Phase 扩展。）
+# backend 是迁移 Feature Flag：legacy=沿用现有 Loader 链，docreader=走独立
+# DocReader 服务（Phase 7 已切换为默认 docreader）。
+# 回滚开关（至少保留一个发布周期）：部署端设环境变量 DOCUMENT_PARSER_BACKEND=legacy
+# 即可切回旧 Loader 链，无需改代码/数据迁移。
 # ----------------------------------------------------------------
 document_parser:
   enabled: true
-  backend: legacy              # legacy | docreader
+  backend: docreader            # legacy | docreader（默认 docreader，回滚用环境变量）
   endpoint: 127.0.0.1:50051    # DocReader gRPC 地址（backend=docreader 时使用）
   request_timeout_seconds: 300
   max_file_bytes: 31457280     # 30 MB

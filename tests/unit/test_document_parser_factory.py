@@ -39,17 +39,23 @@ class _FakeTransport:
 
 
 class TestDocumentParserSettings:
-    def test_defaults_legacy(self) -> None:
+    def test_defaults_docreader(self) -> None:
         s = DocumentParserSettings()
-        assert s.backend == "legacy"
+        assert s.backend == "docreader"
         assert s.enabled is True
         assert s.endpoint == "127.0.0.1:50051"
 
     def test_loads_from_yaml(self) -> None:
         from src.core.settings import load_settings
         s = load_settings("config/settings.yaml")
-        assert s.document_parser.backend == "legacy"
+        assert s.document_parser.backend == "docreader"
         assert s.document_parser.endpoint == "127.0.0.1:50051"
+
+    def test_env_rollback_switch(self, monkeypatch) -> None:
+        from src.core.settings import load_settings
+        monkeypatch.setenv("DOCUMENT_PARSER_BACKEND", "legacy")
+        s = load_settings("config/settings.yaml")
+        assert s.document_parser.backend == "legacy"
 
     def test_rejects_unknown_backend(self) -> None:
         with pytest.raises(ValidationError):
