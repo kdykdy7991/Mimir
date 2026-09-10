@@ -151,6 +151,28 @@ def build_pipeline(
         settings.ingestion.metadata_enricher, llm=llm,
     )
 
+    transforms = [chunk_refiner, image_classifier]  # classify before captioning
+    if (
+        document_parser is not None
+        and llm is not None
+        and settings.ingestion.image_captioner.use_llm
+    ):
+        # Phase 5: on the docreader path the local multimodal (Qwen3.8-27B)
+        # transform produces ``image_ocr`` / ``image_caption`` sub-chunks for
+        # content images, superseding the legacy captioner. needs the image
+        # bytes the pipeline now persists (see IngestionPipeline._register_images).
+        from src.ingestion.transform.vision_ingest_transform import VisionIngestTransform
+        transforms.append(
+            VisionIngestTransform(
+                enabled=True,
+                llm=llm,
+                scanned_all_failed_is_error=True,
+            ),
+        )
+    else:
+        transforms.append(image_captioner)
+    transforms.append(metadata_enricher)
+
     sparse_encoder = SparseEncoder.from_settings(settings.sparse)
     batch = BatchProcessor(
         dense_encoder=DenseEncoder(embedding),
@@ -165,12 +187,7 @@ def build_pipeline(
     return IngestionPipeline(
         loader=loader,
         chunker=chunker,
-        transforms=[
-            chunk_refiner,
-            image_classifier,   # classify before captioning to save LLM calls
-            image_captioner,
-            metadata_enricher,
-        ],
+        transforms=transforms,
         batch_processor=batch,
         vector_upserter=upserter,
         bm25_indexer=bm25,
