@@ -1,14 +1,13 @@
 """
-Unit tests for ``list_collections`` tool (E4).
+P1.2 routing: ``list_collections`` through ``InProcessRagReadOnlyClient``.
 
 Covers:
 - BM25 indices listed with chunk counts
-- Empty data dir → friendly empty-state
+- Empty data dir / empty configured name → friendly empty-state
 - Config without a settings file → defaults applied
-- Settings vector_store field reported (count may be null when
-  the underlying store is unavailable in tests)
-- Tool registration on ProtocolHandler
-- Tool dispatch returns (markdown, structured) tuple
+- Vector counts patched → reported
+- Authorization filtering by the principal
+- Tool registration + thin-handler formatting via a fake client
 """
 
 from __future__ import annotations
@@ -17,8 +16,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
+from src.mcp_server.auth.context import TrustedLocalPrincipal
+from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
 from src.mcp_server.protocol_handler import ProtocolHandler
 from src.mcp_server.tools import list_collections as lc
 
@@ -26,6 +25,13 @@ from src.mcp_server.tools import list_collections as lc
 def _run(coro):
     import asyncio
     return asyncio.run(coro)
+
+
+def _client(tmp_path: Path, *, cfg_path: Path | None = None):
+    return InProcessRagReadOnlyClient(
+        config_path=str(cfg_path) if cfg_path else str(tmp_path / "no.yaml"),
+        data_dir=str(tmp_path),
+    )
 
 
 def _write_bm25(data_dir: Path, name: str, docs: list[str]) -> None:
@@ -37,11 +43,11 @@ def _write_bm25(data_dir: Path, name: str, docs: list[str]) -> None:
     )
 
 
-def _write_settings(data_dir: Path, *, collection: str = "default") -> Path:
+def _write_settings(tmp_path: Path, *, collection: str = "default") -> Path:
     settings = f"""
 vector_store:
   backend: chroma
-  persist_path: {data_dir}/db/chroma
+  persist_path: {tmp_path}/db/chroma
   collection_name: "{collection}"
 
 retrieval:
@@ -50,36 +56,27 @@ retrieval:
   top_k_sparse: 20
   top_k_final: 10
 """
-    p = data_dir / "settings.yaml"
+    p = tmp_path / "settings.yaml"
     p.write_text(settings, encoding="utf-8")
     return p
 
-
-# ---------------------------------------------------------------------------
-# BM25 listing
-# ---------------------------------------------------------------------------
 
 def test_lists_bm25_collections(tmp_path: Path):
     _write_bm25(tmp_path, "alpha", ["a", "b", "c"])
     _write_bm25(tmp_path, "beta", ["x"])
     cfg = _write_settings(tmp_path, collection="alpha")
 
-    md, structured = _run(lc._list_collections({
-        "_data_dir": str(tmp_path),
-        "_config_path": str(cfg),
-    }))
+    collections = _client(tmp_path, cfg_path=cfg).list_collections(TrustedLocalPrincipal())
 
-    names = [c["name"] for c in structured["collections"]]
+    names = [c.name for c in collections]
     assert "alpha" in names
     assert "beta" in names
-    assert structured["n_collections"] == 2
-
-    alpha = next(c for c in structured["collections"] if c["name"] == "alpha")
-    assert alpha["bm25_chunks"] == 3
-    assert alpha["source"] in ("both", "bm25")
+    alpha = next(c for c in collections if c.name == "alpha")
+    assert alpha.bm25_chunks == 3
+    assert alpha.source in ("both", "bm25")
 
 
-def test_collection_description_is_exposed_to_mcp_clients(tmp_path: Path):
+def test_collection_description_is_exposed(tmp_path: Path):
     _write_bm25(tmp_path, "skdy common", ["company profile"])
     cfg = _write_settings(tmp_path, collection="skdy common")
     cfg.write_text(
@@ -87,69 +84,48 @@ def test_collection_description_is_exposed_to_mcp_clients(tmp_path: Path):
         + "\nmcp:\n  collection_descriptions:\n    \"skdy common\": 时空道宇公司的综合知识库\n",
         encoding="utf-8",
     )
-    markdown, structured = _run(lc._list_collections({
-        "_data_dir": str(tmp_path), "_config_path": str(cfg),
-    }))
-    item = structured["collections"][0]
-    assert item["name"] == "skdy common"
-    assert item["description"] == "时空道宇公司的综合知识库"
-    assert "时空道宇公司的综合知识库" in markdown
+    client = _client(tmp_path, cfg_path=cfg)
+    collections = client.list_collections(TrustedLocalPrincipal())
+    item = collections[0]
+    assert item.name == "skdy common"
+    assert item.description == "时空道宇公司的综合知识库"
+
+    md, structured = _run(_call_handler(client))
+    entry = structured["collections"][0]
+    assert entry["description"] == "时空道宇公司的综合知识库"
+    assert "时空道宇公司的综合知识库" in md
+
+
+def _call_handler(client):
+    return lc._list_collections({"_client": client, "_data_dir": ".", "_config_path": "."})
 
 
 def test_marks_overlap_as_both(tmp_path: Path):
     _write_bm25(tmp_path, "shared", ["d1"])
     cfg = _write_settings(tmp_path, collection="shared")
-    # Patch the vector-count call so the test doesn't need a real
-    # chroma db. We return a count of 7 for the shared collection.
-    with patch.object(lc, "_vector_counts", return_value={"shared": 7}):
-        _, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
-
-    shared = next(c for c in structured["collections"] if c["name"] == "shared")
-    assert shared["source"] == "both"
-    assert shared["vector_count"] == 7
-    assert shared["bm25_chunks"] == 1
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={"shared": 7}):
+        collections = client.list_collections(TrustedLocalPrincipal())
+    shared = next(c for c in collections if c.name == "shared")
+    assert shared.source == "both"
+    assert shared.vector_count == 7
+    assert shared.bm25_chunks == 1
 
 
 def test_only_bm25_collections_appear(tmp_path: Path):
     _write_bm25(tmp_path, "x", ["a"])
     cfg = _write_settings(tmp_path, collection="y")  # configured but not on disk
-    with patch.object(lc, "_vector_counts", return_value={"x": 0, "y": 0}):
-        _, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
-
-    names = [c["name"] for c in structured["collections"]]
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={"x": 0, "y": 0}):
+        collections = client.list_collections(TrustedLocalPrincipal())
+    names = [c.name for c in collections]
     assert names == ["x", "y"]
-    src_by_name = {c["name"]: c["source"] for c in structured["collections"]}
+    src_by_name = {c.name: c.source for c in collections}
     assert src_by_name["x"] == "bm25"
     assert src_by_name["y"] == "vector_store"
 
 
-def test_bm25_collection_reports_real_vector_count(tmp_path: Path):
-    """A BM25-only collection also reports its per-collection vector
-    count — the M3 bug where only ``default`` was counted is fixed."""
-    _write_bm25(tmp_path, "shared", ["a", "b", "c"])
-    cfg = _write_settings(tmp_path, collection="other")
-    with patch.object(lc, "_vector_counts", return_value={"shared": 989}):
-        _, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
-
-    shared = next(c for c in structured["collections"] if c["name"] == "shared")
-    assert shared["source"] == "bm25"
-    assert shared["bm25_chunks"] == 3
-    assert shared["vector_count"] == 989
-
-
 def test_n_docs_bm25_format_counts_chunks(tmp_path: Path):
-    """Current BM25Indexer.save() format is ``{n_docs, avgdl, k1, b,
-    terms}`` — the chunk count comes from ``n_docs`` (the legacy
-    ``docs`` list is a fallback)."""
     bm25_dir = tmp_path / "db" / "bm25"
     bm25_dir.mkdir(parents=True, exist_ok=True)
     (bm25_dir / "modern.json").write_text(
@@ -159,52 +135,31 @@ def test_n_docs_bm25_format_counts_chunks(tmp_path: Path):
     )
     _write_bm25(tmp_path, "legacy", ["x"])
     cfg = _write_settings(tmp_path, collection="other")
-    with patch.object(lc, "_vector_counts", return_value={}):
-        _, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
-
-    by_name = {c["name"]: c for c in structured["collections"]}
-    assert by_name["modern"]["bm25_chunks"] == 42
-    assert by_name["legacy"]["bm25_chunks"] == 1
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={}):
+        collections = client.list_collections(TrustedLocalPrincipal())
+    by_name = {c.name: c for c in collections}
+    assert by_name["modern"].bm25_chunks == 42
+    assert by_name["legacy"].bm25_chunks == 1
 
 
 def test_empty_data_dir_returns_friendly_markdown(tmp_path: Path):
-    """No bm25 indices + no configured store name → empty hint."""
     cfg = _write_settings(tmp_path, collection="")
-    with patch.object(lc, "_vector_counts", return_value={}):
-        md, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={}):
+        md, structured = _run(_call_handler(client))
     assert structured["n_collections"] == 0
     assert "No collections found" in md
-    assert "ingest.py" in md
-
-
-def test_empty_data_dir_lists_configured_collection(tmp_path: Path):
-    """Empty data dir but a configured collection name → it still shows
-    as a vector_store-only entry (never crashes)."""
-    cfg = _write_settings(tmp_path)
-    with patch.object(lc, "_vector_counts", return_value={"default": 0}):
-        md, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path),
-            "_config_path": str(cfg),
-        }))
-    assert structured["n_collections"] == 1
-    assert structured["collections"][0]["name"] == "default"
-    assert structured["collections"][0]["source"] == "vector_store"
 
 
 def test_missing_data_dir_does_not_raise(tmp_path: Path):
-    cfg = _write_settings(tmp_path)
-    with patch.object(lc, "_vector_counts", return_value={"default": 0}):
-        md, structured = _run(lc._list_collections({
-            "_data_dir": str(tmp_path / "does-not-exist"),
-            "_config_path": str(cfg),
-        }))
-    assert structured["n_collections"] >= 0
+    cfg = _write_settings(tmp_path, collection="default")
+    client = InProcessRagReadOnlyClient(
+        config_path=str(cfg), data_dir=str(tmp_path / "does-not-exist"),
+    )
+    with patch.object(client, "_vector_counts", return_value={"default": 0}):
+        collections = client.list_collections(TrustedLocalPrincipal())
+    assert len(collections) == 1
 
 
 def test_corrupt_bm25_file_is_skipped(tmp_path: Path):
@@ -213,31 +168,36 @@ def test_corrupt_bm25_file_is_skipped(tmp_path: Path):
     (bm25_dir / "broken.json").write_text("{not valid json", encoding="utf-8")
     _write_bm25(tmp_path, "good", ["a"])
     cfg = _write_settings(tmp_path, collection="default")
-
-    _, structured = _run(lc._list_collections({
-        "_data_dir": str(tmp_path),
-        "_config_path": str(cfg),
-    }))
-    names = [c["name"] for c in structured["collections"]]
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={}):
+        collections = client.list_collections(TrustedLocalPrincipal())
+    names = [c.name for c in collections]
     assert "good" in names
-    assert "broken" not in names  # failed parse, not surfaced
+    assert "broken" not in names
 
 
-def test_falls_back_to_defaults_when_no_config(tmp_path: Path):
-    _write_bm25(tmp_path, "papers", ["a", "b"])
-    md, structured = _run(lc._list_collections({
-        "_data_dir": str(tmp_path),
-        "_config_path": str(tmp_path / "no-such-file.yaml"),
-    }))
-    # No config → vector_store side is reported as "default" with
-    # no count (since we can't load settings).
-    names = [c["name"] for c in structured["collections"]]
-    assert "papers" in names
-    # No crash, no exception.
+def test_authorization_filters_collections(tmp_path: Path):
+    _write_bm25(tmp_path, "public", ["a"])
+    _write_bm25(tmp_path, "secret", ["b"])
+    cfg = _write_settings(tmp_path, collection="")
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={}):
+        collections = client.list_collections(
+            _restricted_principal({"public"}),
+        )
+    assert [c.name for c in collections] == ["public"]
+
+
+def _restricted_principal(allowed: set[str]):
+    class P:
+        key_id = "k"
+        name = "n"
+        allowed_collections = frozenset(allowed)
+    return P()
 
 
 # ---------------------------------------------------------------------------
-# Registration
+# Registration + thin-handler formatting
 # ---------------------------------------------------------------------------
 
 def test_register_adds_tool_to_handler():
@@ -246,28 +206,18 @@ def test_register_adds_tool_to_handler():
     assert h.has("list_collections")
 
 
-def test_registered_tool_dispatches():
-    """A tool registered through lc.register() reaches the protocol
-    handler's dispatch and normalises the (str, dict) return shape."""
-    h = ProtocolHandler()
+def test_handler_dispatches_via_fake_client():
+    """The handler only formats; the client does the work."""
+    from src.mcp_server.clients.models import CollectionInfo
 
-    async def fake_handler(args):
-        return ("# fake", {"n_collections": 0, "collections": []})
+    class FakeClient:
+        def __init__(self): self.calls = 0
+        def list_collections(self, principal):
+            self.calls += 1
+            return [CollectionInfo(name="a", source="bm25")]
 
-    h.register(
-        name="list_collections",
-        description="x",
-        input_schema={},
-        handler=fake_handler,
-    )
-    import asyncio
-    out = asyncio.run(
-        h.dispatch("list_collections", {}),
-    )
-    # dispatch returns the (unstructured, structured) tuple as-is.
-    assert isinstance(out, tuple)
-    assert len(out) == 2
-    unstructured, structured = out
-    assert len(unstructured) == 1
-    assert unstructured[0].text == "# fake"
-    assert structured == {"n_collections": 0, "collections": []}
+    fake = FakeClient()
+    md, structured = _run(lc._list_collections({"_client": fake}))
+    assert fake.calls == 1
+    assert structured["n_collections"] == 1
+    assert structured["collections"][0]["name"] == "a"

@@ -97,3 +97,23 @@
 - 测试结果：`6 passed`（方法集、返回/参数注解只引用纯模型与 principal、模型默认值与兼容字段、无 MCP/Chroma/DTO 类型泄漏）。
 - 遗留问题：无。
 - 下一步：P1.2 实现 `InProcessRagReadOnlyClient` 并逐个改路由三个现有工具。
+
+### P1.2a 路由 `list_collections`
+
+- 状态：done
+- 提交：`见本提交`（`refactor(mcp): route collection listing through readonly client`）
+- 修改文件：
+  - `src/mcp_server/clients/errors.py`（新增，错误字汇 P1.3）
+  - `src/mcp_server/clients/in_process.py`（新增：`InProcessRagReadOnlyClient.list_collections`）
+  - `src/mcp_server/tools/common.py`（新增：客户端解析/缓存 + 注入）
+  - `src/mcp_server/tools/list_collections.py`（改：handler 变薄，仅调用 client + 格式化）
+  - `tests/unit/test_list_collections.py`（改：改测客户端）
+  - `tests/unit/test_mcp_contract_snapshot.py`（改：行为样例经 client 生成）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_list_collections.py tests/unit/test_mcp_contract_snapshot.py -q
+  .venv/bin/python -m pytest tests/unit/test_mcp_authorization.py tests/integration/test_mcp_server.py tests/integration/test_mcp_http_access_control.py -q
+  ```
+- 测试结果：`11 passed`；快照/不变量 `8 passed`；授权/集成 `30 passed`。输出与 Phase 0 基线一致（schema 未变）。
+- 遗留问题：`_vector_counts` 仍可能实例化 Chroma；Phase 4 独立部署（HTTP client）下消除。
+- 下一步：P1.2b 路由 `query_knowledge_hub`。

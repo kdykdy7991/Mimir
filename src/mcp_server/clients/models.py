@@ -27,6 +27,13 @@ class CollectionInfo:
     # Stats may be unavailable — never fabricate zero for an unknown count.
     document_count: int | None = None
     chunk_count: int | None = None
+    # --- Legacy presentation (pre-P2.1 list_collections normalisation) ---
+    # Retained so the Phase-1 migration output stays byte-compatible with the
+    # Phase-0 baseline; the P2.1 contract drops these internal fields.
+    source: str | None = None
+    bm25_chunks: int | None = None
+    vector_count: int | None = None
+    data_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,8 @@ class EvidenceItem:
     page: int | None = None
     score: float = 0.0
     text: str = ""
+    # Retrieval path that produced this item (dense/sparse/fusion/rerank).
+    source_type: str = "retrieval"
 
 
 @dataclass(frozen=True)
@@ -91,7 +100,7 @@ class KnowledgeQueryResult:
                 "source": item.source,
                 "page": item.page,
                 "score": item.score,
-                "source_type": "retrieval",
+                "source_type": item.source_type,
                 "text_excerpt": item.text,
             }
             for item in self.evidence

@@ -84,6 +84,9 @@ def _behavior_samples(tmp_path) -> dict:
     # Empty data dir + an explicit empty collection name → true empty-state
     # (no configured collection to fall back on). Vector counts are stubbed
     # so the sample needs no real Chroma DB.
+    from src.mcp_server.auth.context import TrustedLocalPrincipal
+    from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
+
     settings_path = tmp_path / "empty-settings.yaml"
     settings_path.write_text(
         "vector_store:\n  backend: chroma\n"
@@ -91,8 +94,12 @@ def _behavior_samples(tmp_path) -> dict:
         "  collection_name: \"\"\n",
         encoding="utf-8",
     )
-    with patch.object(lc, "_vector_counts", return_value={}):
+    empty_client = InProcessRagReadOnlyClient(
+        config_path=str(settings_path), data_dir=str(tmp_path / "nope"),
+    )
+    with patch.object(empty_client, "_vector_counts", return_value={}):
         md, structured = _run(lc._list_collections({
+            "_client": empty_client,
             "_data_dir": str(tmp_path / "nope"),
             "_config_path": str(settings_path),
         }))

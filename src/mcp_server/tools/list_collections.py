@@ -1,46 +1,30 @@
 """
 E4: ``list_collections`` tool.
 
-Lists the collections available in the data directory, with a
-small per-collection summary (chunk count, vector count, where the
-data lives).
+Lists the knowledge bases available to the current principal. The
+handler is thin: it resolves a :class:`RagReadOnlyClient`, asks for the
+authorized collections, and formats the result. All storage / vector
+store / settings access lives in the client (see P1.2).
 
-The collection set is the union of two sources:
-
-- **BM25 indices** — every ``*.json`` file under
-  ``<data_dir>/db/bm25/`` is treated as a collection (the same
-  durable marker ``DocumentManager`` uses).
-- **Vector store** — every name in the union is also counted
-  against its per-collection Chroma store via the
-  :class:`MultiCollectionVectorStore` router, so a BM25-only name
-  reports its real vector count too (M3 multi-collection).
-
-The merged result is keyed by collection name; if a collection has
-both a BM25 index and a vector store entry we mark it
-``source: "both"``.
+Phase-1 note: the output keeps the pre-normalisation legacy fields
+(``source`` / ``bm25_chunks`` / ``vector_count`` / ``data_dir``) so the
+migration is behaviour-identical; P2.1 replaces these with the canonical
+``document_count`` / ``chunk_count`` contract.
 """
 
 from __future__ import annotations
 
-import json
-import logging
-from pathlib import Path
 from typing import Any
 
-from src.core.settings import Settings, load_settings
-from src.mcp_server.protocol_handler import ProtocolHandler
-from src.mcp_server.auth.authorization import filter_accessible_collections
 from src.mcp_server.auth.context import current_principal
-
-logger = logging.getLogger(__name__)
-
+from src.mcp_server.protocol_handler import ProtocolHandler
+from src.mcp_server.tools.common import client_from_args
 
 INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {},
     "additionalProperties": False,
 }
-
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -69,153 +53,43 @@ OUTPUT_SCHEMA: dict[str, Any] = {
 }
 
 
-def _list_bm25(data_dir: str) -> dict[str, dict[str, Any]]:
-    """Return ``{collection_name: {bm25_chunks, data_dir}}`` from disk."""
-    out: dict[str, dict[str, Any]] = {}
-    bm25_dir = Path(data_dir) / "db" / "bm25"
-    if not bm25_dir.is_dir():
-        return out
-    for path in sorted(bm25_dir.glob("*.json")):
-        name = path.stem
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                payload = json.load(f)
-        except Exception as exc:  # noqa: BLE001
-            # Corrupt or unreadable file — skip, don't surface
-            # with bm25_chunks=0 (which would be misleading).
-            logger.warning(
-                "failed to read bm25 index %s: %s", path, exc,
-            )
-            continue
-        chunks = 0
-        if isinstance(payload, dict):
-            # Current BM25Indexer.save() writes ``{n_docs, avgdl, k1, b,
-            # terms}`` — the chunk count is ``n_docs``. Legacy (pre-M3)
-            # indices carried the chunks as a ``docs`` list; keep the
-            # fallback so old index files still report a real count.
-            n_docs = payload.get("n_docs")
-            if isinstance(n_docs, int):
-                chunks = n_docs
-            else:
-                docs = payload.get("docs")
-                if isinstance(docs, list):
-                    chunks = len(docs)
-        out[name] = {
-            "bm25_chunks": chunks,
-            "data_dir": str(bm25_dir),
-        }
-    return out
-
-
-def _vector_counts(settings: Settings, names: list[str]) -> dict[str, Any]:
-    """
-    Return ``{name: vector_count}`` for each collection via the
-    multi-collection router.
-
-    Real data lives in per-collection Chroma stores (one per knowledge
-    base), so counting only the configured collection — as the old
-    ``_vector_settings_info`` did — underreports everything except
-    ``default``. Each name is best-effort: an unreadable / missing
-    collection stays ``None`` rather than a misleading ``0``.
-    """
-    out: dict[str, Any] = {}
-    try:
-        from src.libs.vector_store import VectorStoreFactory
-        from src.libs.vector_store.chroma_store import chroma_collection_name
-
-        router = VectorStoreFactory.create_multi_collection(settings.vector_store)
-        # Only count collections that already exist in Chroma. Calling
-        # ``count()`` on a missing name would *create* an empty collection
-        # via ``get_or_create_collection`` — a listing tool shouldn't
-        # mutate the store.
-        existing: set[str] = set()
-        client = getattr(router, "_client", None)
-        if client is not None:
-            try:
-                existing = {c.name for c in client.list_collections()}
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("chroma list_collections failed: %s", exc)
-        for name in names:
-            if chroma_collection_name(name) not in existing:
-                out[name] = None
-                continue
-            try:
-                out[name] = int(router.count(collection=name))
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "vector count unavailable for %s: %s", name, exc,
-                )
-                out[name] = None
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("multi-collection vector store unavailable: %s", exc)
-    return out
-
-
-async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    config_path = args.get("_config_path") or "./config/settings.yaml"
-    data_dir = args.get("_data_dir") or "./data"
-
-    p = Path(config_path)
-    settings = load_settings(str(p)) if p.is_file() else Settings()
-
-    bm25 = _list_bm25(data_dir)
-    configured = settings.vector_store.collection_name
-    # Every known collection = BM25 index files ∪ the configured store name.
-    names = sorted(set(bm25) | ({configured} if configured else set()))
-    names = filter_accessible_collections(current_principal(), names)
-    counts = _vector_counts(settings, names)
-
-    chroma_dir = str(Path(data_dir) / "db" / "chroma")
-    merged: dict[str, dict[str, Any]] = {}
-    for name in names:
-        in_bm25 = name in bm25
-        is_configured = name == configured
-        if in_bm25 and is_configured:
-            source = "both"
-        elif in_bm25:
-            source = "bm25"
-        else:
-            source = "vector_store"
-        description = settings.mcp.collection_descriptions.get(name)
-        entry: dict[str, Any] = {
-            "name": name,
-            "source": source,
-            "bm25_chunks": None,
-            "vector_count": counts.get(name),
-            "data_dir": chroma_dir,
-            "description": description,
-        }
-        if in_bm25:
-            entry["bm25_chunks"] = bm25[name]["bm25_chunks"]
-            entry["data_dir"] = f"{bm25[name]['data_dir']} + {chroma_dir}"
-        merged[name] = entry
-
-    collections = list(merged.values())
-    # Stable order: alphabetical by name.
-    collections.sort(key=lambda c: c["name"])
-
+def _render(collections) -> tuple[str, dict[str, Any]]:
     md_lines = [f"# Collections ({len(collections)})", ""]
     for c in collections:
-        bits = [f"**{c['name']}**", f"source: {c['source']}"]
-        if c.get("description"):
-            bits.insert(1, c["description"])
-        if c.get("bm25_chunks") is not None:
-            bits.append(f"bm25: {c['bm25_chunks']} chunks")
-        if c.get("vector_count") is not None:
-            bits.append(f"vectors: {c['vector_count']}")
+        bits = [f"**{c.name}**", f"source: {c.source}"]
+        if c.description:
+            bits.insert(1, c.description)
+        if c.bm25_chunks is not None:
+            bits.append(f"bm25: {c.bm25_chunks} chunks")
+        if c.vector_count is not None:
+            bits.append(f"vectors: {c.vector_count}")
         md_lines.append("- " + " · ".join(bits))
     if not collections:
         md_lines.append(
             "_No collections found. Run `python scripts/ingest.py "
-            "--path <pdf> --collection <name>` to create one._"
+            "--path <pdf> --collection <name>` to create one._",
         )
-    markdown = "\n".join(md_lines)
-
     structured = {
         "n_collections": len(collections),
-        "collections": collections,
+        "collections": [
+            {
+                "name": c.name,
+                "source": c.source or "",
+                "bm25_chunks": c.bm25_chunks,
+                "vector_count": c.vector_count,
+                "data_dir": c.data_dir or "",
+                "description": c.description,
+            }
+            for c in collections
+        ],
     }
-    return markdown, structured
+    return "\n".join(md_lines), structured
+
+
+async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    client = client_from_args(args)
+    collections = client.list_collections(current_principal())
+    return _render(collections)
 
 
 def register(handler: ProtocolHandler) -> None:
