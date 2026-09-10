@@ -10,7 +10,7 @@
 # ----------------------------------------------------------------
 llm:
   provider: openai             # openai | deepseek | minimax | mimo | vllm | ollama
-  model: Qwen3.6-35B-A3B-NVFP4  # 本地 vLLM 服务的模型 id（OpenAI 兼容 API）
+  model: Qwen3.8-27B            # 本地唯一模型：Qwen3.8-27B OpenAI 兼容 vLLM（支持视觉）
   temperature: 0.0
   max_tokens: 4096
   api_key: "not-needed"        # 本地服务不校验；OpenAI 云请用 ${OPENAI_API_KEY}

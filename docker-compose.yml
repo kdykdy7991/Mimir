@@ -15,24 +15,25 @@
 #   `--workers N`（N>1）启动，直到引入跨进程锁（见 README「并发与部署」）。
 
 services:
-  api:
-    build: .
-    image: skdy-rag-server:local
-    container_name: skdy-rag-api
-    network_mode: host
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-
-  # 可选 DocReader 解析服务（WeKnora 迁移）。仅当 config/settings.yaml
-  # document_parser.backend: docreader 时才需要。默认 profile 不启动：
-  #   docker compose --profile docreader up -d
-  # 主服务默认 backend=legacy，未启用 DocReader 时完全不受影响，可随时切回。
+  # DocReader 解析服务（WeKnora 迁移）。config/settings.yaml 的
+  # document_parser.backend 默认已是 docreader，故本服务默认随 compose 启动并
+  # 作为 api 的依赖。若显式回滚到 legacy（DOCUMENT_PARSER_BACKEND=legacy 或改
+  # yaml），可停用本服务： docker compose up -d --scale docreader=0
   docreader:
-    profiles: ["docreader"]
     build: ./services/docreader
     image: skdy-docreader:local
     container_name: skdy-docreader
     ports:
       - "50051:50051"
+    restart: unless-stopped
+
+  api:
+    build: .
+    image: skdy-rag-server:local
+    container_name: skdy-rag-api
+    network_mode: host
+    depends_on:
+      - docreader
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
