@@ -28,14 +28,17 @@
 | 2 | 多模态 VisionIngestTransform 未进生产 pipeline | docreader 路径+LLM+视觉开关下装配进 transforms（取代旧 captioner），补齐 OCR/Caption 子分块链路。 | 完成 `1d9b854` |
 | 3 | DocReader 图片字节被丢弃（adapters path=filename，无 image_persistence） | ImageRef 增 `data`/`mime_type`；适配器携带字节；`IngestionPipeline._register_images` 落盘 ImageStorage 并把 path 改写为真实文件、分块前清除内联字节。 | 完成 `4c56bc5` |
 | 4 | ZIP 类格式缺安全限制（zip bomb） | `zip_safe.py` 四重限制（数量/单文件/总大小/压缩比）接入 DOCX/XLSX/PPTX/EPUB/XMind。 | 完成 `53037ab` |
-| 5 | DOC/XLS/PPT 实际不可用却列为“已交付” | **修正为门控占位**（非交付）：`legacy_office_parser` 不可用时明确拒绝、绝无假成功；本环境无 OLE2 转换器；部署端装转换器后再启用。见 Phase 6 表格注记。 | 修正中 |
-| 6 | Phase 6 为精简重实现，缺阅读顺序/结构保真 | OOXML/EPUB 保真增强（EPUB spine、XLSX 工作表顺序/名称/合并单元格/缓存公式、DOCX 标题层级/粗斜体/合并单元格/超链接、PPTX 表格/备注）。 | 子代理进行中 |
-| 7 | Phase 7 前置（迁移后指标快照、真实业务灰度） | 迁移后指标快照 + 基线对比已产出（`after-2026-09-10.json`，真实执行）；真实业务灰度需部署。**快照发现 PDF 表格数字单元格回退**（见下）。 | 指标完成；灰度待部署 |
+| 5 | DOC/XLS/PPT 实际不可用却列为“已交付” | **修正为门控占位**（非交付）：`legacy_office_parser` 不可用时明确拒绝、绝无假成功；本环境无 OLE2 转换器；部署端装转换器后再启用。已在本文件 Phase 6 表格/D6.4 更正在案。 | 完成 `427fb02` |
+| 6 | Phase 6 为精简重实现，缺阅读顺序/结构保真 | OOXML/EPUB 保真增强：EPUB spine 阅读序；XLSX 工作表顺序/名称/合并单元格/布尔/公式缓存值；DOCX 标题层级/粗斜体/超链接/合并单元格；PPTX 表格+备注。新增 5 测试。 | 完成 `c5c2bc8`,`894061d`,`f450095`,`7db18dc` |
+| 7 | Phase 7 前置（迁移后指标快照、真实业务灰度） | 迁移后指标快照 + 基线对比已产出（`after-2026-09-10.json`，真实执行，已复测 hit_ratio=1.0）；真实业务灰度需部署。 | 快照完成；灰度待部署 |
+| 7b | （快照发现）PDF 布局重建丢弃表格数字单元格 | 根因在 `pdf_postprocess.strip_chart_text_debris` 过度清洗纯数字列（chart 刻度误判）；收紧判定（须多 token 才算刻度），纯数字单元格保留。freefixtures 复测 hit_ratio=1.0。 | 完成 `58a7bd8` |
 | 8 | docker compose 默认不启 docreader、注释与实际不符 | docreader 改为 compose 默认服务并 `depends_on` api；删旧“默认 legacy”注释。 | 完成 `b57e76e` |
 | 9 | 配置模型非 Qwen3.8-27B、保留多套 VLM 能力探测名单 | config `llm.model=Qwen3.8-27B`；`LLMSettings.supports_vision`（默认 True）取代 `VISION_MODELS` 名单驱动 capabilities。 | 完成 `7f5612e` |
 
-**迁移后快照发现的真实缺陷**：builtin PDF 布局重建丢弃表格数字单元格（bordered/borderless/cross_page 三例
-hit_ratio 1.0→~0.6，而 raw pymupdf 文本含这些值）——Phase 3/4 表格感知需兜住。修复在 `pdf_layout` 进行中。
+**迁移后快照发现并已修复的真实缺陷**：builtin PDF 布局重建一度丢弃表格数字单元格（bordered/borderless/
+cross_page 三例 hit_ratio 1.0→~0.6），raw pymupdf 文本本含这些值。根因在 `pdf_postprocess`
+`strip_chart_text_debris` 把连续纯数字列误判为图表刻度而整体清除；已将该判定收紧为“须多 token 的刻度行”，
+纯数字单元格保留。修复后三例 hit_ratio 复测 = 1.0（见 `58a7bd8`），迁移后快照也据此回正。
 
 ---
 
@@ -49,7 +52,7 @@ hit_ratio 1.0→~0.6，而 raw pymupdf 文本含这些值）——Phase 3/4 表�
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
-| Phase 6 格式扩展 | **整改中**（审核后回退整改） | DOCX/CSV/XLSX/PPTX/HTML/MHTML/EPUB/XMind/图片 已交付；legacy DOC/XLS/PPT 为**门控占位（非交付）**；OOXML/EPUB 保真增强进行中 |
+| Phase 6 格式扩展 | **整改中（保真增强已交付，待整体复核）** | DOCX/CSV/XLSX/PPTX/HTML/MHTML/EPUB/XMind/图片 已交付；legacy DOC/XLS/PPT 为**门控占位（非交付）**；OOXML/EPUB 保真增强完成（EPUB spine/XLSX 顺序/合并/公式缓存/DOCX 层级/粗斜体/超链接/合并单元格/PPTX 表格/备注） |
 | Phase 7 切换默认与清理旧实现 | **进行中**（P7.1 已提交：切换默认+回滚开关） | 删除旧 Loader 留待无回滚后 |
 
 ---

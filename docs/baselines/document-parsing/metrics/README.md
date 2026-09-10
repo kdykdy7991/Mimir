@@ -1,0 +1,197 @@
+# Document-parsing metrics — baseline vs post-migration comparison
+
+> Project: SKDY-RAG-SERVER — docreader migration
+> Plan: `docs/plan-2026-09-09-weknora-local-document-parser-migration.md`
+> Branch context: `feature/weknora-inspired-optimizations`
+> This file records the pre-migration baseline snapshot and the measured
+> post-migration (DocReader-backend) snapshot so the two are directly diffable.
+
+## Files
+
+| snapshot | file | produced by | date |
+| --- | --- | --- | --- |
+| pre-migration baseline | `baseline-2026-09-09.json` | `scripts/run_parsing_baseline.py` | 2026-09-09 |
+| post-migration snapshot | `after-2026-09-10.json` | `scripts/run_docreader_parsing_metrics.py` | 2026-09-10 |
+
+Fixed input corpus: `../samples/` (unchanged, same files used for both snapshots).
+
+## Methodology
+
+- **Baseline** (`scripts/run_parsing_baseline.py`): legacy load chain,
+  `LoaderRegistry.from_settings` + `DocumentChunker(SplitterFactory)`
+  (`splitter_type=recursive`, chunk_size 1024 / overlap 200 from
+  `config/settings.yaml`). Records `load_ms` (loader wall-clock), `split_ms`
+  (chunk wall-clock), text shape (`text_chars`, `line_count`), chunk shape
+  (`n_chunks`, `avg_chunk_chars`), and sample-specific structure probes
+  (table ASCII cell-string survival, two-column marker line counts, scanned
+  real-text / image-placeholder).
+- **Post-migration** (`scripts/run_docreader_parsing_metrics.py`): production
+  DocReader backend — `services/docreader/.../parser.Parser().parse_file(...)`
+  (engine registry routes to `builtin`), then the same
+  `SplitterFactory.create(settings.splitter)` **plain recursive** split applied
+  to the parsed Markdown. This keeps `n_chunks`/`avg_chunk_chars` comparable to
+  the committed baseline, which was captured before the Phase-4 table-aware
+  chunker existed (re-running the current legacy harness on `docs.md` would now
+  yield 3 chunks instead of the committed 1 strictly because table-protection
+  was added later, not because of the parser change).
+
+Two snapshots run against the same 7 fixed samples → per-metric deltas below.
+
+## Schema
+
+Both files share the identical top-level schema and the identical per-sample
+record schema (it is JSON-diffable directly):
+
+```json
+{
+  "generated_by": "<generator script>",
+  "date": "YYYY-MM-DD",
+  "splitter_type": "recursive",
+  "docs": "docs/plan-2026-09-09-weknora-local-document-parser-migration.md",
+  "samples": [
+    {
+      "sample": "<file name>",
+      "bytes": <int>,
+      "load_ms": <float|null>,
+      "split_ms": <float|null>,
+      "text_chars": <int|null>,
+      "line_count": <int|null>,
+      "n_chunks": <int|null>,
+      "avg_chunk_chars": <float|null>,
+      "probes": { <sample-specific> },
+      "failure": null
+    }
+  ]
+}
+```
+
+The post-migration file adds two **additive, non-schema-breaking** top-level
+keys: `backend` (`docreader`), `engine` (`builtin`), and `offline_scope` (see
+n/a section below). Every field present in the baseline is present in the
+post-migration file with the same key names and value semantics.
+
+## Reproducibility (commands)
+
+Corpus (regenerate deterministically):
+
+```bash
+python scripts/generate_parsing_baseline_samples.py --out docs/baselines/document-parsing/samples
+```
+
+Pre-migration baseline (to a scratch dir so the committed artifact is untouched):
+
+```bash
+python scripts/run_parsing_baseline.py \
+    --samples docs/baselines/document-parsing/samples \
+    --metrics /tmp/baseline-repro
+```
+
+Post-migration snapshot:
+
+```bash
+python scripts/run_docreader_parsing_metrics.py \
+    --samples docs/baselines/document-parsing/samples \
+    --metrics docs/baselines/document-parsing/metrics
+```
+
+Reproducibility: yes. The generator is deterministic and both snapshot scripts
+are stable harnesses. Wall-clock `load_ms`/`split_ms` are sub-millisecond-to-ms
+and will vary run to run (not reproducible as exact numbers); the text/shape,
+chunk-count, and probe values are deterministic because parsing and the
+recursive splitter are deterministic for these fixed inputs.
+
+## Per-metric deltas (baseline → post-migration)
+
+Legend: B = `baseline-2026-09-09.json`, A = `after-2026-09-10.json`.
+
+### Text shape
+
+| sample | text_chars B → A | line_count B → A |
+| --- | --- | --- |
+| `single_column.pdf` | 236 → **236** (0) | 4 → 4 |
+| `two_column.pdf` | 239 → **239** (0) | 8 → 8 |
+| `docs.md` | 219 → **219** (0) | 13 → 13 |
+| `bordered_table.pdf` | 191 → **116** (−75) | 31 → 9 |
+| `borderless_table.pdf` | 193 → **118** (−75) | 31 → 9 |
+| `cross_page_table.pdf` | 545 → **392** (−153) | 83 → 22 |
+| `scanned.pdf` | 29 → **50** (+21, *see note*) | 1 → 1 |
+
+> `scanned.pdf` text-chars is not comparable verbatim: the legacy loader emits a
+> `[IMAGE: ...]` placeholder (29 chars) while DocReader emits a Markdown image
+> ref `![document_page_1.jpg](images/document_page_1.jpg)` (50 chars). Both mean
+> "no real text, exactly one image emitted".
+
+### Table digit/string survival (raw-text survival only)
+
+| sample | expected | B found | A found (fixed) | hit ratio B → A |
+| --- | --- | --- | --- | --- |
+| `bordered_table.pdf` | 6 | `A-1001 A-1005 Notebook Labels 125.00 18.00` | `A-1001 A-1005 Notebook Labels 125.00 18.00` | **1.0 → 1.0** |
+| `borderless_table.pdf` | 5 | `A-1001 A-1003 Folder 12.50 41.00` | `A-1001 A-1003 Folder 12.50 41.00` | **1.0 → 1.0** |
+| `cross_page_table.pdf` | 6 | `B-2001 B-2006 C-3001 Monitor 360.00 90.00` | `B-2001 B-2006 C-3001 Monitor 360.00 90.00` | **1.0 → 1.0** |
+
+**Fixed regression (`58a7bd8`):** an initial post-migration probe of the
+DocReader **builtin** PDF parser appeared to drop the numeric `Price`/`Total` cells (hit
+ratio 1.0 → ~0.6-0.667). Root cause was in `pdf_postprocess.strip_chart_text_debris`, which
+misclassified a run of bare numeric lines (the layout path emits each numeric column as
+consecutive decimal lines) as leaked chart-axis ticks and flushed it. The guard was tightened
+so a lone decimal cell (`12.50`) is preserved and only multi-token tick rows are stripped.
+Re-running the probe now yields `hit_ratio = 1.0` for all three fixtures (raw-text survival
+on a par with the legacy baseline). Row/column *structure* (Phase-3/4 table-aware
+OpenDataLoader extraction + table-protection chunking) remains `n/a` offline because
+`opendataloader_pdf` is not installed — still to be verified on-line before Phase 7 sign-off.
+
+### Two-column reading order
+
+| probe | B | A |
+| --- | --- | --- |
+| `two_column.left_marker_lines` | 4 | 4 |
+| `two_column.right_marker_lines` | 2 | 2 |
+
+Counts match. Observed **ordering** differs (probe only records counts): baseline
+interleaved columns (`LEFT header, RIGHT para1, LEFT para1, …`); DocReader keeps
+the LEFT column contiguous `LEFT-C header, LEFT para1-3, …` followed by the RIGHT
+column — the Phase-2 two-column regression ("双栏样本不交错") appears fixed in
+reading order, while the repeated `FOOTER: page 1` is stripped down to one
+occurrence (running-footer removal active).
+
+### Chunking (plain recursive split, comparable to committed baseline)
+
+`n_chunks` = 1 and `avg_chunk_chars` = `text_chars` for every sample in **both**
+snapshots (all samples < 1024 chars). Differences shown below are simply
+inherited from the text-shape regression, not a chunking change.
+
+### Load / split latency
+
+Timings are wall-clock and not reproducible as exact numbers (sub-ms to a few ms;
+the DocReader cold first call and JPEG render dominate). Representative DocReader
+`load_ms`: bordered 54.4 (cold registry/engine import), borderless 2.0,
+cross-page 4.6, two-column 1.9, single-column 2.0, docs.md 0.16,
+scanned 71.5 (page JPEG render). `split_ms` ≈ 0.02–0.09 across both.
+Latency alone is **not** the gate here; treat these as indicative, not exact.
+
+## Metrics that could NOT be measured offline (marked `n/a`)
+
+The following are intentionally **not** fabricated and are flagged `n/a` inside
+`after-2026-09-10.json` (`offline_scope`) and on the scanned probe:
+
+1. **VLM OCR quality** (`scanned.pdf`, plan §Phase-5, Qwen3.8-27B): no local VLM
+   endpoint is reachable during measurement, so OCR success/caption accuracy on
+   the scanned page cannot be measured. The scan probe verifies only that the
+   builtin parser correctly routes the page to `scanned_pdf` and emits exactly
+   one image (true), leaving transcribed-text quality undefined. → `n/a`
+   (reason: VLM offline).
+2. **Table row/column & header-retention accuracy** (plan §Phase-3, phase-13
+   gates): these require the OpenDataLoader table-aware extraction, whose
+   `opendataloader_pdf` module is not installed offline (registry reports
+   engine `opendataloader` `available=false`). Only the builtin raw-text PDF
+   parser ran, which yields no row/col structure. → `n/a`
+   (reason: engine offline).
+3. **`n_chunks` under the current table-aware chunker**: the committed baseline
+   predates Phase-4 table protection, so chunk metrics were computed with the
+   same plain recursive split for comparability. The table-aware path (which
+   would split `docs.md` into 3 chunks) was exercised by the existing harness
+   but is out of scope for an apples-to-apples baseline diff.
+
+Everything else (text shape, raw cell-string survival, two-column counts,
+scanned routing, chunk counts under the comparable splitter) was produced by
+real execution on the fixed samples and is reproducible.

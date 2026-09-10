@@ -1,0 +1,158 @@
+{
+  "generated_by": "scripts/run_docreader_parsing_metrics.py",
+  "date": "2026-09-10",
+  "splitter_type": "recursive",
+  "docs": "docs/plan-2026-09-09-weknora-local-document-parser-migration.md",
+  "backend": "docreader",
+  "engine": "builtin",
+  "offline_scope": {
+    "vision_ocr": {
+      "status": "n/a",
+      "reason": "no local VLM (Qwen3.8-27B) endpoint reachable during measurement",
+      "affected_probes": [
+        "scanned/vision_ocr",
+        "table row/col & header metrics"
+      ]
+    },
+    "opendataloader": {
+      "status": "n/a",
+      "reason": "opendataloader_pdf module not installed (offline); only builtin PDF parser exercised",
+      "affected_probes": [
+        "table row/col / header retention (plan §Phase-3)"
+      ]
+    }
+  },
+  "samples": [
+    {
+      "sample": "bordered_table.pdf",
+      "bytes": 8455,
+      "load_ms": 54.215,
+      "split_ms": 0.094,
+      "text_chars": 174,
+      "line_count": 19,
+      "n_chunks": 1,
+      "avg_chunk_chars": 174.0,
+      "probes": {
+        "table_digits_found": [
+          "A-1001",
+          "A-1005",
+          "Notebook",
+          "Labels",
+          "125.00",
+          "18.00"
+        ],
+        "table_digits_total": 6,
+        "table_digits_hit_ratio": 1.0,
+        "note": "raw-text survival only; row/col structure requires OpenDataLoader (offline)"
+      },
+      "failure": null
+    },
+    {
+      "sample": "borderless_table.pdf",
+      "bytes": 4862,
+      "load_ms": 2.059,
+      "split_ms": 0.026,
+      "text_chars": 176,
+      "line_count": 19,
+      "n_chunks": 1,
+      "avg_chunk_chars": 176.0,
+      "probes": {
+        "table_digits_found": [
+          "A-1001",
+          "A-1003",
+          "Folder",
+          "12.50",
+          "41.00"
+        ],
+        "table_digits_total": 5,
+        "table_digits_hit_ratio": 1.0,
+        "note": "raw-text survival only; row/col structure requires OpenDataLoader (offline)"
+      },
+      "failure": null
+    },
+    {
+      "sample": "cross_page_table.pdf",
+      "bytes": 21737,
+      "load_ms": 4.444,
+      "split_ms": 0.059,
+      "text_chars": 545,
+      "line_count": 47,
+      "n_chunks": 1,
+      "avg_chunk_chars": 545.0,
+      "probes": {
+        "table_digits_found": [
+          "B-2001",
+          "B-2006",
+          "C-3001",
+          "Monitor",
+          "360.00",
+          "90.00"
+        ],
+        "table_digits_total": 6,
+        "table_digits_hit_ratio": 1.0,
+        "note": "raw-text survival only; row/col structure requires OpenDataLoader (offline)"
+      },
+      "failure": null
+    },
+    {
+      "sample": "docs.md",
+      "bytes": 333,
+      "load_ms": 0.178,
+      "split_ms": 0.015,
+      "text_chars": 219,
+      "line_count": 13,
+      "n_chunks": 1,
+      "avg_chunk_chars": 218.0,
+      "probes": {},
+      "failure": null
+    },
+    {
+      "sample": "scanned.pdf",
+      "bytes": 12752,
+      "load_ms": 72.658,
+      "split_ms": 0.076,
+      "text_chars": 50,
+      "line_count": 1,
+      "n_chunks": 1,
+      "avg_chunk_chars": 50.0,
+      "probes": {
+        "has_real_text": false,
+        "image_placeholder_count": 1,
+        "vision_ocr": {
+          "status": "n/a",
+          "reason": "VLM OCR (plan §Phase-5 Qwen3.8-27B) not reachable offline; only scanned->image routing verified"
+        }
+      },
+      "failure": null
+    },
+    {
+      "sample": "single_column.pdf",
+      "bytes": 1537,
+      "load_ms": 2.124,
+      "split_ms": 0.019,
+      "text_chars": 236,
+      "line_count": 4,
+      "n_chunks": 1,
+      "avg_chunk_chars": 236.0,
+      "probes": {},
+      "failure": null
+    },
+    {
+      "sample": "two_column.pdf",
+      "bytes": 2120,
+      "load_ms": 1.894,
+      "split_ms": 0.018,
+      "text_chars": 239,
+      "line_count": 8,
+      "n_chunks": 1,
+      "avg_chunk_chars": 239.0,
+      "probes": {
+        "two_column": {
+          "left_marker_lines": 4,
+          "right_marker_lines": 2
+        }
+      },
+      "failure": null
+    }
+  ]
+}
