@@ -19,6 +19,7 @@ from typing import Any
 from src.mcp_server.auth.context import current_principal
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
+    InvalidRequestError,
     ResourceNotFoundError,
 )
 from src.mcp_server.protocol_handler import (
@@ -102,6 +103,8 @@ async def _get_document_summary(args: dict[str, Any]) -> Any:
     except AccessDeniedError:
         # Do not let a valid-but-forbidden UUID probe another collection.
         return tool_error("document not found or not accessible")
+    except InvalidRequestError as exc:
+        return tool_error(str(exc))
     return _render(info)
 
 

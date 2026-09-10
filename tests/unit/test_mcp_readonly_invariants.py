@@ -61,6 +61,19 @@ def test_no_write_or_chat_or_agent_tool_is_exposed():
             assert word not in lower, f"forbidden read-tool name: {name}"
 
 
+def test_client_boundary_exposes_only_read_methods():
+    """The in-process client (the read boundary) has no write method."""
+    from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
+
+    for name in vars(InProcessRagReadOnlyClient):
+        if name.startswith("_"):
+            continue
+        lower = name.lower()
+        for word in ("create", "upload", "update", "delete", "save", "write",
+                     "import", "add", "put", "post"):
+            assert word not in lower, f"write-like method on read client: {name}"
+
+
 # ---------------------------------------------------------------------------
 # 3. No LLM / Agent imports in the MCP tool modules
 # ---------------------------------------------------------------------------

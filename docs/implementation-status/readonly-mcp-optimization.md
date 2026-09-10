@@ -10,7 +10,7 @@
 | Phase | 标题 | 状态 | 提交数 |
 | --- | --- | --- | --- |
 | Phase 0 | 固定基线和边界 | done | 2 |
-| Phase 1 | 建立只读 Client 边界 | in-progress | 0 |
+| Phase 1 | 建立只读 Client 边界 | done | 5 |
 | Phase 2 | 规范现有工具 | todo | — |
 | Phase 3 | 新增文档 Chunk 分页 | todo | — |
 | Phase 4 | HTTP 解耦 | todo | — |
@@ -154,3 +154,41 @@
 - 测试结果：前组 `14 passed`；完整 MCP 组 `96 passed`（2 项快照修复后单独复跑为 `3 passed`）。
 - 遗留问题：越权/不存在文案尚未收敛为逐字一致（P2.3 统一）。
 - 下一步：P1.3 统一错误类型与测试。
+
+### P1.3 统一错误类型
+
+- 状态：done
+- 提交：`见本提交`（`refactor(mcp): unify readonly client errors`）
+- 修改文件：
+  - `src/mcp_server/clients/errors.py`（改：映射规则已由 P1.2a 引入，此处补充测试）
+  - `src/mcp_server/tools/get_document_summary.py`（改：增加 `InvalidRequestError` → 工具级错误映射）
+  - `tests/unit/test_readonly_client_errors.py`（新增）
+  - `tests/unit/test_mcp_readonly_invariants.py`（改：增加客户端边界只读断言）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_readonly_client_errors.py tests/unit/test_get_document_summary.py tests/unit/test_mcp_readonly_invariants.py -q
+  ```
+- 测试结果：`11 passed` + `6 passed`。映射规则：InvalidRequest/NotFound/AccessDenied → `is_error`；Upstream 两类与未知异常 → 协议级传播。
+- 遗留问题：凭据脱敏在 Phase 4 HTTP Client 落地。
+- 下一步：Phase 1 Gate 验收。
+
+### Phase 1 Gate 验收记录
+
+- **`RagReadOnlyClient` 契约建立**：`0cdb095`。
+- **三个现有工具已逐步通过 Client**：list_collections `6ab0b75`、query `3f8c526`、get_document_summary `7e2aa19`。
+- **Handler 不再构建完整底层依赖**：三个 handler 均经 `client_from_args` 获取 client；`Embedding/VectorStore/SQLite` 构建在 `InProcessRagReadOnlyClient` 内。
+- **错误类型和映射统一**：`test_readonly_client_errors.py` + get_document_summary 增加 InvalidRequest 映射。
+- **Phase 0 快照仍兼容**：`test_mcp_contract_snapshot.py` `3 passed`（schema 未变）。
+- **验证**：
+  ```bash
+  git diff --check   # 无输出
+  .venv/bin/python -m pytest tests/unit/test_protocol_handler.py tests/unit/test_list_collections.py \
+    tests/unit/test_get_document_summary.py tests/unit/test_query_knowledge_hub.py \
+    tests/unit/test_readonly_client_contracts.py tests/unit/test_readonly_client_query.py \
+    tests/unit/test_readonly_client_document.py tests/unit/test_readonly_client_errors.py \
+    tests/unit/test_mcp_authorization.py tests/unit/test_mcp_contract_snapshot.py \
+    tests/unit/test_mcp_readonly_invariants.py tests/integration/test_mcp_server.py \
+    tests/integration/test_mcp_http_access_control.py -q
+  ```
+  结果：`104 passed`。
+- **Gate 结论**：通过，自动进入 Phase 2。
