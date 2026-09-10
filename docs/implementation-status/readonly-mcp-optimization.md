@@ -335,3 +335,24 @@
   - 错误映射：404→not_found、403→access_denied、400→invalid_request、5xx→upstream_unavailable、timeout→upstream_timeout、连接失败→upstream_unavailable。
   - **WeKnora 借鉴**：base-URL + 线程本地复用 Session + Header 凭证模式，受 WeKnora `weknora_mcp_server.py` 启发；文件头已标注来源归属。
 - 已运行测试：`tests/unit/test_readonly_client_http.py` → `12 passed`。
+
+### P4.3 Client 工厂与显式切换
+
+- 状态：done
+- 提交：见本提交（`feat(mcp): add explicit rag client backend selection`）
+- 修改文件：`src/mcp_server/clients/factory.py`（新增 `build_readonly_client`）、`src/mcp_server/tools/common.py`（改：`client_for` 走工厂）、`src/core/settings.py`（改：`McpServerSettings`）、`config/settings.yaml`（改：`mcp_server` 段）、`tests/unit/test_readonly_client_factory.py`（新增）
+- 要求落实：
+  - 配置文件示范：`mcp_server.rag_client_backend` / `rag_api_base_url` / `request_timeout_seconds`；
+  - 默认 `in_process`，本地行为不变；
+  - `http` 缺 base_url、或 backend 非法 → fail-fast（test 断言），不做静默回退。
+- 已运行测试：`tests/unit/test_readonly_client_factory.py` → `4 passed`。
+
+### Phase 4 Gate 验收记录（P4.1–P4.3）
+
+- **验证**：`git diff --check` 无输出；Phase 4 全 MCP+内部 API 测试集 `153 passed`。
+- **Gate 结论**：P4.1–P4.3 通过。P4.4 独立部署/容器隔离依 docker/compose 环境校验。
+
+### P4.4 独立部署与容器隔离
+
+- 状态：部分（见 Phase 5 交付说明；容器交互依赖外部 embedding/LLM 服务）
+- 说明：MCP 进程仅通过主服务内部 HTTP API 取数；隔离与容器间联需要 docker compose 全栈（依赖 vLLM embedding/LLM，基线即为外部失败）。

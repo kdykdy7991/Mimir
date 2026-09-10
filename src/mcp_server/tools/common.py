@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
+from src.mcp_server.clients.factory import build_readonly_client
 
 DEFAULT_CONFIG = "./config/settings.yaml"
 DEFAULT_DATA = "./data"
 
 _default_client: Any | None = None
-_cache: dict[tuple[str, str], InProcessRagReadOnlyClient] = {}
+_cache: dict[tuple[str, str], Any] = {}
 
 
 def set_default_client(client: Any) -> None:
@@ -36,13 +36,17 @@ def reset_client_cache() -> None:
 
 
 def client_for(config_path: str | None = None, data_dir: str | None = None) -> Any:
-    """Return a cache keyed in-process client, or the injected default."""
+    """Return the configured backend client, cached per key.
+
+    The backend is chosen from config (``mcp_server.rag_client_backend``)
+    via :func:`build_readonly_client` — explicit, no silent fallback.
+    """
     if _default_client is not None:
         return _default_client
     key = (config_path or DEFAULT_CONFIG, data_dir or DEFAULT_DATA)
     client = _cache.get(key)
     if client is None:
-        client = InProcessRagReadOnlyClient(config_path=key[0], data_dir=key[1])
+        client = build_readonly_client(config_path=key[0], data_dir=key[1])
         _cache[key] = client
     return client
 

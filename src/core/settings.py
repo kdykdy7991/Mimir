@@ -263,6 +263,31 @@ class McpPresentationSettings(BaseModel):
 # Root Settings model
 # ---------------------------------------------------------------------------
 
+class McpServerSettings(BaseModel):
+    """Read-only MCP rag-client backend selection (plan §P4.3).
+
+    ``rag_client_backend`` chooses how the MCP tools obtain data: the
+    default ``in_process`` reuses the local application services; ``http``
+    calls the main service's internal read-only API. Selection is explicit —
+    an unknown backend or an http backend with an unconfigured base URL is
+    a hard startup error, never a silent fallback to in-process.
+    """
+    rag_client_backend: str = "in_process"  # in_process | http
+    rag_api_base_url: str = ""
+    request_timeout_seconds: float = 30.0
+    api_key: str = ""  # X-API-Key / internal service credential
+
+    @field_validator("rag_client_backend")
+    @classmethod
+    def _validate_backend(cls, v: str) -> str:
+        if v not in ("in_process", "http"):
+            raise ValueError(
+                f"mcp_server.rag_client_backend must be 'in_process' or 'http', "
+                f"got {v!r}",
+            )
+        return v
+
+
 class Settings(BaseModel):
     """
     Root configuration model for the entire application.
@@ -286,6 +311,7 @@ class Settings(BaseModel):
     )
     mcp_access: McpAccessSettings = Field(default_factory=McpAccessSettings)
     mcp: McpPresentationSettings = Field(default_factory=McpPresentationSettings)
+    mcp_server: McpServerSettings = Field(default_factory=McpServerSettings)
 
 
 # ---------------------------------------------------------------------------

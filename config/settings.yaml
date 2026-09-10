@@ -224,3 +224,17 @@ mcp:
     优先调用 list_collections 确认可用知识库，再调用 query_knowledge_hub 检索。
   collection_descriptions:
     "skdy common": 时空道宇公司的综合知识库，包含公司通用资料与跨部门共享知识。
+
+# ----------------------------------------------------------------
+# MCP 只读后端选择（plan docs/plan-2026-09-10-... Phase 4 P4.3）
+# ----------------------------------------------------------------
+# rag_client_backend:
+#   in_process —— 默认，本地直接复用应用服务，开发行为不变；
+#   http       —— 独立 MCP 容器走主服务 internal 只读 HTTP API。
+# 选择是显式的：未知 backend 或缺 base_url 属硬错误（fail-fast），
+# 不做静默回退到 in_process。
+mcp_server:
+  rag_client_backend: in_process        # in_process | http
+  rag_api_base_url: ""                  # backend=http 时必填
+  request_timeout_seconds: 30
+  api_key: ""                           # X-API-Key / 内部服务凭证
