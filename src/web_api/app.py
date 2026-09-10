@@ -42,6 +42,7 @@ from src.web_api.routers import (
     traces,
     mcp_keys,
 )
+from src.web_api.internal_mcp import router as internal_mcp_router
 
 API_PREFIX = "/api/v1"
 """All routes mount under this prefix — see PRODUCTION spec §5."""
@@ -105,6 +106,10 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
     app.include_router(traces.router, prefix=API_PREFIX)
     app.include_router(images.router, prefix=API_PREFIX)
     app.include_router(mcp_keys.router, prefix=API_PREFIX)
+
+    # Internal read-only MCP surface (Phase 4 §P4.1) — mounted WITHOUT the
+    # public API_PREFIX so it is never exposed as an ordinary public route.
+    app.include_router(internal_mcp_router)
 
     return app
 

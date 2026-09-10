@@ -304,3 +304,20 @@
 - **工具已注册**：`get_document_chunks`，共 5 只工具。
 - **验证**：`git diff --check` 无输出；`128 passed`。
 - **Gate 结论**：通过，自动进入 Phase 4。
+---
+
+## Phase 4：HTTP 解耦
+
+### P4.1 主服务内部只读 API
+
+- 状态：done
+- 提交：见本提交（`feat(api): expose versioned internal readonly mcp endpoints`）
+- 修改文件：`src/web_api/internal_mcp.py`（新增：`/internal/mcp/v1` 4 个只读端点）、`src/web_api/app.py`（挂载，不走公共前缀）、`tests/unit/test_internal_mcp_api.py`（新增）
+- 要求落实：
+  - 仅 GET/POST 查询语义，无任何变更端点（测试断言 405）；
+  - 复用同一 `InProcessRagReadOnlyClient`（注入应用服务，不复制检索实现）；
+  - 集合范围由客户端按 principal 复检，不信工具传来的 collection 字符串；
+  - 走 `/internal` 前缀，不对公网；`openapi.json` 标记 internal-mcp-readonly；
+  - 错误为稳定 `code` 平面 JSON（not_found/access_denied/invalid_request/upstream_*），不回传堆栈。
+- 已运行测试：`tests/unit/test_internal_mcp_api.py` → `9 passed`。
+- 遗留问题：无（容器暴露边界见 P4.4）。
