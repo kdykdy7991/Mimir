@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -35,12 +36,14 @@ from src.mcp_server.auth.authorization import (
 from src.mcp_server.auth.context import AccessPrincipalLike
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
+    InvalidRequestError,
     ResourceNotFoundError,
     UpstreamUnavailableError,
 )
 from src.mcp_server.clients.models import (
     CollectionInfo,
     Diagnostics,
+    DocumentChunk,
     DocumentChunkPage,
     DocumentInfo,
     EvidenceItem,
@@ -437,8 +440,53 @@ class InProcessRagReadOnlyClient:
         )
 
     # ------------------------------------------------------------------
-    # get_document_chunks — implemented in Phase 3 (stable ordering).
+    # get_document_chunks — Phase 3 (stable ordering + pagination)
     # ------------------------------------------------------------------
+    def _resolve_store_access(
+        self, document_id: str, principal: AccessPrincipalLike,
+    ) -> tuple[str, str]:
+        """Resolve a document and return ``(collection, source_path)`` after
+        authorization, raising the unified errors otherwise."""
+        resolved = self._resolve_doc(document_id)
+        if resolved is None:
+            raise ResourceNotFoundError("document not found")
+        collection, source_path = resolved
+        try:
+            require_collection_access(principal, collection)
+        except CollectionAccessDenied as exc:
+            raise AccessDeniedError("document not found or not accessible") from exc
+        return collection, source_path
+
+    @staticmethod
+    def _chunk_sort_key(hit: dict[str, Any]) -> tuple[int, int, str]:
+        """Stable ordering key: authoritative ``chunk_index`` metadata, then
+        the index embedded in the chunk id (legacy), then the chunk id.
+
+        Returns ``(source_rank, index, id)`` where ``source_rank`` groups
+        by how the index was derived so mixed data still orders correctly.
+        """
+        meta = hit.get("metadata") or {}
+        idx = meta.get("chunk_index")
+        if idx is not None:
+            try:
+                return (0, int(idx), str(hit.get("id") or ""))
+            except (TypeError, ValueError):
+                pass
+        chunk_id = str((hit.get("id") or "") or str(meta.get("chunk_id") or ""))
+        match = re.search(r"_(\d{4})_", chunk_id)
+        if match:
+            try:
+                return (1, int(match.group(1)), chunk_id)
+            except (TypeError, ValueError):
+                pass
+        return (2, 0, chunk_id)
+
+    def _ordered_chunks(self, collection: str, source_path: str) -> list[dict]:
+        """Read every chunk for a document and order it deterministically
+        without relying on the vector store's natural order."""
+        hits = self._read_document_chunks(collection, source_path)
+        return sorted(hits, key=self._chunk_sort_key)
+
     def get_document_chunks(
         self,
         document_id: str,
@@ -446,8 +494,42 @@ class InProcessRagReadOnlyClient:
         page_size: int,
         principal: AccessPrincipalLike,
     ) -> DocumentChunkPage:
-        raise NotImplementedError(
-            "document chunk pagination lands in Phase 3 (get_document_chunks)",
+        if page_size < 1 or page_size > 50:
+            raise InvalidRequestError("page_size must be between 1 and 50")
+        if page < 1:
+            raise InvalidRequestError("page must be >= 1")
+
+        collection, source_path = self._resolve_store_access(document_id, principal)
+        try:
+            ordered = self._ordered_chunks(collection, source_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("vector store lookup failed for %s: %s", document_id, exc)
+            ordered = []
+        if not ordered:
+            raise ResourceNotFoundError("document not found")
+
+        total = len(ordered)
+        start = (page - 1) * page_size
+        window = ordered[start:start + page_size]
+        chunks = [
+            DocumentChunk(
+                chunk_id=str(
+                    (hit.get("id") or "")
+                    or str((hit.get("metadata") or {}).get("chunk_id") or ""),
+                ),
+                index=start + i,
+                text=(hit.get("text") or ""),
+                page=_page_number(hit.get("metadata") or {}),
+                section=str((hit.get("metadata") or {}).get("section") or ""),
+            )
+            for i, hit in enumerate(window)
+        ]
+        return DocumentChunkPage(
+            document_id=document_id,
+            page=page,
+            page_size=page_size,
+            total=total,
+            chunks=chunks,
         )
 
 
