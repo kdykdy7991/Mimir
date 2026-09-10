@@ -9,9 +9,33 @@
 
 ## 当前定位
 
-- **当前 Phase**：Phase 7 P7.1/P7.2 已交付（默认 docreader + 回滚开关 + 文档）；P7.3 删除旧 Loader 与 P7.4
-  OpenAPI/检查表留待一次真实业务灰度且≥一个发布周期无回滚后执行。
+- **当前状态**：**审核整改中（Phase 5–7 rework）**。审核结论：Phase 0–4 部分解析基础可保留，Phase 5–7 需
+  退回整改后再验收。已按审核意见逐项整改（见下方「审核意见整改记录」）；仍待：OOXML 格式保真增强、PDF
+  表格数字单元格回退修复、迁移后指标对比收敛、真实业务灰度与无回滚部署。
 - **未完成改动**：见“工作区状态”。
+
+---
+
+## 审核意见整改记录（Phase 5–7 rework）
+
+> 依据一次独立审核（结论：不能视为 Phase 0→7 已交付）。以下按审核问题逐项记录整改与状态。整改期间默认
+> backend 保持 legacy（代码），生产配置 config/settings.yaml=docreader 不变；不推送、不删除旧 Loader。
+
+| # | 审核问题 | 整改 | 状态 |
+| --- | --- | --- | --- |
+| 1 | DocReader 未接入正式业务入库链路（CLI/Web/MCP/Dashboard） | `resolve_document_parser` 统一路由；CLI `scripts/ingest.py main()`、Web `EngineCache._build_pipeline`、Streamlit Dashboard `ingestion_service._build_pipeline` 全部创建并传入 docreader parser（MCP 无 ingest pipeline）。 | 完成 `108879d` |
+| 1b | 异常静默回退 legacy，违背“错误启动期暴露” | 改 fail-fast：backend=docreader 且 transport 构建失败即抛错；代码默认改回 legacy（程序化/测试安全），生产默认仍由 yaml=docreader 决定。 | 完成 `108879d` |
+| 2 | 多模态 VisionIngestTransform 未进生产 pipeline | docreader 路径+LLM+视觉开关下装配进 transforms（取代旧 captioner），补齐 OCR/Caption 子分块链路。 | 完成 `1d9b854` |
+| 3 | DocReader 图片字节被丢弃（adapters path=filename，无 image_persistence） | ImageRef 增 `data`/`mime_type`；适配器携带字节；`IngestionPipeline._register_images` 落盘 ImageStorage 并把 path 改写为真实文件、分块前清除内联字节。 | 完成 `4c56bc5` |
+| 4 | ZIP 类格式缺安全限制（zip bomb） | `zip_safe.py` 四重限制（数量/单文件/总大小/压缩比）接入 DOCX/XLSX/PPTX/EPUB/XMind。 | 完成 `53037ab` |
+| 5 | DOC/XLS/PPT 实际不可用却列为“已交付” | **修正为门控占位**（非交付）：`legacy_office_parser` 不可用时明确拒绝、绝无假成功；本环境无 OLE2 转换器；部署端装转换器后再启用。见 Phase 6 表格注记。 | 修正中 |
+| 6 | Phase 6 为精简重实现，缺阅读顺序/结构保真 | OOXML/EPUB 保真增强（EPUB spine、XLSX 工作表顺序/名称/合并单元格/缓存公式、DOCX 标题层级/粗斜体/合并单元格/超链接、PPTX 表格/备注）。 | 子代理进行中 |
+| 7 | Phase 7 前置（迁移后指标快照、真实业务灰度） | 迁移后指标快照 + 基线对比已产出（`after-2026-09-10.json`，真实执行）；真实业务灰度需部署。**快照发现 PDF 表格数字单元格回退**（见下）。 | 指标完成；灰度待部署 |
+| 8 | docker compose 默认不启 docreader、注释与实际不符 | docreader 改为 compose 默认服务并 `depends_on` api；删旧“默认 legacy”注释。 | 完成 `b57e76e` |
+| 9 | 配置模型非 Qwen3.8-27B、保留多套 VLM 能力探测名单 | config `llm.model=Qwen3.8-27B`；`LLMSettings.supports_vision`（默认 True）取代 `VISION_MODELS` 名单驱动 capabilities。 | 完成 `7f5612e` |
+
+**迁移后快照发现的真实缺陷**：builtin PDF 布局重建丢弃表格数字单元格（bordered/borderless/cross_page 三例
+hit_ratio 1.0→~0.6，而 raw pymupdf 文本含这些值）——Phase 3/4 表格感知需兜住。修复在 `pdf_layout` 进行中。
 
 ---
 
@@ -25,7 +49,7 @@
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
-| Phase 6 格式扩展 | **完成（审核待批）** | DOCX/CSV/XLSX/PPTX/legacy/HTML/MHTML/EPUB/XMind/图片 |
+| Phase 6 格式扩展 | **整改中**（审核后回退整改） | DOCX/CSV/XLSX/PPTX/HTML/MHTML/EPUB/XMind/图片 已交付；legacy DOC/XLS/PPT 为**门控占位（非交付）**；OOXML/EPUB 保真增强进行中 |
 | Phase 7 切换默认与清理旧实现 | **进行中**（P7.1 已提交：切换默认+回滚开关） | 删除旧 Loader 留待无回滚后 |
 
 ---
@@ -189,7 +213,7 @@
   全量 docreader 71 passed、上传相关 25 passed。
 - **依赖**：无新增（stdlib only）。
 
-### D6.4 legacy DOC/XLS/PPT（交付，待审）
+### D6.4 legacy DOC/XLS/PPT（门控占位，非交付）
 - **解析器**：`legacy_office_parser.py` —— OLE2 二进制、本环境无本地转换器（无 LibreOffice/catdoc/antiword、
   python-docx/openpyxl/xlrd/olefile），按计划「无专有依赖则走 opendataloader 型后端」做**可用性门控**：
   注册 `doc/xls/ppt`→`opendataloader` 引擎，`available=False` + 明确 reason 上报；`parse` 在转换器缺失时
