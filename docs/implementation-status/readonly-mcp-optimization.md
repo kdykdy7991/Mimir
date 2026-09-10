@@ -62,3 +62,17 @@
 - 测试结果：`5 passed`。覆盖：工具面只读、工具模块不导入 LLM/Agent、list_collections 与 get_document_summary 读取不触发任何 store 写方法、越权/不存在文档同形错误（is_error + “document not found”，具体统一文案在 P2.3 收敛）。
 - 遗留问题：越权与不存在文案当前不完全一致（P2.3 统一为 `document not found or not accessible`）；query_knowledge_hub 的不变式在 Phase 1 客户端边界上补强。
 - 下一步：P0.2 提交。
+
+### Phase 0 Gate 验收记录
+
+- **基线快照已建立**：`41f3f72`，`tests/fixtures/mcp_contract/phase0_tool_schemas.json` 可经 `MCP_REGENERATE_SNAPSHOT=1` 重复生成。
+- **只读不变量测试已存在**：`6e6f772`，`tests/unit/test_mcp_readonly_invariants.py`（5 项）。
+- **生产行为尚未改变**：Phase 0 全部提交只含测试、fixture 与状态文档；`git diff <P0 之前> -- src/` 为空。
+- **现有测试没有回退**：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_mcp_contract_snapshot.py tests/unit/test_mcp_readonly_invariants.py \
+    tests/unit/test_mcp_authorization.py tests/integration/test_mcp_http_access_control.py -q
+  ```
+  结果：`30 passed`。
+- **检查**：`git diff --check` 无输出；`git status` 干净。
+- **Gate 结论**：通过，自动进入 Phase 1。
