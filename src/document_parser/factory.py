@@ -79,6 +79,10 @@ def build_document_parser_from_settings(
         return _legacy(loader)
     if settings.backend == "docreader":
         transport = grpc_transport or _grpc_from(settings)
+        if grpc_transport is None:
+            # Startup fail-fast (not a lazy channel): perform a real readiness
+            # probe so a down/misconfigured DocReader surfaces at boot.
+            transport.probe(timeout=float(settings.request_timeout_seconds))
         client = DocReaderClient(transport, timeout=float(settings.request_timeout_seconds))
         return DocReaderClientParser(client)
     return _legacy(loader)

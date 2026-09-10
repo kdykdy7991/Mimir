@@ -9,12 +9,21 @@ dependencies = [
     "grpcio-health-checking>=1.78.0",
     "grpcio-tools>=1.78.0",
     "protobuf>=6.26.0",
+    # PDF backend (builtin engine): layout-aware text + scanned-page rendering.
+    # Required at container runtime so the builtin PDF parser actually works
+    # inside the image (not just under the dev venv).
+    "pymupdf>=1.24.0",
+    # Image formats (builtin engine): magic/decodability validation for the
+    # Phase-6 image parser.
+    "pillow>=10.0.0",
 ]
 
-# Format-specific parsing dependencies are deliberately NOT declared here yet.
-# Each Phase (6.1 DOCX, 6.2 XLSX/CSV, 6.3 PPTX, ..., plus PDF/ODL in Phases
-# 2–3) adds exactly the deps it needs, so Phase 0 keeps this service lean and
-# installable without pulling heavy converter stacks. See ../provenance and
+# DOCX/XLSX/PPTX/EPUB/XMind are parsed from OOXML zip members + standard-library
+# xml.etree, so they need no extra deps beyond the above. legacy DOC/XLS/PPT
+# (OLE2) remain GATED placeholders — a converter (e.g. LibreOffice) must be
+# installed at deployment before they are enabled. openpyxl / python-docx /
+# opendataloader-pdf are intentionally NOT declared here (offline scope keeps
+# this image lean); see ../provenance and
 # docs/plan-2026-09-09-weknora-local-document-parser-migration.md §7.
 
 [build-system]

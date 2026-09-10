@@ -13,7 +13,18 @@ from typing import Any, Iterable
 
 from src.document_parser.base import ParserEngineInfo
 from src.document_parser.client import StreamFrame
+from src.document_parser.errors import EngineUnavailableError
 from src.document_parser.types import ParseRequest
+
+# Formats the ``builtin`` engine must advertise for the service to be considered
+# ready. gRPC channels connect lazily, so :meth:`DocReaderGrpcTransport.probe`
+# performs an actual round-trip at startup: channel READY + ListEngines + builtin
+# engine covering these minimum formats (plan §Phase 7 fail-fast). DOC/XLS/PPT
+# (gated OLE2 placeholders) and opendataloader PDF are intentionally NOT required.
+MIN_READY_FORMATS: frozenset[str] = frozenset({
+    "pdf", "md", "markdown", "txt", "csv",
+    "docx", "xlsx", "pptx", "epub", "xmind", "html",
+})
 
 
 class DocReaderGrpcTransport:
@@ -28,6 +39,56 @@ class DocReaderGrpcTransport:
         self._timeout = timeout
         self._channel = grpc.insecure_channel(endpoint)
         self._stub = pb_grpc.DocReaderStub(self._channel)
+
+    def probe(self, timeout: float | None = None) -> list[ParserEngineInfo]:
+        """Verify the DocReader service is actually reachable (not a lazy channel).
+
+        gRPC channels connect lazily, so merely constructing this transport does
+        not contact the service. This performs a real readiness check: wait for
+        the channel to enter READY, issue a ListEngines round-trip, and confirm
+        the ``builtin`` engine is available and advertises :data:`MIN_READY_FORMATS`.
+        Raises :class:`EngineUnavailableError` on any failure so a misconfigured
+        docreader backend surfaces at startup, not at first parse.
+        """
+        grpc = self._grpc
+        deadline = timeout if timeout is not None else self._timeout
+        try:
+            grpc.channel_ready_future(self._channel).result(timeout=deadline)
+        except grpc.RpcError as exc:
+            raise EngineUnavailableError(
+                f"DocReader service unreachable at {self._endpoint}: {exc}",
+            ) from exc
+        except grpc.FutureTimeoutError as exc:
+            raise EngineUnavailableError(
+                f"DocReader service at {self._endpoint} not READY within "
+                f"{deadline}s",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise EngineUnavailableError(
+                f"DocReader channel readiness failed at {self._endpoint}: {exc}",
+            ) from exc
+        try:
+            engines = self.list_engines(timeout=deadline)
+        except ConnectionError as exc:
+            raise EngineUnavailableError(str(exc)) from exc
+        builtin = next((e for e in engines if e.name == "builtin"), None)
+        if builtin is None:
+            raise EngineUnavailableError(
+                f"DocReader service at {self._endpoint} advertises no 'builtin' "
+                f"engine (got: {[e.name for e in engines]})",
+            )
+        if not builtin.available:
+            raise EngineUnavailableError(
+                f"DocReader 'builtin' engine unavailable: "
+                f"{builtin.unavailable_reason or 'unknown reason'}",
+            )
+        missing = MIN_READY_FORMATS - frozenset(builtin.supported_formats)
+        if missing:
+            raise EngineUnavailableError(
+                f"DocReader 'builtin' engine missing required formats: "
+                f"{sorted(missing)} (advertised: {sorted(builtin.supported_formats)})",
+            )
+        return engines
 
     def read_stream(self, request: ParseRequest, timeout: float) -> Iterable[StreamFrame]:
         pb = self._pb2.ReadRequest(
