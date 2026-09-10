@@ -89,6 +89,16 @@ def _legacy_office_available():
     return legacy_office_available()
 
 
+def _html() -> BaseParser:
+    from docreader.parser.html_parser import HtmlParser
+    return HtmlParser()
+
+
+def _mhtml() -> BaseParser:
+    from docreader.parser.mhtml_parser import MhtmlParser
+    return MhtmlParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -118,6 +128,12 @@ def _default_engines() -> None:
                 description="Legacy Office (OLE2) via optional local converter",
                 available=_legacy_office_available,
             )
+        for fmt in ("html", "htm"):
+            register_engine(fmt, name="builtin", factory=_html,
+                            description="HTML/HTM: tags to readable text")
+        for fmt in ("mhtml", "mht"):
+            register_engine(fmt, name="builtin", factory=_mhtml,
+                            description="MHTML/MHT: MIME HTML archive to text")
 
 
 def _odl_available():
