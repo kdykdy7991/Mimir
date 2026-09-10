@@ -99,6 +99,16 @@ def _mhtml() -> BaseParser:
     return MhtmlParser()
 
 
+def _epub() -> BaseParser:
+    from docreader.parser.epub_parser import EpubParser
+    return EpubParser()
+
+
+def _xmind() -> BaseParser:
+    from docreader.parser.xmind_parser import XmindParser
+    return XmindParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -134,6 +144,10 @@ def _default_engines() -> None:
         for fmt in ("mhtml", "mht"):
             register_engine(fmt, name="builtin", factory=_mhtml,
                             description="MHTML/MHT: MIME HTML archive to text")
+        register_engine("epub", name="builtin", factory=_epub,
+                        description="EPUB: zip of XHTML documents to text")
+        register_engine("xmind", name="builtin", factory=_xmind,
+                        description="XMind: mind-map topics to indented text")
 
 
 def _odl_available():
