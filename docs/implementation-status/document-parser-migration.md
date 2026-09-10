@@ -308,8 +308,9 @@
 - P7.4 更新 OpenAPI / 部署文档 / 运维检查表（随删除一起做）。
 
 ## Phase 7 审核交接（P7.review）—— 迁移实施完成
-> WeKnora DocReader 受控迁移（Phase 0→7）实施完毕。缺省已切 `docreader`，回滚开关 `DOCUMENT_PARSER_BACKEND
-> =legacy`；删除旧 Loader 与最终 OpenAPI/检查表留待部署灰体验证后（计划门控）。
+> WeKnora DocReader 受控迁移（Phase 0→7）实施完毕。缺省已切 `docreader` 且 CLI/Web 摄取入口真正消费该
+> feature-flag（P7.1b 补齐运行时路由缝隙），回滚开关 `DOCUMENT_PARSER_BACKEND=legacy`；删除旧 Loader 与最终
+> OpenAPI/检查表留待部署灰体验证后（计划门控）。
 
 ### 1) 各 Phase 交付
 | Phase | 交付 |
@@ -325,6 +326,8 @@
 ### 2) 测试与结果
 - services/docreader 全量 88 passed（含多格式灰度演练）；主工程本迁移相关 65+ passed；上传相关 25 passed。
 - 既有环境失败 16 项（socks proxy / prompt 跨挂载）与基线一致，非本迁移引入。
+- 全量 tests/unit 1166 passed + 16 既有失败 + 1 skip（grpc transport 用例在无 PYTHONPATH 语境下按预期跳过）；
+  `services/docreader/tests` 88 passed（含该 transport 用例运行时 1.12s 通过）。
 - 工作区干净；`git diff --check` 通过。
 
 ### 3) 部署期待办（超出本离线环境）
