@@ -58,6 +58,9 @@ from __future__ import annotations
 
 import logging
 import time
+
+import base64
+import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -150,6 +153,96 @@ class IngestionPipeline:
         self.image_storage = image_storage
         self.bm25_index_name = bm25_index_name
         self.collection = collection
+
+    @staticmethod
+    def _image_bytes(data: Any, path: Any) -> bytes | None:
+        """Resolve raw image bytes from an inline payload or an on-disk file."""
+        if data is not None:
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+            if isinstance(data, str):  # base64 inline payload
+                return base64.b64decode(data)
+            return None
+        if path:
+            p = Path(path)
+            if p.is_file():
+                return p.read_bytes()
+        return None
+
+    @staticmethod
+    def _image_ext(data: Any, path: Any, mime_type: Any) -> str:
+        """Pick a storage extension for an image from mime / inline / path."""
+        if path:
+            suffix = Path(path).suffix.lstrip(".")
+            if suffix:
+                return suffix
+        if mime_type:
+            suffix = mimetypes.guess_extension(mime_type) or ""
+            if suffix:
+                return suffix.lstrip(".").lower()
+        if data is not None and not isinstance(data, str):
+            # no readable MIME/path — default to png (the vision probe default)
+            return "png"
+        return "png"
+
+    def _register_images(self, document: Document, run_collection: str) -> int:
+        """Stage 2.5: persist + index this document's images (return count).
+
+        The docreader path delivers image BYTES (not pre-written files); the
+        adapter keeps those bytes on ``img["data"]`` / ``ImageRef.data``. We
+        persist any reachable bytes to ImageStorage, rewrite the image's
+        ``path`` to the real file, and clear the inline bytes. The legacy
+        PdfLoader path (real on-disk ``path``, no inline data) keeps working
+        unchanged.
+        """
+        if self.image_storage is None or "images" not in document.metadata:
+            return 0
+        n_images = 0
+        saved_paths: dict[str, str] = {}
+        for img in document.metadata["images"]:
+            img_id = img.get("id")
+            if not img_id:
+                continue
+            try:
+                bytes_ = self._image_bytes(img.get("data"), img.get("path"))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Cannot read bytes for image %s: %s", img_id, exc)
+                continue
+            if bytes_ is None:
+                continue
+            try:
+                record = self.image_storage.save(
+                    image_id=img_id,
+                    image_bytes=bytes_,
+                    ext=self._image_ext(
+                        img.get("data"), img.get("path"), img.get("mime_type"),
+                    ),
+                    collection=run_collection,
+                    doc_hash=document.metadata.get("doc_hash"),
+                    page_num=img.get("page"),
+                )
+                img["path"] = record.file_path
+                img.pop("data", None)
+                saved_paths[img_id] = record.file_path
+                n_images += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to register image %s: %s", img_id, exc)
+        # Patch the structural ``document.images`` ImageRefs so chunk image
+        # distribution (which reads ``document.images``) resolves the real
+        # persisted path, and clear inline bytes so chunk metadata never
+        # serializes raw image payloads.
+        for ref in getattr(document, "images", ()) or ():
+            if isinstance(ref, dict):
+                real = saved_paths.get(ref.get("id"))
+                if real:
+                    ref["path"] = real
+                ref.pop("data", None)
+            else:
+                real = saved_paths.get(getattr(ref, "id", None))
+                if real:
+                    ref.path = real
+                ref.data = None
+        return n_images
 
     # ------------------------------------------------------------------
     # Public API
@@ -254,35 +347,7 @@ class IngestionPipeline:
         # must carry the stable canonical source instead.
         document.metadata["source_path"] = canonical_source
 
-        # ---- Stage 2.5: extract images via PdfLoader ---------------
-        # If the loader has already written images to disk and
-        # returned them in ``document.metadata["images"]``, index
-        # them through the ImageStorage (if configured). The
-        # PdfLoader does this work; we just register the results
-        # so they're discoverable by id.
-        n_images = 0
-        if self.image_storage is not None and "images" in document.metadata:
-            for img in document.metadata["images"]:
-                img_id = img.get("id")
-                img_path = img.get("path")
-                if not img_id or not img_path:
-                    continue
-                try:
-                    p = Path(img_path)
-                    if p.is_file():
-                        self.image_storage.save(
-                            image_id=img_id,
-                            image_bytes=p.read_bytes(),
-                            ext=p.suffix.lstrip(".") or "png",
-                            collection=run_collection,
-                            doc_hash=document.metadata.get("doc_hash"),
-                            page_num=img.get("page"),
-                        )
-                        n_images += 1
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Failed to register image %s: %s", img_id, exc,
-                    )
+        n_images = self._register_images(document, run_collection)
         result.n_images_saved = n_images
 
         # ---- Stage 3: split (chunk) -------------------------------

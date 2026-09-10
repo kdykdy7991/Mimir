@@ -30,6 +30,9 @@ class ImageRef:
     position: dict[str, Any] | None = None  # Physical position (PDF coordinates, etc.)
     is_content: bool = True    # Whether the image carries informational value
     classification_reason: str | None = None  # Why it was marked decorative (if not content)
+    data: bytes | None = None  # Inline raw bytes (docreader path); carried from load to
+                               # pipeline Stage 2.5 for persistence, then cleared.
+    mime_type: str | None = None  # image MIME (e.g. image/png); drives the stored ext.
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""

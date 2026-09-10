@@ -160,22 +160,26 @@ class ParsedDocumentAdapter:
         )
         document = Document(id=doc_id, text=parsed.markdown, metadata=metadata)
 
-        # Images are persisted+registered by the main service; here we only
-        # carry the lightweight ``ImageRef`` path-free descriptors so stage-2.5
-        # image registration and chunk image distribution keep working. Actual
-        # byte persistence happens via ``image_persistence`` (plan §5.2).
+        # Images: raw bytes ride along on the ImageRef from load to the
+        # pipeline's Stage 2.5, where they are persisted to ImageStorage and
+        # ``path`` becomes a real file. We keep bytes here because the docreader
+        # transport produces byte payloads (not pre-written files); dropping them
+        # here (as the plan's stub ``image_persistence`` intended to avoid) made
+        # embedded/scanned images unusable downstream.
         refs: list[ImageRef] = []
         for i, img in enumerate(parsed.images):
             refs.append(
                 ImageRef(
                     id=img.original_ref or f"{doc_id}_{i}",
-                    path=img.filename,  # relative; not yet a storage location
+                    path=img.filename,  # provisional; rewritten on persistence
                     page=img.page,
                     text_offset=0,
                     text_length=0,
                     position=None,
                     is_content=True,
                     classification_reason="parsed_image",
+                    data=img.data,
+                    mime_type=img.mime_type,
                 ),
             )
         if refs:
