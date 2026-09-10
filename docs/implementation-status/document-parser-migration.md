@@ -179,8 +179,17 @@
   全量 docreader 68 passed、上传相关 25 passed。
 - **依赖**：无新增（stdlib only）。
 
+### D6.3 PPTX（交付，待审)
+- **解析器**：`pptx_parser.py`（stdlib `zipfile`+`xml.etree`；按序解析 `ppt/slides/slideN.xml`，提取各 shape 的
+  `<a:p>`/`<a:t>` 文本，每 slide 一个 `<!-- slide N -->` 块）。依赖自由。
+- **路由/白名单/MIME**：registry 注册 `pptx`→`builtin`；白名单增 `.pptx` 与 `...presentationml.presentation`。
+- **Magic 校验**：非 ZIP/无 `ppt/slides` 拒绝。
+- **测试样本/验收**：`test_pptx_parser.py` 内存样本（2 slides 多 bullet、顺序断言）→ 3 passed；
+  全量 docreader 71 passed、上传相关 25 passed。
+- **依赖**：无新增（stdlib only）。
+
 ### 未完成
-- D6.3 PPTX、D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
+- D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
 
 ---
 
