@@ -168,8 +168,19 @@
   上传相关 batch/web_api/collections 25 passed。
 - **依赖**：无新增（stdlib only），离线环境无需 pip。
 
+### D6.2 CSV / XLSX（交付，待审）
+- **解析器**：`csv_parser.py`（stdlib `csv`，UTF-8-sig + latin-1 回退；行→GFM 表，管道转义）与
+  `xlsx_parser.py`（stdlib `zipfile`+`xml.etree`；shared string / inlineStr / 数值单元格按行列排布，多
+  sheet 与空行分块各成一张 GFM 表）。均依赖自由。
+- **路由/白名单/MIME**：registry 注册 `csv`/`xlsx`→`builtin`；白名单增 `.csv`/`.xlsx` 与
+  `text/csv`/`application/csv`/`...spreadsheetml.sheet`。
+- **Magic 校验**：xlsx 非 ZIP 拒绝；含 worksheet/sharedStrings 才解析。
+- **测试样本/验收**：`test_csv_xlsx_parser.py` 内存样本（CSV；XLSX shared/inline/数值）→ 5 passed；
+  全量 docreader 68 passed、上传相关 25 passed。
+- **依赖**：无新增（stdlib only）。
+
 ### 未完成
-- D6.2 XLSX/CSV、D6.3 PPTX、D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
+- D6.3 PPTX、D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
 
 ---
 
