@@ -14,6 +14,7 @@ import json
 import httpx
 import pytest
 
+from src.mcp_server.auth.context import TrustedLocalPrincipal
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
     InvalidRequestError,
@@ -38,7 +39,6 @@ def _json(status, payload):
 
 
 def _principal():
-    from src.mcp_server.auth.context import TrustedLocalPrincipal
     return TrustedLocalPrincipal()
 
 
@@ -201,3 +201,45 @@ def test_upstream_down_surfaces_explicit_error_not_quiet_answer():
     # surfaces as an explicit protocol-level exception.
     with pytest.raises(UpstreamUnavailableError):
         asyncio.run(_call())
+
+
+def test_504_upstream_timeout_maps_to_upstream_timeout():
+    """Internal API 504 (code upstream_timeout) → UpstreamTimeoutError."""
+    def handler(request):
+        return _json(504, {"code": "upstream_timeout", "message": "slow"})
+    c = _client(handler)
+    with pytest.raises(UpstreamTimeoutError):
+        c.list_collections(_principal())
+
+
+def test_scope_header_forwarded_for_collection_principal():
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Scoped:
+        key_id: str
+        name: str
+        allowed_collections: frozenset
+
+    seen = {}
+
+    def handler(request):
+        seen["scope"] = request.headers.get("X-MCP-Allowed-Collections")
+        return _json(200, {"count": 0, "collections": []})
+
+    c = _client(handler)
+    c.list_collections(Scoped("k", "n", frozenset({"hr", "finance"})))
+    assert seen["scope"] == "finance,hr"
+
+
+def test_no_scope_header_for_trusted_local_principal():
+    seen = {}
+
+    def handler(request):
+        seen["scope"] = request.headers.get("X-MCP-Allowed-Collections")
+        return _json(200, {"count": 0, "collections": []})
+
+    c = _client(handler)
+    c.list_collections(TrustedLocalPrincipal())
+    # A TrustedLocal never claims full access over HTTP — no scope header.
+    assert seen["scope"] is None
