@@ -78,7 +78,14 @@ from src.libs.loader import (  # noqa: E402
 
 logger = logging.getLogger("ingest")
 
-SUPPORTED_EXTS = (".pdf", ".md", ".markdown")
+# CLI enumerates the SAME document formats the upload policy accepts (single
+# source of truth in src/application/services/upload_types.py). Having the CLI
+# derive from that constant keeps the web/CLI whitelists from drifting apart
+# (3rd-review item 5), so docreader-backed formats (docx/xlsx/pptx/epub/xmind,
+# …) are enumerable by the CLI exactly as they are by the Web upload endpoint.
+from src.application.services.upload_types import DEFAULT_UPLOAD_ALLOWED_EXTENSIONS  # noqa: E402
+
+SUPPORTED_EXTS = tuple(sorted(DEFAULT_UPLOAD_ALLOWED_EXTENSIONS))
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +240,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--path", required=True,
-        help="File or directory to ingest. Supported: .pdf, .md, .markdown",
+        help=f"File or directory to ingest. Supported: {', '.join(SUPPORTED_EXTS)}",
     )
     parser.add_argument(
         "--collection", default="default",

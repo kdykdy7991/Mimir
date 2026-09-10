@@ -21,6 +21,40 @@ from src.application.services.task_types import TaskError
 
 
 # ---------------------------------------------------------------------------
+# Canonical upload/ingest format allow-list — SINGLE source of truth
+# ---------------------------------------------------------------------------
+# Every entry point (Web API upload, CLI ingest enumeration, UploadPolicy) must
+# derive its extension/MIME allow-list from these constants so no second
+# whitelist can drift out of sync (3rd-review item 5). Extensions cover the
+# docreader builtin formats (pdf/md/txt/csv/docx/xlsx/pptx/html/epub/xmind) plus
+# the gated OLE2 (doc/xls/ppt) and image formats the vision pipeline consumes.
+DEFAULT_UPLOAD_ALLOWED_EXTENSIONS: FrozenSet[str] = frozenset({
+    ".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx",
+    ".doc", ".xls", ".ppt",
+    ".txt", ".html", ".htm", ".mhtml", ".mht",
+    ".epub", ".xmind",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+})
+DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
+    "application/pdf",
+    "text/markdown",
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "text/html",
+    "application/epub+zip",
+    "application/xmind",
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+})
+
+
+# ---------------------------------------------------------------------------
 # Upload limit policy — injected into IngestionService (no web_api import)
 # ---------------------------------------------------------------------------
 
@@ -35,32 +69,10 @@ class UploadPolicy:
 
     max_file_bytes: int = 30 * 1024 * 1024  # 30 MB per file
     allowed_extensions: FrozenSet[str] = field(
-        default_factory=lambda: frozenset({
-            ".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx",
-            ".doc", ".xls", ".ppt",
-            ".txt", ".html", ".htm", ".mhtml", ".mht",
-            ".epub", ".xmind",
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-        }),
+        default_factory=lambda: DEFAULT_UPLOAD_ALLOWED_EXTENSIONS,
     )
     allowed_mime: FrozenSet[str] = field(
-        default_factory=lambda: frozenset({
-            "application/pdf",
-            "text/markdown",
-            "text/plain",
-            "text/csv",
-            "application/csv",
-            "text/html",
-            "application/epub+zip",
-            "application/xmind",
-            "application/msword",
-            "application/vnd.ms-excel",
-            "application/vnd.ms-powerpoint",
-            "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        }),
+        default_factory=lambda: DEFAULT_UPLOAD_ALLOWED_MIME,
     )
     max_batch_files: int = 100
     max_batch_bytes: int = 2 * 1024 * 1024 * 1024  # 2 GB total per batch
@@ -223,5 +235,7 @@ __all__ = [
     "BatchFileStatus",
     "BatchFileUpload",
     "BatchUploadResponse",
+    "DEFAULT_UPLOAD_ALLOWED_EXTENSIONS",
+    "DEFAULT_UPLOAD_ALLOWED_MIME",
     "UploadPolicy",
 ]

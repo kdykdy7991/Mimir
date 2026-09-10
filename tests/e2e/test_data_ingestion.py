@@ -205,14 +205,14 @@ class TestCliSurface:
 
     def test_iter_input_files_skips_unsupported(self, tmp_path):
         (tmp_path / "good.pdf").write_bytes(b"%PDF-1.4 fake")
-        (tmp_path / "bad.txt").write_text("nope")
+        (tmp_path / "bad.xyz").write_text("nope")
         (tmp_path / "good2.pdf").write_bytes(b"%PDF-1.4 fake")
         out = list(iter_input_files(str(tmp_path)))
         names = {p.name for p in out}
-        # .txt is skipped, both .pdf files are kept
+        # .xyz is unsupported → skipped; both .pdf files are kept
         assert "good.pdf" in names
         assert "good2.pdf" in names
-        assert "bad.txt" not in names
+        assert "bad.xyz" not in names
 
     def test_iter_input_files_single_file_case_insensitive_suffix(self, tmp_path):
         """The single-file path checks suffix case-insensitively, so
@@ -229,7 +229,7 @@ class TestCliSurface:
         assert out == [p]
 
     def test_iter_input_files_no_match(self, tmp_path):
-        (tmp_path / "nope.txt").write_text("x")
+        (tmp_path / "nope.xyz").write_text("x")
         assert list(iter_input_files(str(tmp_path))) == []
 
 
@@ -327,8 +327,16 @@ class TestEndToEnd:
         )
 
         files = {p.name: p for p in iter_input_files(str(tmp_path))}
-        assert set(files) == {"input.pdf", "notes.md"}
-        results = {name: pipeline.run(str(p)) for name, p in files.items()}
+        # `.txt` is now a supported format (derived from the canonical upload
+        # allow-list), so the prompt fixture files next to the corpus are also
+        # enumerated. Focus this batch assertion on the intended PDF+Markdown
+        # pair (which is what the rest of the test exercises).
+        batch = {
+            name: p for name, p in files.items()
+            if p.suffix.lower() in (".pdf", ".md", ".markdown")
+        }
+        assert set(batch) == {"input.pdf", "notes.md"}
+        results = {name: pipeline.run(str(p)) for name, p in batch.items()}
         assert all(not r.skipped for r in results.values())
         assert all(r.n_chunks > 0 for r in results.values())
 
@@ -499,10 +507,24 @@ class TestEndToEnd:
         assert ".md" in SUPPORTED_EXTS
         assert ".markdown" in SUPPORTED_EXTS
 
+    def test_supported_exts_covers_docreader_formats(self):
+        """3rd-review item 5: CLI enumerates the same docreader-backed formats
+        the Web upload accepts (DOCX/XLSX/PPTX/EPUB/XMind), not just pdf/md."""
+        for ext in (".docx", ".xlsx", ".pptx", ".epub", ".xmind", ".csv", ".txt"):
+            assert ext in SUPPORTED_EXTS, ext
+
+    def test_supported_exts_derives_from_canonical_definition(self):
+        """The CLI whitelist must be identical to the canonical upload
+        definition so the two cannot drift (3rd-review item 5)."""
+        from src.application.services.upload_types import (
+            DEFAULT_UPLOAD_ALLOWED_EXTENSIONS,
+        )
+        assert set(SUPPORTED_EXTS) == set(DEFAULT_UPLOAD_ALLOWED_EXTENSIONS)
+
     def test_iter_input_files_picks_up_markdown(self, tmp_path):
         (tmp_path / "a.md").write_text("# A", encoding="utf-8")
         (tmp_path / "b.markdown").write_text("# B", encoding="utf-8")
-        (tmp_path / "c.txt").write_text("nope", encoding="utf-8")
+        (tmp_path / "c.xyz").write_text("nope", encoding="utf-8")
         names = {p.name for p in iter_input_files(str(tmp_path))}
         assert names == {"a.md", "b.markdown"}
 

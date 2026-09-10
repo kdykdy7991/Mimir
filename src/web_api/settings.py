@@ -28,6 +28,14 @@ import os
 from dataclasses import dataclass, field
 from typing import FrozenSet
 
+# Canonical upload format allow-list — single source of truth (see
+# src/application/services/upload_types.py). The Web API defaults derive from it
+# so the web upload whitelist and the CLI/ingest enumeration can never drift.
+from src.application.services.upload_types import (  # noqa: E402
+    DEFAULT_UPLOAD_ALLOWED_EXTENSIONS,
+    DEFAULT_UPLOAD_ALLOWED_MIME,
+)
+
 
 def _get_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
@@ -50,50 +58,10 @@ def _get_str_set(name: str, default: FrozenSet[str]) -> FrozenSet[str]:
 
 # ---------------------------------------------------------------------------
 # Defaults — per the v0.1 contract (+ M5 batch/extension rules)
+# MIME + extension allow-lists are imported from the canonical definition in
+# src/application/services/upload_types.py (single source of truth).
 # ---------------------------------------------------------------------------
 DEFAULT_UPLOAD_MAX_BYTES = 30 * 1024 * 1024  # 30 MB per file
-DEFAULT_UPLOAD_ALLOWED_MIME: FrozenSet[str] = frozenset({
-    "application/pdf",
-    "text/markdown",
-    "text/plain",
-    "text/csv",
-    "application/csv",
-    "text/html",
-    "application/epub+zip",
-    "application/xmind",
-    "application/msword",
-    "application/vnd.ms-excel",
-    "application/vnd.ms-powerpoint",
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-})
-DEFAULT_UPLOAD_ALLOWED_EXTENSIONS: FrozenSet[str] = frozenset({
-    ".pdf",
-    ".md",
-    ".markdown",
-    ".docx",
-    ".csv",
-    ".xlsx",
-    ".pptx",
-    ".doc",
-    ".xls",
-    ".ppt",
-    ".txt",
-    ".html",
-    ".htm",
-    ".mhtml",
-    ".mht",
-    ".epub",
-    ".xmind",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".bmp",
-})
 DEFAULT_UPLOAD_MAX_BATCH_FILES = 100
 DEFAULT_UPLOAD_MAX_BATCH_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per batch
 DEFAULT_PAGE_LIMIT_DEFAULT = 20
