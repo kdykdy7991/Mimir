@@ -23,7 +23,7 @@
 | Phase 2 WeKnora 内置 PDFParser | **完成（已审核）** | pymupdf 后端：分类/layout/去噪/扫描渲染/嵌入式图 |
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
-| Phase 5 本地 Qwen3.8 27B 多模态入库 | **进行中** | T5.1 已提交（OCR/Caption 子分块生产器+能力门） |
+| Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
 | Phase 6 格式扩展 | 未开始 | |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
 
@@ -143,11 +143,46 @@
 - **测试**：`test_vision_ingest_transform.py` → 7 passed（触发条件、disabled passthrough、子分块元数据、
   装饰图跳过、扫描全失败抛错、扫描部分成功、数字部分成功）。
 
-### T5.3 审核交接（进行中，待批）
+### T5.3 feat(vision): route ocr/caption sub-chunks through embedding, bm25 and vector index
+- **内容**：`vision_ingest_transform.py` 将每个产出的 image_ocr / image_caption `VisionSubChunk` 展开成独立的
+  `Chunk`（`is_vision_subchunk`、`chunk_type`、`parent_chunk_id`、`content_type`、图片 ID、模型版本），
+  追加到分块列表后与原 chunk 一并进入 dense Embedding、稀疏 BM25 与向量索引（复用 batch_processor/upsert）。
+  父 chunk 仍保留 `vision_subchunks` metadata 供追踪。
+- **测试**：新增子分块被展开为 3 个可索引 Chunk（父 + ocr + caption）断言；全量相关 108 passed、
+  batch_processor/ingestion_service 29 passed，无回归。
 
-## Phase 5 审核交接（进行中）
-> 相位 5 起于 T5.1/T5.2（子分块生产器 + 摄入接线/失败语义）。尚未交付：子 Chunk 进入 Embedding/BM25/向量
-> 索引的最终路由，与真实本机 Qwen3.8 27B 的端到端灰度（需在线服务，本环境离线仅 mock 覆盖）。
+## Phase 5 审核交接（T5.4）
+> 相位 5 交付：本机 Qwen3.8 27B（OpenAI 兼容）多模态 OCR/Caption 子分块，触发条件、失败语义、索引路由。
+
+### 1) 提交列表
+| 提交 | 内容 |
+| --- | --- |
+| `b057679` | feat(vision): add multimodal ocr/caption sub-chunk producer with capability gate |
+| `7e86766` | feat(vision): wire vision-ingest transform with triggers and failure semantics; recognize qwen3.8-27b |
+| `9b03388` | feat(vision): route ocr/caption sub-chunks through embedding, bm25 and vector index |
+
+### 2) 完成内容
+- 子分块生产器（T5.1）：capability 视觉门 + 真实 1×1 PNG 探测（supports_vision 必须过一次真实图校验）、
+  OCR/Caption 提示、拒答/提示回显/空/无效清理。
+- 摄入接线（T5.2):触发条件（force_vision / scanned_pdf / 内容图 / 图片表格 / 文本过短 <30 字）、
+  失败语义（单图失败告警继续；扫描全失败抛错绝不标成功；数字附属图失败→partial_success）、feature-flag
+  默认 `enabled=False`（不改变现有摄入路径）；`VISION_MODELS` 增补 `Qwen3.8-27B`。
+- 索引路由（T5.3）：子分块展开为可索引 Chunk，进入 Embedding/BM25/向量。
+- 复用既有 `src/libs/llm`（capability_validator/ContentBlock/VISION_MODELS）；未引入任何外部付费 VLM。
+
+### 3) 测试与结果
+- 视觉相关 14 passed（production+transform）；相关摄入/分块 108 passed；batch_processor+ingestion_service
+  29 passed；services/docreader 59 passed；`git diff --check` 干净。
+
+### 4) 已知限制
+- 本环境离线：无本机 Qwen3.8 27B 在线端点可打，真实图探测与端到端灰度以 mock 覆盖；部署端需一次在线
+  `supports_vision_probe` + 灰度（Phase 3 交付清单同门）。
+- 子分块展开后混入 chunks 列表走同一 batch embedding；若需独立 embedding 模型/路由，属 Phase 后续可选增强。
+
+### 5) 下一阶段建议
+- 进入 **Phase 6**：格式扩展（按序 DOCX → XLSX/CSV → PPTX → DOC/XLS/PPT → TXT/HTML/MHTML → EPUB/XMind →
+  图片），每格式同时交付解析器/依赖/路由/上传白名单/Magic+MIME 校验/测试样本/验收测试，禁止一次 PR 混入全部格式。
+  首个任务：DOCX 解析器（本地、无专有依赖则走 opendataloader 型后端）。
 
 ---
 
