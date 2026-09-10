@@ -35,7 +35,10 @@ class UploadPolicy:
 
     max_file_bytes: int = 30 * 1024 * 1024  # 30 MB per file
     allowed_extensions: FrozenSet[str] = field(
-        default_factory=lambda: frozenset({".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx"}),
+        default_factory=lambda: frozenset({
+            ".pdf", ".md", ".markdown", ".docx", ".csv", ".xlsx", ".pptx",
+            ".doc", ".xls", ".ppt",
+        }),
     )
     allowed_mime: FrozenSet[str] = field(
         default_factory=lambda: frozenset({
@@ -44,6 +47,9 @@ class UploadPolicy:
             "text/plain",
             "text/csv",
             "application/csv",
+            "application/msword",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
