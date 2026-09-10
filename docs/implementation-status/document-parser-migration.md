@@ -24,7 +24,7 @@
 | Phase 3 OpenDataLoader 与表格规范化 | **完成（与 Phase 4 同时交付）** | 引擎+规范化+路径卫生+表格感知分块 |
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
-| Phase 6 格式扩展（DOCX 先行） | **进行中** | DOCX 已交付（解析器/路由/白名单/MIME/样本/验收） |
+| Phase 6 格式扩展 | **完成（审核待批）** | DOCX/CSV/XLSX/PPTX/legacy/HTML/MHTML/EPUB/XMind/图片 |
 | Phase 7 切换默认与清理旧实现 | 未开始 | |
 
 ---
@@ -188,8 +188,70 @@
   全量 docreader 71 passed、上传相关 25 passed。
 - **依赖**：无新增（stdlib only）。
 
-### 未完成
-- D6.4 DOC/XLS/PPT、D6.5 TXT/HTML/MHTML、D6.6 EPUB/XMind、D6.7 图片。
+### D6.4 legacy DOC/XLS/PPT（交付，待审）
+- **解析器**：`legacy_office_parser.py` —— OLE2 二进制、本环境无本地转换器（无 LibreOffice/catdoc/antiword、
+  python-docx/openpyxl/xlrd/olefile），按计划「无专有依赖则走 opendataloader 型后端」做**可用性门控**：
+  注册 `doc/xls/ppt`→`opendataloader` 引擎，`available=False` + 明确 reason 上报；`parse` 在转换器缺失时
+  抛可读错误，**绝不返回空占位当作成功**。
+- **路由/白名单/MIME**：registry 注册 doc/xls/ppt；白名单增 `.doc/.xls/.ppt` 与 `application/msword`、
+  `application/vnd.ms-excel`、`application/vnd.ms-powerpoint`。
+- **测试样本/验收**：`test_legacy_office_parser.py` → 3 passed（可用性上报、三格式注册、缺失时拒绝对三种
+  扩展名/route 均抛错）。
+- **依赖**：无新增（运行时返回不可用，部署端装本地转换器即可启用）。
+
+### D6.5 TXT/HTML/MHTML（交付，待审）
+- **解析器**：TXT 复用既有 `PlainTextParser`；`html_parser.py`（stdlib HTMLParser，标题 `#` 前缀、去 script/style、
+  单元格行内处理）；`mhtml_parser.py`（stdlib `email`，取首个 text/html|text/plain part）。
+- **路由/白名单/MIME**：registry 注册 html/htm/mhtml/mht；白名单增 `.txt/.html/.htm/.mhtml/.mht` 与 `text/html`；
+  批处理「不支持的扩展」验收样本由 `.txt` 改为 `.xyz`（因 .txt 现已支持）。
+- **测试样本/验收**：`test_html_mhtml_parser.py` → 5 passed；全量 docreader 79 passed、上传相关 25 passed。
+
+### D6.6 EPUB/XMind（交付，待审）
+- **解析器**：`epub_parser.py`（stdlib zipfile，取全部 .xhtml/.html part 去标签按序拼接）；`xmind_parser.py`
+  （stdlib zipfile，读 content.json 或旧 content.xml，递归抽 topic 标题按层级缩进）。
+- **路由/白名单/MIME**：registry 注册 epub/xmind；白名单增 `.epub/.xmind` 与 `application/epub+zip`、
+  `application/xmind`。
+- **测试样本/验收**：`test_epub_xmind_parser.py` → 5 passed；全量 docreader 84 passed、上传相关 25 passed。
+
+### D6.7 图片格式（交付，待审）
+- **解析器**：`image_parser.py` —— 用 Pillow 做真实魔法/解码校验（坏图拒绝），无固有文本；原始字节写入
+  `Document.images`（与项目 ImageRef 规则一致）供 Phase-5 视觉流水线 OCR/Caption。
+- **路由/白名单/MIME**：registry 注册 png/jpg/jpeg/gif/webp/bmp；白名单增对应扩展与 `image/*` MIME。
+- **测试样本/验收**：`test_image_parser.py` → 3 passed；全量 docreader 87 passed、上传相关 25 passed。
+
+## Phase 6 审核交接（D6.complete）
+> 相位 6 全部 7 类格式交付完毕（DOCX → XLSX/CSV → PPTX → DOC/XLS/PPT → TXT/HTML/MHTML → EPUB/XMind → 图片），
+> 依赖自由（stdlib；图片已验证的 Pillow），逐格式同时交付解析器/路由/白名单/MIME/魔法校验/样本/验收，多小提交。
+
+### 1) 提交列表
+| 提交 | 内容 |
+| --- | --- |
+| `6948742` / `d33d191` | D6.1 DOCX 解析+路由 / 白名单+MIME |
+| `02c163a` / `6aedaac` | D6.2 CSV+XLSX 解析+路由 / 白名单+MIME |
+| `d3db1c8` / `50470d5` | D6.3 PPTX 解析+路由 / 白名单+MIME |
+| `6354fc1` / `0762c4b` | D6.4 legacy DOC/XLS/PPT 门控后端 / 白名单+MIME |
+| `1eff9ac` / `ef3dc60` | D6.5 HTML/MHTML 解析+路由 / 白名单+MIME+拒收样例修正 |
+| `7842879` / `4ae31ff` | D6.6 EPUB/XMind 解析+路由 / 白名单+MIME |
+| `ecdb04c` / `19131dc` | D6.7 图片解析+路由 / 白名单+MIME |
+
+### 2) 完成内容
+- 七类格式全部：解析器（stdlib / Pillow）、格式路由（registry 多格式别名）、上传白名单+MIME（web_api 与
+  服务双处）、魔法校验（ZIP 结构 / tag / 图像解码）、内存生成测试样本、验收测试。
+- 保持「无专有依赖」原则：DOCX/XLSX/PPTX/CSV/HTML/MHTML/EPUB/XMind 均 stdlib；图片用 Pillow；legacy
+  DOC/XLS/PPT 以可用性门控后端交付（不可用时拒绝对报错，绝不假装成功）。
+
+### 3) 测试与结果
+- services/docreader 全量 87 passed；主工程上传/批处理相关 25 passed；`git diff --check` 干净。
+
+### 4) 已知限制
+- legacy DOC/XLS/PPT 仍为不可用后端（本环境无本地 OLE2 转换器）；部署端装本地转换器后即启用。
+- MHTML 仅取首个 text/html（或 text/plain）part；EPUB 未按 spine 精确排序（按文件名序）。
+- 主侧摄入对新格式的端到端灰度（经 docreader 服务）属部署期验证。
+
+### 5) 下一阶段建议
+- 进入 **Phase 7**（切换默认与清理旧实现）：前置条件——Phase 0 基准全部达门槛且至少一次真实业务文档灰度。
+  建议：先在部署端跑一次真实 docx/xlsx 等灰度，再切换默认 backend 为 `docreader`、保留 legacy 回滚开关、清理
+  重复的 PDF/Markdown Loader（迁移其图像分类与 metadata 合同）、更新 OpenAPI/README/运维检查表。
 
 ---
 
