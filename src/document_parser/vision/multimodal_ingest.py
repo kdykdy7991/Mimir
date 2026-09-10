@@ -3,7 +3,7 @@ Local multimodal ingestion: OCR / Caption sub-chunks (Phase 5).
 
 Trims toward the plan's local Qwen3.8 27B (OpenAI-compatible) with no external
 paid VLM provider. Reuses the existing LLM capability model: vision is gated by
-``llm.capabilities`` (via ``OpenAICompatibleLLM.VISION_MODELS``), and
+``llm.capabilities`` (vision asserted by ``LLMSettings.supports_vision``), and
 ``supports_vision`` must pass a one-shot real-image probe before structural use.
 
 For each content image we produce two sub-chunk descriptors:

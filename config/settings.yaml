@@ -14,6 +14,7 @@ llm:
   temperature: 0.0
   max_tokens: 4096
   api_key: "not-needed"        # 本地服务不校验；OpenAI 云请用 ${OPENAI_API_KEY}
+  supports_vision: true        # 本地模型默认支持视觉（Phase 5 决策：不靠模型名单探测）
   base_url: "http://localhost:8000/v1"   # 本地 vLLM server
   # DeepSeek 配置 (当 provider: deepseek 时生效)
   # api_key: "${DEEPSEEK_API_KEY}"

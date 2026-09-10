@@ -35,26 +35,11 @@ class OpenAICompatibleLLM(BaseLLM):
     Handles both text-only and multimodal (text + image) inputs.
     """
 
-    # Known vision-capable models.
-    #
-    # Add a model name here if the underlying server actually
-    # supports image inputs (the model advertises vision
-    # capability via its OpenAI-compatible /v1/chat/completions
-    # endpoint). Use the *exact* model id the server returns
-    # from /v1/models so the ``capabilities`` check matches.
-    #
-    # The capabilities check itself is exact-string, so model
-    # name aliases (e.g. "qwen-vl-7b" vs "Qwen2-VL-7B-Instruct")
-    # must all be listed.
-    VISION_MODELS = {
-        # OpenAI
-        "gpt-4o", "gpt-4o-mini",
-        "gpt-4-turbo", "gpt-4-vision-preview",
-        # Local vLLM / NVIDIA
-        "Qwen3.6-35B-A3B-NVFP4",
-        # Local Qwen3.8-27B OpenAI-compatible endpoint (Phase 5)
-        "Qwen3.8-27B", "Qwen3.8-27B-Instruct",
-    }
+    # Vision capability is asserted by configuration (``LLMSettings.supports_vision``,
+    # default True for the sole local Qwen3.8-27B model) rather than maintained as
+    # an exact-name allow-list, per Phase 5's "no multi-model capability probing /
+    # default the local model to vision" decision. The runtime degradation
+    # self-check lives in ``supports_vision_probe`` (multimodal_ingest).
 
     def __init__(self, settings: Any):
         """
@@ -82,10 +67,10 @@ class OpenAICompatibleLLM(BaseLLM):
         Declare model capabilities.
 
         Returns:
-            {"text", "vision"} for vision-capable models,
-            {"text"} for text-only models.
+            {"text", "vision"} when vision is asserted for this endpoint
+            (``LLMSettings.supports_vision``, default True), else {"text"}.
         """
-        if self.model in self.VISION_MODELS:
+        if getattr(self.settings, "supports_vision", True):
             return {"text", "vision"}
         return {"text"}
 

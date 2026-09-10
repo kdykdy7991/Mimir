@@ -146,10 +146,10 @@ class TestLLMEndpoint:
     def test_factory_creates_openai_compatible(self):
         llm = _llm()
         assert type(llm).__name__ == "OpenAICompatibleLLM"
-        assert llm.model == "Qwen3.6-35B-A3B-NVFP4"
+        assert llm.model == "Qwen3.8-27B"
 
     def test_capabilities_contain_vision(self):
-        """The configured model is on VISION_MODELS, so
+        """supports_vision is asserted by config (default True), so
         capabilities must include 'vision'."""
         llm = _llm()
         assert "text" in llm.capabilities

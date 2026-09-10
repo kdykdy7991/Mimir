@@ -28,6 +28,10 @@ class LLMSettings(BaseModel):
     max_tokens: int = 4096
     api_key: str | None = None
     base_url: str | None = None
+    # Local vision capability (Phase 5): the sole local model (Qwen3.8-27B)
+    # supports image input by default, so this is asserted by config instead of
+    # maintained as a model-name allow-list. Set false only for a text-only model.
+    supports_vision: bool = True
 
 
 class EmbeddingSettings(BaseModel):
