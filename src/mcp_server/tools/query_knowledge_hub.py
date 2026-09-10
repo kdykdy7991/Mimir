@@ -1,66 +1,32 @@
 """
 E3: ``query_knowledge_hub`` tool.
 
-Runs a RAG query against a named collection using the D5
-``HybridSearch`` orchestrator and the D6 ``RerankerStage`` (when
-configured), then formats the results through the response builder
-into a Markdown-with-citations output.
+Returns *raw retrieval evidence* from an authorized knowledge base. The
+handler is thin: validate input → resolve+authorize the collection →
+ask the :class:`RagReadOnlyClient` → format the evidence result into
+Markdown + structured content. It never constructs an Embedding / Vector
+Store / SQLite / Reranker stack itself (P1.2).
 
-The wiring reuses the same ``build_query_components`` helper that
-``scripts/query.py`` uses, so behaviour stays consistent between
-the CLI and the MCP surface.
+Phase-1 note: the output keeps the legacy citation shape and wording so
+the migration matches the Phase-0 baseline; P2.2 introduces the
+evidence-centric contract (``evidence`` / ``diagnostics`` / ``rerank``)
+and drops the "ask/answer" wording.
 """
 
 from __future__ import annotations
 
-import json
-import logging
-import sys
-import time
-from uuid import uuid4
-from pathlib import Path
 from typing import Any
 
-from src.core.query_engine.reranker import RerankerStage
-from src.core.response import build_response
-from src.core.response.multimodal_assembler import (
-    ImageNotFoundError,
-    MultimodalAssembler,
-)
-from src.application.identifiers import document_uuid
-from src.application.services import EmbeddingUsageStore, QueryService
-from src.application.services.trace_store import TraceStore
-from src.application.services.web_store import WebApiDB
-from src.core.settings import Settings, load_settings
-from src.ingestion.embedding.sparse_encoder import SparseEncoder
-from src.ingestion.storage.image_storage import ImageStorage
-from src.libs.embedding import EmbeddingFactory
-from src.libs.reranker import RerankerFactory
-from src.libs.vector_store import VectorStoreFactory
-from src.libs.vector_store.scoped import ScopedCollectionVectorStore
-from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 from src.mcp_server.auth.authorization import (
-    CollectionAccessDenied, CollectionSelectionRequired, resolve_query_collection,
+    CollectionAccessDenied,
+    CollectionSelectionRequired,
+    resolve_query_collection,
 )
 from src.mcp_server.auth.context import current_principal
+from src.mcp_server.clients.models import QueryRequest
+from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 
-# ``scripts/`` lives at the project root. When the MCP server is launched
-# by a client (Claude Desktop / Cursor / Copilot) the working directory
-# may not be the project root, so we explicitly add it to sys.path before
-# importing from ``scripts/``.
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_PROJECT_ROOT_STR = str(_PROJECT_ROOT)
-if _PROJECT_ROOT_STR not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT_STR)
-
-from scripts.query import build_query_components  # noqa: E402
-
-logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# JSON Schema for the tool's input
-# ---------------------------------------------------------------------------
+from src.mcp_server.tools.common import client_from_args
 
 INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -98,7 +64,6 @@ INPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -127,205 +92,91 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     "required": ["query", "n_results", "citations"],
 }
 
-
-# ---------------------------------------------------------------------------
-# Settings + pipeline
-# ---------------------------------------------------------------------------
-
-def _load_settings(config_path: str) -> Settings:
-    """Reload settings on every call to honour config edits."""
-    p = Path(config_path)
-    if p.is_file():
-        return load_settings(str(p))
-    return Settings()
+_EMPTY_HINT = (
+    "未找到相关文档。请确认已运行 ingest.py 完成数据入库，"
+    "或尝试调整 query / top_k。"
+)
 
 
-def _build_search(
-    *,
-    config_path: str,
-    collection: str,
-    data_dir: str,
-    no_rerank: bool,
-):
-    """
-    Build the full query stack: ``QueryService`` (thin facade over
-    ``HybridSearch``) + (optional) ``RerankerStage``.
-    Returns ``(query_service, rerank_stage_or_None)``.
-    """
-    settings = _load_settings(config_path)
-
-    embedding = EmbeddingFactory.create(settings.embedding)
-    # M3 multi-collection: the real data lives in per-collection Chroma
-    # stores, so a single-collection store bound to the settings' default
-    # would query an empty collection (dense) and drop every sparse hit at
-    # the get_by_ids reverse-lookup. Route via the multi-collection router
-    # and scope it to the requested collection — same pattern as
-    # ``EngineCache._scoped_store`` (src/application/engines.py).
-    router = VectorStoreFactory.create_multi_collection(settings.vector_store)
-    vector_store = ScopedCollectionVectorStore(router, collection)
-    sparse_encoder = SparseEncoder.from_settings(settings.sparse)
-
-    hybrid = build_query_components(
-        data_dir=data_dir,
-        collection=collection,
-        embedding=embedding,
-        vector_store=vector_store,
-        sparse_encoder=sparse_encoder,
-    )
-    # M1: route the MCP tool through the application service so all four
-    # entry points share the same stable dependency.
-    web_db = WebApiDB(Path(data_dir) / "db" / "web_api.db")
-    usage_store = EmbeddingUsageStore(
-        web_db, enabled=bool(getattr(embedding, "usage_supported", False)),
-    )
-    add_listener = getattr(embedding, "add_usage_listener", None)
-    if add_listener is not None:
-        add_listener(usage_store.record)
-    query_service = QueryService(
-        hybrid,
-        trace_store=TraceStore(Path(data_dir) / "traces" / "traces.jsonl", db=web_db),
-    )
-
-    rerank_stage: RerankerStage | None = None
-    if not no_rerank and settings.rerank.backend != "none":
-        try:
-            reranker = RerankerFactory.create(settings.rerank)
-            rerank_stage = RerankerStage(
-                reranker=reranker,
-                top_m=settings.rerank.top_m,
-            )
-        except Exception as exc:  # noqa: BLE001
-            # Don't fail the call — degrade to fusion-only.
-            logger.warning(
-                "reranker unavailable, falling back to fusion: %s", exc,
-            )
-            rerank_stage = None
-
-    return query_service, rerank_stage
+def _excerpt(text: str, limit: int = 200) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
-# ---------------------------------------------------------------------------
-# Tool entry
-# ---------------------------------------------------------------------------
+def _format(result) -> tuple[str, dict[str, Any]]:
+    """Render a KnowledgeQueryResult into legacy markdown + structured."""
+    rows = []
+    for item in result.evidence:
+        header = f"**[{item.rank}] {item.source}**"
+        if item.page is not None:
+            header += f" (page {item.page})"
+        rows.append((header, _excerpt(item.text)))
+    if not rows:
+        return _EMPTY_HINT, {
+            "query": result.query,
+            "n_results": 0,
+            "citations": [],
+        }
 
-async def _query_knowledge_hub(
-    args: dict[str, Any],
-) -> Any:
+    body = "\n\n---\n\n".join(f"{h}\n\n{t}" for h, t in rows)
+    refs = ["", "## References", ""]
+    for item in result.evidence:
+        meta = f"p.{item.page}" if item.page is not None else "n/a"
+        refs.append(
+            f"[{item.rank}] `{item.chunk_id}` — {item.source} "
+            f"({meta}, score={item.score:.4f}, via {item.source_type})",
+        )
+    markdown = body + "\n".join(refs)
+    structured = {
+        "query": result.query,
+        "n_results": result.n_results,
+        "citations": [
+            {
+                "index": item.rank,
+                "chunk_id": item.chunk_id,
+                "source": item.source,
+                "page": item.page,
+                "score": item.score,
+                "source_type": item.source_type,
+                "text_excerpt": _excerpt(item.text),
+            }
+            for item in result.evidence
+        ],
+    }
+    return markdown, structured
+
+
+async def _query_knowledge_hub(args: dict[str, Any]) -> Any:
     query: str = (args.get("query") or "").strip()
     if not query:
-        # Known parameter error → CallToolResult(is_error=True), not a
-        # protocol MCPError (see protocol_handler "Error mapping").
         return tool_error(
             "'query' is required and must be a non-empty string",
         )
     top_k: int = int(args.get("top_k") or 10)
     try:
-        collection = resolve_query_collection(current_principal(), args.get("collection"))
+        collection = resolve_query_collection(
+            current_principal(), args.get("collection"),
+        )
     except (CollectionAccessDenied, CollectionSelectionRequired) as exc:
         return tool_error(str(exc))
     no_rerank: bool = bool(args.get("no_rerank") or False)
 
-    # Internal hints the server injects from CLI flags. Tools that
-    # are exposed to clients only see the public schema.
-    config_path = args.get("_config_path") or "./config/settings.yaml"
-    data_dir = args.get("_data_dir") or "./data"
-
-    query_service, rerank_stage = _build_search(
-        config_path=config_path,
-        collection=collection,
-        data_dir=data_dir,
-        no_rerank=no_rerank,
+    client = client_from_args(args)
+    result = client.query_knowledge(
+        QueryRequest(
+            query=query,
+            collection=collection,
+            top_k=top_k,
+            rerank=not no_rerank,
+        ),
+        current_principal(),
     )
-
-    started = time.perf_counter()
-    try:
-        search_result = query_service.search(query, top_k=top_k)
-        candidates = search_result.chunks
-        if rerank_stage is not None and candidates:
-            output = rerank_stage.rerank(query, candidates)
-            results = output.results
-        else:
-            results = candidates
-    except Exception as exc:
-        _record_mcp_query(
-            data_dir=data_dir, query=query, collection=collection, results=[],
-            latency_ms=(time.perf_counter() - started) * 1000.0,
-            degraded=True, error=type(exc).__name__,
-        )
-        raise
-
-    _record_mcp_query(
-        data_dir=data_dir, query=query, collection=collection, results=results,
-        latency_ms=(time.perf_counter() - started) * 1000.0,
-        degraded=search_result.degraded, trace_id=search_result.trace_id,
-    )
-
-    # E6: assemble multimodal content blocks (text + base64 image)
-    # so clients that understand MCP image content can render
-    # inline images. Falls back to text-only on missing-image
-    # errors so a stale image_id never breaks a successful
-    # retrieval.
-    assembler = _build_assembler(data_dir=data_dir)
-    try:
-        response = build_response(results, query, assembler=assembler)
-        return response.as_content_pair()
-    except (ImageNotFoundError, OSError) as exc:
-        # ImageNotFoundError = DB has no row for the id; OSError = the DB
-        # row exists but the underlying file is gone (stale reference).
-        # Either way the retrieval itself succeeded — degrade to text.
-        logger.warning(
-            "image for %r missing; falling back to text-only "
-            "response: %s",
-            getattr(exc, "image_id", None), exc,
-        )
-        response = build_response(results, query)
-        return response.as_pair()
-
-
-def _record_mcp_query(
-    *, data_dir: str, query: str, collection: str, results: list[Any],
-    latency_ms: float, degraded: bool, trace_id: str | None = None, error: str | None = None,
-) -> None:
-    """Best-effort durable usage record for one MCP knowledge query."""
-    principal = current_principal()
-    document_ids = sorted({
-        str(document_uuid(collection, item.metadata.get("source_path", "")))
-        for item in results if item.metadata.get("source_path")
-    })
-    try:
-        WebApiDB(Path(data_dir) / "db" / "web_api.db").save_query_result(
-            query_id=trace_id or str(uuid4()), collection=collection, query_text=query,
-            result_json=json.dumps({
-                "chunks": [{} for _ in results],
-                "degraded": degraded,
-                "latency_ms": round(latency_ms, 1),
-                "error": error,
-            }),
-            document_ids=document_ids, source="mcp",
-            api_key_id=getattr(principal, "key_id", None),
-        )
-    except Exception as exc:
-        logger.warning("failed to record MCP query usage: %s", exc)
-
-
-def _build_assembler(*, data_dir: str) -> MultimodalAssembler:
-    """
-    Build a :class:`MultimodalAssembler` backed by the default
-    :class:`ImageStorage` rooted at ``data_dir``.
-
-    ImageStorage stores its DB at ``data_dir/db/image_index.db``
-    and image files under ``data_dir/images/`` — the same
-    layout produced by ``IngestionPipeline`` (C14).
-    """
-    storage = ImageStorage(
-        db_path=str(Path(data_dir) / "db" / "image_index.db"),
-        base_dir=str(Path(data_dir) / "images"),
-    )
-    return MultimodalAssembler(image_storage=storage)
+    return _format(result)
 
 
 def register(handler: ProtocolHandler) -> None:
-    """Register this tool on the given protocol handler."""
     handler.register(
         name="query_knowledge_hub",
         description=(

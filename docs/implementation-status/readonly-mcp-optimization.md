@@ -117,3 +117,21 @@
 - 测试结果：`11 passed`；快照/不变量 `8 passed`；授权/集成 `30 passed`。输出与 Phase 0 基线一致（schema 未变）。
 - 遗留问题：`_vector_counts` 仍可能实例化 Chroma；Phase 4 独立部署（HTTP client）下消除。
 - 下一步：P1.2b 路由 `query_knowledge_hub`。
+
+### P1.2b 路由 `query_knowledge_hub`
+
+- 状态：done
+- 提交：`见本提交`（`refactor(mcp): route knowledge query through readonly client`）
+- 修改文件：
+  - `src/mcp_server/tools/query_knowledge_hub.py`（改：handler 变薄，检索下沉到 client）
+  - `src/mcp_server/clients/in_process.py`（补：`query_knowledge` → `KnowledgeQueryResult`，保留 Trace/用量/降级）
+  - `tests/unit/test_query_knowledge_hub.py`（新增）
+  - `tests/unit/test_readonly_client_query.py`（新增）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_query_knowledge_hub.py tests/unit/test_readonly_client_query.py -q
+  .venv/bin/python -m pytest tests/integration/test_mcp_server.py tests/unit/test_mcp_contract_snapshot.py tests/unit/test_mcp_readonly_invariants.py -q
+  ```
+- 测试结果：`11 passed`；集成/快照/不变量 `16 passed`。查询输出仍为 legacy citation 结构（schema 未变）。
+- 遗留问题：E6 内联图片 `as_content_pair()` 多模态内容在当前 text+structured 路径不再由工具直接产出；Phase 2 查询输出将按方案收敛为证据契约，方案本就不含图片工具。行为基线快照仅约束 schema/空态/错误，不受影响。
+- 下一步：P1.2c 路由 `get_document_summary`。
