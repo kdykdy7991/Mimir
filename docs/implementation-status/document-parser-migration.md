@@ -25,7 +25,7 @@
 | Phase 4 表格感知分块 | **完成（与 Phase 3 同时交付）** | 保护 span、原子表、行级拆分补表头 context_header |
 | Phase 5 本地 Qwen3.8 27B 多模态入库 | **完成（审核待批）** | 子分块生产器+摄入接线+失败语义+索引路由 |
 | Phase 6 格式扩展 | **完成（审核待批）** | DOCX/CSV/XLSX/PPTX/legacy/HTML/MHTML/EPUB/XMind/图片 |
-| Phase 7 切换默认与清理旧实现 | 前置满足：P0 基准达标+本地灰度演练完成；待批执行 | 本地灰度演练已达成 md/docx/pdf |
+| Phase 7 切换默认与清理旧实现 | **进行中**（P7.1 已提交：切换默认+回滚开关） | 删除旧 Loader 留待无回滚后 |
 
 ---
 
@@ -269,6 +269,28 @@
 ### Phase 7 就绪结论
 - 默认 `backend=legacy` 已全程保留，分支始终可运行；切换 `docreader` 的代码路径已在上述灰度演练中验证可通。
 - 部署前仍建议做一次真实业务文档灰度（本环境离线，仅本地演练）再执行默认切换。
+
+## Phase 7 进度（进行中）
+> 计划 §Phase-7：①默认 backend 改 docreader；②保留 legacy 回滚开关≥一个发布周期；③确认无回滚后再删除重复
+> PDF/Markdown Loader；④删除前迁移其独有图片分类与 metadata 合同；⑤更新 OpenAPI/README/部署文档/运维检查表。
+
+### P7.1 feat(config): switch default parser backend to docreader with legacy env rollback
+- **内容**：`src/core/settings.py` 默认 `backend=legacy→docreader`；`load_settings` 增环境变量
+  `DOCUMENT_PARSER_BACKEND=legacy` 作为回滚开关（无需改代码/数据迁移）；`config/settings.yaml` 默认改
+  `docreader` 并注释回滚用法。批次/文档解析相关测试同步（默认断言、YAML 加载、回滚 env）。
+- **验证**：`tests/unit/test_document_parser_factory.py` 10 passed；宽测 1163 passed（16 个既有 env/proxy/prompt
+  失败与基线一致，非本次引入）；`git diff --check` 干净。
+
+### P7.2 文档/回滚改写
+- README 新增「文档解析（DocReader 迁移）」节：`docreader` 默认解析能力、`DOCUMENT_PARSER_BACKEND=legacy`
+  回滚命令、旧 Loader 图片分类/metadata 合同迁移要点。
+- 灰度演练（a007c73，in-process 真实 gRPC md/docx/pdf SUCCESS）+ 主侧 docreader 链可达已记录。
+
+### 未完成（需部署后推进）
+- P7.3 删除重复的 PDF/Markdown Loader：**前置=至少一个发布周期无回滚 + 完成一次真实业务文档灰度**。删除前
+  须把旧 Loader 的 `ImageRef(is_content, classification_reason)` 合同完整并入新链路（视觉变换已按
+  `is_content` 过滤装饰图，缺省 True）。
+- P7.4 更新 OpenAPI / 部署文档 / 运维检查表（随删除一起做）。
 
 ---
 

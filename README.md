@@ -120,6 +120,28 @@ rerank:
 
 ---
 
+## 文档解析（DocReader 迁移，Phase 7 已切换默认）
+
+统一文档解析后端由 `document_parser.backend` 选择：
+
+- `docreader`（**Phase 7 默认**）：走独立 DocReader gRPC 服务（`document_parser.endpoint`，
+  默认 `127.0.0.1:50051`）。依赖自由解析 PDF / DOCX / XLSX / CSV / PPTX / HTML / MHTML / EPUB / XMind /
+  图片等格式；表格感知分块；扫描页/图片经本地多模态（Qwen3.8-27B）OCR/Caption 子分块入库。
+- `legacy`：沿用旧 Loader 链（PDF / Markdown），用于回滚。
+
+**回滚开关**（Phase 7 起至少保留一个发布周期）：部署端设环境变量 `DOCUMENT_PARSER_BACKEND=legacy` 即可
+切回旧链路，无需改代码或做数据迁移：
+
+```bash
+DOCUMENT_PARSER_BACKEND=legacy python scripts/ingest.py --path ./data/documents ...
+```
+
+> 旧 Loader 持有的独有 PDF 图片分类/元数据合同为 `ImageRef(is_content, classification_reason)`；
+> 新链路经视觉变换按 `is_content` 过滤装饰图（缺省 True），删除旧 Loader 前须将其完整并入新链路并完成一次
+> 无回滚部署。
+
+---
+
 ## 使用
 
 ### 已实现
