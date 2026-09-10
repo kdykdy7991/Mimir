@@ -33,7 +33,9 @@ class FakeProducer:
 
 def _vid(**kw) -> VisionSubChunk:
     ct = kw.pop("content_type", "image_ocr")
-    return VisionSubChunk(content_type=ct, text="ocr text", metadata=dict(kw))
+    m = {"image_id": kw.pop("image_id", "img-1"), "model_version": kw.pop("model_version", "m")}
+    m.update(kw)
+    return VisionSubChunk(content_type=ct, text="ocr text", metadata=m)
 
 
 def test_should_run_vision_triggers() -> None:
@@ -99,3 +101,20 @@ def test_digital_partial_failure_is_not_error() -> None:
     )
     out = t.transform([c])
     assert out[0].metadata.get("has_unprocessed_images") is True
+
+
+def test_subchunks_emitted_as_indexable_chunks() -> None:
+    prod = FakeProducer([
+        _vid(content_type="image_ocr"), _vid(content_type="image_caption"),
+    ])
+    t = VisionIngestTransform(enabled=True, producer=prod, load_bytes=lambda p: b"IMG")
+    out = t.transform([_chunk(image_source_type="scanned_pdf")])
+    # parent + 2 sub-chunks flow through embedding/BM25/vector as Chunks
+    assert len(out) == 3
+    kinds = {c.metadata["chunk_type"] for c in out if c.metadata.get("is_vision_subchunk")}
+    assert kinds == {"image_ocr", "image_caption"}
+    sc = next(c for c in out if c.metadata.get("chunk_type") == "image_ocr")
+    assert sc.text == "ocr text"
+    assert sc.metadata["parent_chunk_id"] == "c1"
+    assert sc.metadata["model_version"] == "m"
+    assert sc.source_ref == "doc-1"

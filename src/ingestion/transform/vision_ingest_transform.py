@@ -124,8 +124,11 @@ class VisionIngestTransform(BaseTransform):
         all_failed = True
         any_attempted = False
         for chunk in chunks:
-            processed, attempted, failed = self._process_chunk(chunk)
+            processed, attempted, failed, subs = self._process_chunk(chunk)
             out.append(processed)
+            # route produced sub-chunks into the pipeline: they flow through
+            # dense embedding, BM25 and the vector store like any other chunk
+            out.extend(subs)
             if attempted:
                 any_attempted = True
                 if not failed:
@@ -142,16 +145,16 @@ class VisionIngestTransform(BaseTransform):
             )
         return out
 
-    def _process_chunk(self, chunk: Chunk) -> tuple[Chunk, bool, bool]:
+    def _process_chunk(self, chunk: Chunk) -> tuple[Chunk, bool, bool, list[Chunk]]:
         records = _image_records(chunk)
         if not records:
-            return chunk, False, False
+            return chunk, False, False, []
         forced = bool((chunk.metadata or {}).get("force_vision"))
         if not should_run_vision(
             chunk, has_content_image=bool(records), force_vision=forced,
             min_text_chars=self._min_text_chars,
         ):
-            return chunk, False, False
+            return chunk, False, False, []
 
         produced: list[VisionSubChunk] = []
         failed = 0
@@ -188,7 +191,9 @@ class VisionIngestTransform(BaseTransform):
         if failed and not produced:
             meta[META_UNPROCESSED] = True
             # never set success marker for an all-failed attempt
-        return replace(chunk, metadata=meta), True, (not produced)
+        parent = replace(chunk, metadata=meta)
+        subs = [_vision_chunk(s, parent) for s in produced]
+        return parent, True, (not produced), subs
 
     def _produce(self, raw: bytes, **kw: Any) -> list[VisionSubChunk]:
         """Run the producer (injectable for tests) against the current LLM."""
@@ -201,3 +206,20 @@ class VisionIngestTransform(BaseTransform):
     @staticmethod
     def _default_load_bytes(path: str) -> bytes:
         return Path(path).read_bytes()
+
+
+def _vision_chunk(sub: VisionSubChunk, parent: Chunk) -> Chunk:
+    """Promote a produced vision sub-chunk to an independently indexed Chunk."""
+    meta = dict(sub.metadata)
+    meta["content_type"] = sub.content_type
+    meta["chunk_type"] = sub.content_type
+    meta["is_vision_subchunk"] = True
+    meta["parent_chunk_id"] = parent.id
+    return Chunk(
+        id=f"{parent.id}:{sub.content_type}:{meta.get('image_id', '?')}",
+        text=sub.text,
+        metadata=meta,
+        source_ref=parent.source_ref,
+        start_offset=0,
+        end_offset=0,
+    )
