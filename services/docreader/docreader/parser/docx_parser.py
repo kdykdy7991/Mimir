@@ -8,13 +8,12 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import zipfile
 import xml.etree.ElementTree as ET
 
 from docreader.models.document import Document
 from docreader.parser.base_parser import BaseParser
+from docreader.parser.zip_safe import read_member, open_safe_zip
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +24,11 @@ class DocxParser(BaseParser):
     """Parse a .docx archive into Markdown text (paragraphs + tables)."""
 
     def parse_into_text(self, content: bytes) -> Document:
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                names = zf.namelist()
-                if "word/document.xml" not in names:
-                    raise ValueError("docx has no word/document.xml")
-                xml_bytes = zf.read("word/document.xml")
-        except zipfile.BadZipFile as exc:  # not a docx (or not a zip)
-            raise ValueError(f"invalid docx archive: {exc}") from exc
+        with open_safe_zip(content) as zf:
+            names = zf.namelist()
+            if "word/document.xml" not in names:
+                raise ValueError("docx has no word/document.xml")
+            xml_bytes = read_member(zf, "word/document.xml")
 
         root = ET.fromstring(xml_bytes)
         body = root.find(f"{_W}body")

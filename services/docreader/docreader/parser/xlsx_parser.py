@@ -8,13 +8,12 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import zipfile
 import xml.etree.ElementTree as ET
 
 from docreader.models.document import Document
 from docreader.parser.base_parser import BaseParser
+from docreader.parser.zip_safe import read_member, open_safe_zip
 
 logger = logging.getLogger(__name__)
 
@@ -25,20 +24,17 @@ class XlsxParser(BaseParser):
     """Parse .xlsx bytes into GFM Markdown tables (one block per sheet)."""
 
     def parse_into_text(self, content: bytes) -> Document:
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                names = zf.namelist()
-                shared = self._read_shared_strings(zf, names)
-                sheet_files = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
-                if not sheet_files and "xl/workbook.xml" not in names:
-                    raise ValueError("xlsx has no worksheets")
-                blocks = []
-                for sf in sheet_files:
-                    block = self._sheet_markdown(zf.read(sf), shared)
-                    if block:
-                        blocks.append(block)
-        except zipfile.BadZipFile as exc:
-            raise ValueError(f"invalid xlsx archive: {exc}") from exc
+        with open_safe_zip(content) as zf:
+            names = zf.namelist()
+            shared = self._read_shared_strings(zf, names)
+            sheet_files = sorted(n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
+            if not sheet_files and "xl/workbook.xml" not in names:
+                raise ValueError("xlsx has no worksheets")
+            blocks = []
+            for sf in sheet_files:
+                block = self._sheet_markdown(read_member(zf, sf), shared)
+                if block:
+                    blocks.append(block)
 
         return Document(
             content="\n\n".join(blocks).strip(),
@@ -49,7 +45,7 @@ class XlsxParser(BaseParser):
     def _read_shared_strings(zf, names) -> list[str]:
         if "xl/sharedStrings.xml" not in names:
             return []
-        root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+        root = ET.fromstring(read_member(zf, "xl/sharedStrings.xml"))
         out = []
         for si in root.iter(f"{_W}si"):
             text = "".join((t.text or "") for t in si.iter(f"{_W}t"))

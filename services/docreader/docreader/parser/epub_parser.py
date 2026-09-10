@@ -7,13 +7,12 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import zipfile
 
 from docreader.models.document import Document
 from docreader.parser.base_parser import BaseParser
 from docreader.parser.html_parser import _html_to_text
+from docreader.parser.zip_safe import read_member, open_safe_zip
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +21,15 @@ class EpubParser(BaseParser):
     """Parse .epub bytes: concatenate all (X)HTML parts' readable text."""
 
     def parse_into_text(self, content: bytes) -> Document:
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                names = zf.namelist()
-                parts = sorted(n for n in names if n.lower().endswith((".xhtml", ".html", ".htm")))
-                if not parts and "META-INF/container.xml" not in names:
-                    raise ValueError("epub has no content parts")
-                blocks = []
-                for n in parts:
-                    text = _html_to_text(zf.read(n).decode("utf-8", errors="replace"))
-                    if text.strip():
-                        blocks.append(text)
-        except zipfile.BadZipFile as exc:
-            raise ValueError(f"invalid epub archive: {exc}") from exc
+        with open_safe_zip(content) as zf:
+            names = zf.namelist()
+            parts = sorted(n for n in names if n.lower().endswith((".xhtml", ".html", ".htm")))
+            if not parts and "META-INF/container.xml" not in names:
+                raise ValueError("epub has no content parts")
+            blocks = []
+            for n in parts:
+                text = _html_to_text(read_member(zf, n).decode("utf-8", errors="replace"))
+                if text.strip():
+                    blocks.append(text)
         return Document(content="\n\n".join(blocks).strip(),
                         metadata={"format": "epub", "parser": "builtin"})

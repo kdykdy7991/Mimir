@@ -8,14 +8,13 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
-import zipfile
 import xml.etree.ElementTree as ET
 
 from docreader.models.document import Document
 from docreader.parser.base_parser import BaseParser
+from docreader.parser.zip_safe import read_member, open_safe_zip
 
 logger = logging.getLogger(__name__)
 
@@ -24,19 +23,16 @@ class XmindParser(BaseParser):
     """Parse .xmind bytes: extract topic titles/labels from content.json or content.xml."""
 
     def parse_into_text(self, content: bytes) -> Document:
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                names = zf.namelist()
-                text = ""
-                if "content.json" in names:
-                    text = _json_topics(json.loads(zf.read("content.json").decode("utf-8", errors="replace")))
-                elif "content.xml" in names:
-                    root = ET.fromstring(zf.read("content.xml"))
-                    text = _xml_topics(root)
-                else:
-                    raise ValueError("xmind has neither content.json nor content.xml")
-        except zipfile.BadZipFile as exc:
-            raise ValueError(f"invalid xmind archive: {exc}") from exc
+        with open_safe_zip(content) as zf:
+            names = zf.namelist()
+            text = ""
+            if "content.json" in names:
+                text = _json_topics(json.loads(read_member(zf, "content.json").decode("utf-8", errors="replace")))
+            elif "content.xml" in names:
+                root = ET.fromstring(read_member(zf, "content.xml"))
+                text = _xml_topics(root)
+            else:
+                raise ValueError("xmind has neither content.json nor content.xml")
         return Document(content=text, metadata={"format": "xmind", "parser": "builtin"})
 
 

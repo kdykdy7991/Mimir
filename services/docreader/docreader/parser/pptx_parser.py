@@ -7,14 +7,13 @@
 
 from __future__ import annotations
 
-import io
 import logging
 import re
-import zipfile
 import xml.etree.ElementTree as ET
 
 from docreader.models.document import Document
 from docreader.parser.base_parser import BaseParser
+from docreader.parser.zip_safe import read_member, open_safe_zip
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +24,19 @@ class PptxParser(BaseParser):
     """Parse .pptx bytes into Markdown: slide headings + paragraph text."""
 
     def parse_into_text(self, content: bytes) -> Document:
-        try:
-            with zipfile.ZipFile(io.BytesIO(content)) as zf:
-                names = zf.namelist()
-                slides = sorted(
-                    (n for n in names if re.match(r"^ppt/slides/slide\d+\.xml$", n)),
-                    key=lambda n: int(re.search(r"slide(\d+)\.xml", n).group(1)),
-                )
-                if not slides:
-                    raise ValueError("pptx has no ppt/slides")
-                blocks = []
-                for n in slides:
-                    text = _slide_text(zf.read(n))
-                    if text.strip():
-                        blocks.append(_slide_block(n, text))
-        except zipfile.BadZipFile as exc:
-            raise ValueError(f"invalid pptx archive: {exc}") from exc
+        with open_safe_zip(content) as zf:
+            names = zf.namelist()
+            slides = sorted(
+                (n for n in names if re.match(r"^ppt/slides/slide\d+\.xml$", n)),
+                key=lambda n: int(re.search(r"slide(\d+)\.xml", n).group(1)),
+            )
+            if not slides:
+                raise ValueError("pptx has no ppt/slides")
+            blocks = []
+            for n in slides:
+                text = _slide_text(read_member(zf, n))
+                if text.strip():
+                    blocks.append(_slide_block(n, text))
 
         return Document(
             content="\n\n".join(blocks).strip(),
