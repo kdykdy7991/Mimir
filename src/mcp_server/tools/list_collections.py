@@ -3,13 +3,12 @@ E4: ``list_collections`` tool.
 
 Lists the knowledge bases available to the current principal. The
 handler is thin: it resolves a :class:`RagReadOnlyClient`, asks for the
-authorized collections, and formats the result. All storage / vector
-store / settings access lives in the client (see P1.2).
+authorized collections, and formats the result.
 
-Phase-1 note: the output keeps the pre-normalisation legacy fields
-(``source`` / ``bm25_chunks`` / ``vector_count`` / ``data_dir``) so the
-migration is behaviour-identical; P2.1 replaces these with the canonical
-``document_count`` / ``chunk_count`` contract.
+P2.1 normalised contract (§5.1): internal disk paths / Chroma collection
+names are removed; each entry carries ``name`` / ``description`` /
+``document_count`` / ``chunk_count``. ``count`` is canonical and the
+legacy ``n_collections`` is kept during the compatibility window.
 """
 
 from __future__ import annotations
@@ -29,40 +28,43 @@ INPUT_SCHEMA: dict[str, Any] = {
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "n_collections": {"type": "integer"},
+        "count": {"type": "integer"},
+        "n_collections": {
+            "type": "integer",
+            "description": "Deprecated alias for `count`.",
+        },
         "collections": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "source": {
-                        "type": "string",
-                        "enum": ["bm25", "vector_store", "both"],
-                    },
-                    "bm25_chunks": {"type": ["integer", "null"]},
-                    "vector_count": {"type": ["integer", "null"]},
-                    "data_dir": {"type": "string"},
                     "description": {"type": ["string", "null"]},
+                    "document_count": {"type": ["integer", "null"]},
+                    "chunk_count": {"type": ["integer", "null"]},
                 },
-                "required": ["name", "source", "data_dir"],
+                "required": ["name"],
             },
         },
     },
-    "required": ["n_collections", "collections"],
+    "required": ["count", "collections"],
 }
 
 
 def _render(collections) -> tuple[str, dict[str, Any]]:
-    md_lines = [f"# Collections ({len(collections)})", ""]
+    n = len(collections)
+    md_lines = [f"# Collections ({n})", ""]
     for c in collections:
-        bits = [f"**{c.name}**", f"source: {c.source}"]
+        bits = [f"**{c.name}**"]
         if c.description:
             bits.insert(1, c.description)
-        if c.bm25_chunks is not None:
-            bits.append(f"bm25: {c.bm25_chunks} chunks")
-        if c.vector_count is not None:
-            bits.append(f"vectors: {c.vector_count}")
+        parts = []
+        if c.document_count is not None:
+            parts.append(f"{c.document_count} documents")
+        if c.chunk_count is not None:
+            parts.append(f"{c.chunk_count} chunks")
+        if parts:
+            bits.append(", ".join(parts))
         md_lines.append("- " + " · ".join(bits))
     if not collections:
         md_lines.append(
@@ -70,15 +72,14 @@ def _render(collections) -> tuple[str, dict[str, Any]]:
             "--path <pdf> --collection <name>` to create one._",
         )
     structured = {
-        "n_collections": len(collections),
+        "count": n,
+        "n_collections": n,
         "collections": [
             {
                 "name": c.name,
-                "source": c.source or "",
-                "bm25_chunks": c.bm25_chunks,
-                "vector_count": c.vector_count,
-                "data_dir": c.data_dir or "",
                 "description": c.description,
+                "document_count": c.document_count,
+                "chunk_count": c.chunk_count,
             }
             for c in collections
         ],
@@ -97,7 +98,8 @@ def register(handler: ProtocolHandler) -> None:
         name="list_collections",
         description=(
             "List knowledge bases authorized for the current MCP API key. "
-            "Each entry includes its internal collection name, configured business description, and index statistics."
+            "Each entry includes its collection name, business description, "
+            "and document / chunk counts."
         ),
         input_schema=INPUT_SCHEMA,
         handler=_list_collections,

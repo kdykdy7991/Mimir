@@ -158,6 +158,29 @@ class InProcessRagReadOnlyClient:
             logger.debug("multi-collection vector store unavailable: %s", exc)
         return out
 
+    def _document_counts(self, names: list[str]) -> dict[str, int | None]:
+        """Best-effort distinct-document counts per collection.
+
+        Uses the ingestion-history registry's per-collection count; a
+        missing/unreadable DB yields ``None`` (never a fabricated 0).
+        """
+        out: dict[str, int | None] = {name: None for name in names}
+        try:
+            from src.libs.loader.file_integrity import SQLiteIntegrityChecker
+
+            checker = SQLiteIntegrityChecker(
+                str(Path(self._data_dir) / "db" / "ingestion_history.db"),
+            )
+            for name in names:
+                try:
+                    out[name] = int(checker.count(collection=name))
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("document count unavailable for %s: %s", name, exc)
+                    out[name] = None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("ingestion-history DB unavailable for doc counts: %s", exc)
+        return out
+
     def list_collections(
         self, principal: AccessPrincipalLike,
     ) -> list[CollectionInfo]:
@@ -167,6 +190,7 @@ class InProcessRagReadOnlyClient:
         names = sorted(set(bm25) | ({configured} if configured else set()))
         names = filter_accessible_collections(principal, names)
         counts = self._vector_counts(settings, names)
+        document_counts = self._document_counts(names)
 
         chroma_dir = str(Path(self._data_dir) / "db" / "chroma")
         merged: dict[str, CollectionInfo] = {}
@@ -188,7 +212,7 @@ class InProcessRagReadOnlyClient:
             merged[name] = CollectionInfo(
                 name=name,
                 description=settings.mcp.collection_descriptions.get(name),
-                document_count=None,
+                document_count=document_counts.get(name),
                 chunk_count=vector_count if vector_count is not None else bm25_chunks,
                 source=source,
                 bm25_chunks=bm25_chunks,

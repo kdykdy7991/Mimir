@@ -183,7 +183,7 @@ def test_behavior_samples_have_expected_shape(tmp_path):
     samples = _behavior_samples(tmp_path)
     assert samples["list_collections_empty_state"]["markdown_has_no_collections"]
     assert samples["list_collections_empty_state"]["structured"] == {
-        "n_collections": 0, "collections": [],
+        "count": 0, "n_collections": 0, "collections": [],
     }
     assert samples["query_knowledge_hub_empty_query"]["is_error"]
     assert "query" in samples["query_knowledge_hub_empty_query"]["message"]

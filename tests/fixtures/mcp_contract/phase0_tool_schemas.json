@@ -8,6 +8,7 @@
       "markdown_has_no_collections": true,
       "structured": {
         "collections": [],
+        "count": 0,
         "n_collections": 0
       }
     },
@@ -73,7 +74,7 @@
       }
     },
     "list_collections": {
-      "description": "List knowledge bases authorized for the current MCP API key. Each entry includes its internal collection name, configured business description, and index statistics.",
+      "description": "List knowledge bases authorized for the current MCP API key. Each entry includes its collection name, business description, and document / chunk counts.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {},
@@ -85,14 +86,11 @@
           "collections": {
             "items": {
               "properties": {
-                "bm25_chunks": {
+                "chunk_count": {
                   "type": [
                     "integer",
                     "null"
                   ]
-                },
-                "data_dir": {
-                  "type": "string"
                 },
                 "description": {
                   "type": [
@@ -100,39 +98,33 @@
                     "null"
                   ]
                 },
-                "name": {
-                  "type": "string"
-                },
-                "source": {
-                  "enum": [
-                    "bm25",
-                    "vector_store",
-                    "both"
-                  ],
-                  "type": "string"
-                },
-                "vector_count": {
+                "document_count": {
                   "type": [
                     "integer",
                     "null"
                   ]
+                },
+                "name": {
+                  "type": "string"
                 }
               },
               "required": [
-                "name",
-                "source",
-                "data_dir"
+                "name"
               ],
               "type": "object"
             },
             "type": "array"
           },
+          "count": {
+            "type": "integer"
+          },
           "n_collections": {
+            "description": "Deprecated alias for `count`.",
             "type": "integer"
           }
         },
         "required": [
-          "n_collections",
+          "count",
           "collections"
         ],
         "type": "object"

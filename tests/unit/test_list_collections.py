@@ -72,8 +72,7 @@ def test_lists_bm25_collections(tmp_path: Path):
     assert "alpha" in names
     assert "beta" in names
     alpha = next(c for c in collections if c.name == "alpha")
-    assert alpha.bm25_chunks == 3
-    assert alpha.source in ("both", "bm25")
+    assert alpha.chunk_count == 3
 
 
 def test_collection_description_is_exposed(tmp_path: Path):
@@ -100,29 +99,49 @@ def _call_handler(client):
     return lc._list_collections({"_client": client, "_data_dir": ".", "_config_path": "."})
 
 
+def test_count_is_canonical_and_n_collections_deprecated(tmp_path: Path):
+    _write_bm25(tmp_path, "a", ["x"])
+    cfg = _write_settings(tmp_path, collection="")
+    client = _client(tmp_path, cfg_path=cfg)
+    with patch.object(client, "_vector_counts", return_value={"a": 5}), \
+         patch.object(client, "_document_counts", return_value={"a": 1}):
+        md, structured = _run(_call_handler(client))
+    assert structured["count"] == 1
+    assert structured["n_collections"] == 1
+    assert structured["collections"][0]["document_count"] == 1
+    assert structured["collections"][0]["chunk_count"] == 5
+    # Internal paths / storage names are no longer exposed.
+    assert "data_dir" not in structured["collections"][0]
+    assert "source" not in structured["collections"][0]
+    props = lc.OUTPUT_SCHEMA["properties"]
+    assert "count" in props and "data_dir" not in props and "source" not in props
+
+
 def test_marks_overlap_as_both(tmp_path: Path):
     _write_bm25(tmp_path, "shared", ["d1"])
     cfg = _write_settings(tmp_path, collection="shared")
     client = _client(tmp_path, cfg_path=cfg)
-    with patch.object(client, "_vector_counts", return_value={"shared": 7}):
+    with patch.object(client, "_vector_counts", return_value={"shared": 7}), \
+         patch.object(client, "_document_counts", return_value={"shared": 2}):
         collections = client.list_collections(TrustedLocalPrincipal())
     shared = next(c for c in collections if c.name == "shared")
-    assert shared.source == "both"
-    assert shared.vector_count == 7
-    assert shared.bm25_chunks == 1
+    # Vector count is authoritative for chunk_count when present.
+    assert shared.chunk_count == 7
+    assert shared.document_count == 2
 
 
 def test_only_bm25_collections_appear(tmp_path: Path):
     _write_bm25(tmp_path, "x", ["a"])
     cfg = _write_settings(tmp_path, collection="y")  # configured but not on disk
     client = _client(tmp_path, cfg_path=cfg)
-    with patch.object(client, "_vector_counts", return_value={"x": 0, "y": 0}):
+    with patch.object(client, "_vector_counts", return_value={"x": 0, "y": 0}), \
+         patch.object(client, "_document_counts", return_value={}):
         collections = client.list_collections(TrustedLocalPrincipal())
     names = [c.name for c in collections]
     assert names == ["x", "y"]
-    src_by_name = {c.name: c.source for c in collections}
-    assert src_by_name["x"] == "bm25"
-    assert src_by_name["y"] == "vector_store"
+    by_name = {c.name: c for c in collections}
+    assert by_name["x"].chunk_count == 0
+    assert by_name["y"].chunk_count == 0
 
 
 def test_n_docs_bm25_format_counts_chunks(tmp_path: Path):
@@ -139,8 +158,8 @@ def test_n_docs_bm25_format_counts_chunks(tmp_path: Path):
     with patch.object(client, "_vector_counts", return_value={}):
         collections = client.list_collections(TrustedLocalPrincipal())
     by_name = {c.name: c for c in collections}
-    assert by_name["modern"].bm25_chunks == 42
-    assert by_name["legacy"].bm25_chunks == 1
+    assert by_name["modern"].chunk_count == 42
+    assert by_name["legacy"].chunk_count == 1
 
 
 def test_empty_data_dir_returns_friendly_markdown(tmp_path: Path):
@@ -219,5 +238,5 @@ def test_handler_dispatches_via_fake_client():
     fake = FakeClient()
     md, structured = _run(lc._list_collections({"_client": fake}))
     assert fake.calls == 1
-    assert structured["n_collections"] == 1
+    assert structured["count"] == 1
     assert structured["collections"][0]["name"] == "a"

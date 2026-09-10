@@ -192,3 +192,24 @@
   ```
   结果：`104 passed`。
 - **Gate 结论**：通过，自动进入 Phase 2。
+
+---
+
+## Phase 2：规范现有工具
+
+### P2.1 规范化 `list_collections`
+
+- 状态：done
+- 提交：`见本提交`（`feat(mcp): normalize list collections contract`）
+- 修改文件：
+  - `src/mcp_server/tools/list_collections.py`（改：移除 data_dir/source 内部字段，输出 name/description/document_count/chunk_count，新增 count + 兼容 n_collections）
+  - `src/mcp_server/clients/in_process.py`（补：`_document_counts` 经 ingestion-history 估算文档数）
+  - `tests/unit/test_list_collections.py`（改：新字段断言 + 不泄露内部路径）
+  - `tests/unit/test_mcp_contract_snapshot.py`（改：空态样例 + 基线更新）
+- 已运行测试：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_list_collections.py tests/unit/test_mcp_contract_snapshot.py tests/unit/test_mcp_readonly_invariants.py tests/unit/test_query_knowledge_hub.py -q
+  ```
+  结果：`28 passed`；`MCP_REGENERATE_SNAPSHOT=1` 更新基线后正常 `3 passed`。
+- 遗留问题：`document_count` 依赖 ingestion-history DB 可用，缺失时返回 null（不伪造 0）。
+- 下一步：P2.2 增强 `query_knowledge_hub`。
