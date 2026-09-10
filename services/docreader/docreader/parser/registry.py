@@ -109,6 +109,11 @@ def _xmind() -> BaseParser:
     return XmindParser()
 
 
+def _image() -> BaseParser:
+    from docreader.parser.image_parser import ImageParser
+    return ImageParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -148,6 +153,9 @@ def _default_engines() -> None:
                         description="EPUB: zip of XHTML documents to text")
         register_engine("xmind", name="builtin", factory=_xmind,
                         description="XMind: mind-map topics to indented text")
+        for fmt in ("png", "jpg", "jpeg", "gif", "webp", "bmp"):
+            register_engine(fmt, name="builtin", factory=_image,
+                            description=f"{fmt.upper()}: image validated, exposed for OCR")
 
 
 def _odl_available():
