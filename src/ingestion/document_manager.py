@@ -85,6 +85,15 @@ class _ImageStorageLike(Protocol):
     def find_by_doc_hash(
         self, doc_hash: str, limit: int | None = None,
     ) -> list[Any]: ...
+    def image_counts(
+        self, *, collections: list[str] | None = None,
+    ) -> dict[str, int]: ...
+    def count_by_doc_hashes(
+        self,
+        doc_hashes: set[str],
+        *,
+        collection: str | None = None,
+    ) -> dict[tuple[str | None, str], int]: ...
 
 
 class _FileIntegrityLike(Protocol):
@@ -94,8 +103,15 @@ class _FileIntegrityLike(Protocol):
     ) -> Any | None: ...
     def forget(self, file_hash: str) -> bool: ...
     def list_processed(
-        self, *, status: str | None = None, limit: int | None = None,
+        self, *, status: str | None = None, collection: str | None = None,
+        limit: int | None = None, offset: int | None = None,
     ) -> list[Any]: ...
+    def count(
+        self, *, status: str | None = None, collection: str | None = None,
+    ) -> int: ...
+    def count_by_collection(
+        self, *, collections: list[str] | None = None,
+    ) -> dict[str, int]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +201,20 @@ class CollectionStats:
             "n_chunks": self.n_chunks,
             "n_images": self.n_images,
         }
+
+
+@dataclass
+class CorpusOverviewStats:
+    """Cheap corpus totals for operational overview pages.
+
+    Unlike :meth:`list_documents`, this aggregate never loads per-document
+    chunks or images.  It reads ingestion history once and asks the vector
+    store once per collection for its total chunk count.
+    """
+
+    n_documents: int
+    n_chunks: int
+    statuses: tuple[str, ...] = ()
 
 
 @dataclass
@@ -314,6 +344,210 @@ class DocumentManager:
                 updated_at=rec.updated_at,
             ))
         return out
+
+    # ------------------------------------------------------------------
+    # Paged list + aggregate stats (cheaper paths for the Web API)
+    # ------------------------------------------------------------------
+    def list_document_keys(
+        self, *, collection: str | None = None,
+    ) -> list[tuple[str, str]]:
+        """Return ``(collection, source_path)`` pairs for every known doc.
+
+        Unlike :meth:`list_documents`, this never touches Chroma or the
+        image store — one integrity listing is enough. Used by the
+        document-id index so a UUID can be resolved without a full
+        N+1 scan.
+        """
+        records = self._integrity.list_processed(collection=collection)
+        default = collection or "default"
+        return [
+            (rec.collection or default, rec.file_path) for rec in records
+        ]
+
+    def list_documents_paged(
+        self, *, collection: str | None = None, offset: int = 0,
+        limit: int,
+    ) -> tuple[list[DocumentInfo], int]:
+        """Server-side paginated document listing.
+
+        Returns ``(page, total)``. Only the current page's records are
+        pulled from SQLite (``LIMIT/OFFSET``); then we query chunk counts
+        per page-record and image counts **in one grouped SQL statement**
+        for the whole page — instead of loading every document's chunks
+        and images just to render one page.
+        """
+        records = self._list_records_paged(
+            collection=collection, offset=offset, limit=limit,
+        )
+        total = self._integrity_count(collection=collection)
+        return self._build_paged_infos(records, collection=collection), total
+
+    def _list_records_paged(
+        self, *, collection: str | None = None, offset: int = 0, limit: int,
+    ) -> list[Any]:
+        list_method = self._integrity.list_processed
+        try:
+            return list_method(
+                collection=collection, limit=limit, offset=max(0, offset),
+            )
+        except TypeError:
+            # Collaborators (e.g. old fakes) that don't accept ``offset``
+            # fall back to filtering in memory — correct, just not paged
+            # at the store.
+            rows = list_method(collection=collection, limit=None)
+            start = max(0, offset)
+            return rows[start:start + limit]
+
+    def _integrity_count(self, *, collection: str | None = None) -> int:
+        count_method = getattr(self._integrity, "count", None)
+        if callable(count_method):
+            try:
+                return int(count_method(collection=collection))
+            except TypeError:
+                pass
+        # Fall back to a full listing length (used only by collaborators
+        # that don't implement the aggregate count).
+        return len(self._integrity.list_processed(collection=collection))
+
+    def _build_paged_infos(
+        self, records: list[Any], *, collection: str | None = None,
+    ) -> list[DocumentInfo]:
+        if not records:
+            return []
+        # One grouped image-count query for the whole page.
+        doc_hashes = {
+            _image_doc_hash(rec.file_hash)
+            for rec in records if rec.file_hash
+        }
+        image_counts = self._image_counts_for(doc_hashes, collection=collection)
+        out: list[DocumentInfo] = []
+        for rec in records:
+            rec_collection = rec.collection or (collection or "default")
+            try:
+                n_chunks = len(
+                    self._chroma.get_by_metadata(
+                        {"source_path": rec.file_path},
+                        collection=rec_collection,
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "chroma lookup failed for %s: %s", rec.file_path, exc,
+                )
+                n_chunks = 0
+            n_images = image_counts.get(
+                (rec_collection, _image_doc_hash(rec.file_hash)), 0,
+            )
+            out.append(DocumentInfo(
+                source_path=rec.file_path,
+                collection=rec_collection,
+                n_chunks=n_chunks,
+                n_images=n_images,
+                file_size=rec.file_size,
+                last_modified=rec.last_modified,
+                status=rec.status,
+                file_hash=rec.file_hash,
+                created_at=rec.created_at,
+                updated_at=rec.updated_at,
+            ))
+        return out
+
+    def _image_counts_for(
+        self, doc_hashes: set[str], *, collection: str | None = None,
+    ) -> dict[tuple[str | None, str], int]:
+        bulk = getattr(self._images, "count_by_doc_hashes", None)
+        if callable(bulk):
+            try:
+                return bulk(doc_hashes, collection=collection)
+            except TypeError:
+                pass
+        # Fallback: one ``find_by_doc_hash`` per hash (old collaborators).
+        out: dict[tuple[str | None, str], int] = {}
+        for doc_hash in doc_hashes:
+            try:
+                hits = self._images.find_by_doc_hash(
+                    doc_hash, collection=collection,
+                )
+                out[(collection, doc_hash)] = len(hits)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("image count failed for %s: %s", doc_hash, exc)
+                out[(collection, doc_hash)] = 0
+        return out
+
+    def get_all_collection_stats(
+        self, *, collections: list[str],
+    ) -> dict[str, CollectionStats]:
+        """Per-collection summary cards in one aggregated pass.
+
+        One grouped image-count query for all collections, plus a per-
+        collection document count and a cheap Chroma total. This replaces
+        the previous O(documents) per-collection loop that used to fetch
+        every document's images individually.
+        """
+        image_total = self._image_counts_for_all(collections)
+        doc_counts = self._document_counts_for(collections)
+        result: dict[str, CollectionStats] = {}
+        for name in collections:
+            try:
+                chroma_stats = self._chroma.get_collection_stats(
+                    collection=name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("chroma stats failed: %s", exc)
+                chroma_stats = {"count": 0, "collection_name": name}
+            try:
+                n_images = image_total.get(name, 0)
+            except Exception:  # noqa: BLE001
+                n_images = 0
+            result[name] = CollectionStats(
+                collection=chroma_stats.get("collection_name", name),
+                n_documents=doc_counts.get(name, 0),
+                n_chunks=int(chroma_stats.get("count", 0) or 0),
+                n_images=n_images,
+            )
+        return result
+
+    def _document_counts_for(
+        self, collections: list[str] | None = None,
+    ) -> dict[str, int]:
+        """Document counts grouped by collection (one SQL query)."""
+        bulk = getattr(self._integrity, "count_by_collection", None)
+        if callable(bulk):
+            try:
+                return bulk(collections=collections)
+            except TypeError:
+                pass
+        # Fallback: one COUNT per collection (old collaborators).
+        return {
+            name: self._integrity_count(collection=name)
+            for name in (collections if collections is not None else [])
+        }
+
+    def _image_counts_for_all(
+        self, collections: list[str] | None = None,
+    ) -> dict[str, int]:
+        bulk = getattr(self._images, "image_counts", None)
+        if callable(bulk):
+            try:
+                return bulk(collections=collections)
+            except TypeError:
+                pass
+        # Fallback: sum per-document image counts per collection.
+        totals: dict[str, int] = {}
+        targets = collections if collections is not None else [
+            ref.name for ref in self.list_collections()
+        ]
+        for name in targets:
+            n = 0
+            for rec in self._integrity.list_processed(collection=name):
+                try:
+                    n += len(self._images.find_by_doc_hash(
+                        _image_doc_hash(rec.file_hash), collection=name,
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("image count failed: %s", exc)
+            totals[name] = n
+        return totals
 
     # ------------------------------------------------------------------
     # Detail
@@ -533,26 +767,48 @@ class DocumentManager:
             logger.warning("chroma stats failed: %s", exc)
             stats = {"count": 0, "collection_name": collection}
 
-        n_images = 0
-        distinct_sources: set[str] = set()
-        try:
-            for rec in self._integrity.list_processed(collection=collection):
-                distinct_sources.add(rec.file_path)
-                rec_collection = rec.collection or collection
-                n_images += len(
-                    self._images.find_by_doc_hash(
-                        _image_doc_hash(rec.file_hash),
-                        collection=rec_collection,
-                    ),
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("integrity / image counts failed: %s", exc)
+        n_documents = self._integrity_count(collection=collection)
+        n_images = self._image_counts_for_all([collection]).get(collection, 0)
 
         return CollectionStats(
             collection=stats.get("collection_name", collection),
-            n_documents=len(distinct_sources),
+            n_documents=n_documents,
             n_chunks=stats.get("count", 0),
             n_images=n_images,
+        )
+
+    def get_corpus_overview_stats(
+        self, *, collections: list[str],
+    ) -> CorpusOverviewStats:
+        """Return overview totals without the per-document N+1 lookups."""
+        allowed = set(collections)
+        records = [
+            record for record in self._integrity.list_processed()
+            if (record.collection or "default") in allowed
+        ]
+        documents = {
+            (record.collection or "default", record.file_path)
+            for record in records
+        }
+
+        n_chunks = 0
+        for collection in collections:
+            try:
+                stats = self._chroma.get_collection_stats(
+                    collection=collection,
+                )
+                n_chunks += int(stats.get("count", 0) or 0)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "chroma overview stats failed for %s: %s",
+                    collection,
+                    exc,
+                )
+
+        return CorpusOverviewStats(
+            n_documents=len(documents),
+            n_chunks=n_chunks,
+            statuses=tuple(record.status for record in records),
         )
 
     # ------------------------------------------------------------------

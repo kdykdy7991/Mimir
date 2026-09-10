@@ -20,11 +20,22 @@ services:
   # 作为 api 的依赖。若显式回滚到 legacy（DOCUMENT_PARSER_BACKEND=legacy 或改
   # yaml），可停用本服务： docker compose up -d --scale docreader=0
   docreader:
-    build: ./services/docreader
+    build:
+      context: ./services/docreader
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
     image: skdy-docreader:local
     container_name: skdy-docreader
     ports:
-      - "50051:50051"
+      # 宿主机使用 50052，避免与 WeKnora DocReader 的 50051 冲突；
+      # 容器内部仍监听标准端口 50051。
+      - "50052:50051"
     restart: unless-stopped
     # Container-level startup gate: channel READY + ListEngines + builtin
     # minimum-format check (defined via the Dockerfile HEALTHCHECK). k8s/compose
@@ -38,7 +49,16 @@ services:
       retries: 3
 
   api:
-    build: .
+    build:
+      context: .
+      network: host
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        no_proxy: ${no_proxy:-}
     image: skdy-rag-server:local
     container_name: skdy-rag-api
     network_mode: host

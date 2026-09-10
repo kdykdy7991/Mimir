@@ -3,7 +3,7 @@
 
 Usage:
     python scripts/docreader_probe.py [endpoint]
-    # endpoint defaults to 127.0.0.1:50051 (see config/settings.yaml)
+    # endpoint defaults to 127.0.0.1:50052 (see config/settings.yaml)
 
 Exits 0 when the service responds with at least one engine; otherwise exits 1.
 No document body, no bytes, no secrets are printed — only engine names.
@@ -22,7 +22,7 @@ import grpc  # noqa: E402
 
 from docreader.proto import docreader_pb2, docreader_pb2_grpc  # noqa: E402
 
-DEFAULT_ENDPOINT = "127.0.0.1:50051"
+DEFAULT_ENDPOINT = "127.0.0.1:50052"
 
 
 def main() -> int:

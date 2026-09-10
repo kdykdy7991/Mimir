@@ -125,7 +125,7 @@ rerank:
 统一文档解析后端由 `document_parser.backend` 选择：
 
 - `docreader`（**Phase 7 默认**）：走独立 DocReader gRPC 服务（`document_parser.endpoint`，
-  默认 `127.0.0.1:50051`）。依赖自由解析 PDF / DOCX / XLSX / CSV / PPTX / HTML / MHTML / EPUB / XMind /
+  默认 `127.0.0.1:50052`；容器内部仍监听 `50051`）。依赖自由解析 PDF / DOCX / XLSX / CSV / PPTX / HTML / MHTML / EPUB / XMind /
   图片等格式；表格感知分块；扫描页/图片经本地多模态（Qwen3.8-27B）OCR/Caption 子分块入库。
 - `legacy`：沿用旧 Loader 链（PDF / Markdown），用于回滚。
 

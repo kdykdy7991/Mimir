@@ -167,17 +167,14 @@ def get_overview_metrics(
     previous_request_count = len(previous_queries)
 
     refs = services.document.list_collections()
-    corpus_documents = 0
-    corpus_chunks = 0
-    document_statuses: list[str] = []
+    corpus_stats = services.document.get_corpus_overview_stats(
+        [ref.name for ref in refs],
+    )
+    corpus_documents = corpus_stats.n_documents
+    corpus_chunks = corpus_stats.n_chunks
+    document_statuses = corpus_stats.statuses
     last_updated_at: float | None = None
     for ref in refs:
-        stats = services.document.get_collection_stats(collection=ref.name)
-        corpus_documents += stats.n_documents
-        corpus_chunks += stats.n_chunks
-        document_statuses.extend(
-            item.status for item in services.document.list_documents(collection=ref.name)
-        )
         if ref.updated_at is not None:
             last_updated_at = max(last_updated_at or ref.updated_at, ref.updated_at)
 

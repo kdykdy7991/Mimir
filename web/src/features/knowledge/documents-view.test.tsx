@@ -37,4 +37,16 @@ describe("DocumentsView pagination", () => {
     expect(requests).toHaveBeenLastCalledWith("20", "page-2");
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
   });
+
+  it("keeps the current knowledge base fixed in the embedded upload dialog", async () => {
+    const user = userEvent.setup();
+    render(<DocumentsView collectionId={ids.collection} embedded />);
+
+    await screen.findByText(document.filename);
+    await user.click(screen.getByRole("button", { name: "上传文件" }));
+
+    expect(screen.getByText("文档将上传至「测试知识库」，并自动完成解析与索引。")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "知识库" })).not.toBeInTheDocument();
+    expect(screen.getByText(/PDF、DOCX、XLSX、CSV、PPTX/)).toBeInTheDocument();
+  });
 });

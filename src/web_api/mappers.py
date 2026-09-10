@@ -54,10 +54,18 @@ def resolve_collection_name(services, collection_id: UUID) -> str | None:
 
 
 def resolve_document(services, document_id: UUID) -> tuple[str, str] | None:
-    """Map a document UUID back to ``(collection, source_path)`` (or ``None``)."""
-    # M3: document ids are derived from (collection, source_path), so a
-    # non-default collection's document would never resolve against the
-    # default listing. Scan every known collection instead.
+    """Map a document UUID back to ``(collection, source_path)`` (or ``None``).
+
+    The stable ids are deterministic ``uuid5(collection, source_path)``
+    values, so they cannot be inverted without enumerating every key. We
+    keep a short-TTL index on :class:`DocumentService` (built from a
+    single integrity listing) so this lookup never scans Chroma or the
+    image store like the old path did.
+    """
+    lookup = getattr(services.document, "resolve_document_id", None)
+    if callable(lookup):
+        return lookup(document_id)
+    # Fallback to the legacy full scan for callers with a stub service.
     for ref in services.document.list_collections():
         for info in services.document.list_documents(collection=ref.name):
             if document_uuid(info.collection, info.source_path) == document_id:
@@ -133,7 +141,12 @@ def to_document_summary(info: DocumentInfo) -> DocumentSummary:
     )
 
 
-def to_document_detail(info: DocumentInfo, services=None) -> DocumentDetail:
+def to_document_detail(
+    info: DocumentInfo,
+    services=None,
+    *,
+    chunks: list[dict] | None = None,
+) -> DocumentDetail:
     """Map a ``DocumentInfo`` to a ``DocumentDetail`` DTO.
 
     ``last_task_id`` is filled from the in-memory :class:`TaskTracker`
@@ -144,6 +157,7 @@ def to_document_detail(info: DocumentInfo, services=None) -> DocumentDetail:
     last_task_id = None
     last_error = None
     last_query_id = None
+    doc_id = document_uuid(info.collection, info.source_path)
     if services is not None:
         # Storage is keyed by (collection, source_path). The tracker
         # indexes by (collection_id, source_path), so we materialise
@@ -156,10 +170,65 @@ def to_document_detail(info: DocumentInfo, services=None) -> DocumentDetail:
         # M3 batch 2: most recent query that cited this document.
         # Guarded because some test fixtures stub ``services.query``
         # with a bare ``object()``.
-        doc_id = document_uuid(info.collection, info.source_path)
         query_lookup = getattr(services.query, "last_query_for_document", None)
         if callable(query_lookup):
             last_query_id = query_lookup(doc_id)
+    ordered_chunks = sorted(
+        chunks or [],
+        key=lambda item: int((item.get("metadata") or {}).get("chunk_index", 0)),
+    )
+    metadata = (ordered_chunks[0].get("metadata") or {}) if ordered_chunks else {}
+    table_ids = {
+        str(meta["table_index"])
+        for item in ordered_chunks
+        if (meta := item.get("metadata") or {}).get("content_type") == "table"
+        and meta.get("table_index") is not None
+    }
+    raw_warnings = metadata.get("parse_warnings") or metadata.get("warnings") or []
+    if isinstance(raw_warnings, str):
+        raw_warnings = [raw_warnings]
+    parse_warnings = [str(value) for value in raw_warnings if str(value).strip()]
+    page_count_raw = metadata.get("page_count")
+    try:
+        page_count = int(page_count_raw) if page_count_raw is not None else None
+    except (TypeError, ValueError):
+        page_count = None
+    try:
+        scanned_page_count = int(metadata.get("scanned_page_count") or 0)
+    except (TypeError, ValueError):
+        scanned_page_count = 0
+    vision_processed = None
+    if ordered_chunks:
+        vision_processed = any(
+            (item.get("metadata") or {}).get("content_type") in {"image_ocr", "image_caption"}
+            for item in ordered_chunks
+        ) or scanned_page_count > 0
+
+    chunk_rows = []
+    current_heading = None
+    for fallback_index, item in enumerate(ordered_chunks):
+        text = str(item.get("text") or "")
+        meta = item.get("metadata") or {}
+        heading_line = next(
+            (line.lstrip("#").strip() for line in text.splitlines() if line.startswith("#")),
+            None,
+        )
+        if heading_line:
+            current_heading = heading_line
+        page_raw = meta.get("page") if meta.get("page") is not None else meta.get("page_num")
+        try:
+            page = int(page_raw) if page_raw is not None else None
+        except (TypeError, ValueError):
+            page = None
+        chunk_rows.append({
+            "index": int(meta.get("chunk_index", fallback_index)),
+            "chunk_id": str(item.get("id") or ""),
+            "heading": current_heading,
+            "page": page,
+            "character_count": len(text),
+            "content_type": str(meta.get("content_type") or "text"),
+        })
+
     return DocumentDetail(
         id=doc_id,
         collection_id=collection_uuid(info.collection),
@@ -174,6 +243,13 @@ def to_document_detail(info: DocumentInfo, services=None) -> DocumentDetail:
         last_task_id=last_task_id,
         last_query_id=last_query_id,
         last_error=last_error,
+        table_count=len(table_ids),
+        parse_warnings=parse_warnings,
+        parser_engine=(str(metadata["parser_engine"]) if metadata.get("parser_engine") else None),
+        parse_status=(str(metadata["parse_status"]) if metadata.get("parse_status") else None),
+        page_count=page_count,
+        vision_processed=vision_processed,
+        chunks=chunk_rows,
     )
 
 
@@ -266,10 +342,13 @@ def to_trace_response(raw: dict) -> TraceResponse:
     """Map a ``TraceContext.to_dict()`` (or TraceStore record) to a
     ``TraceResponse``.
 
-    Only stages carrying ``elapsed_ms`` are surfaced — those are the
+    Stages carrying ``elapsed_ms`` are surfaced — those are the
     orchestrator-level bracketing stages (``dense_retrieval``,
     ``sparse_retrieval``, ``fusion``, ...). Raw retriever start/finish
     sub-events (which have no duration) stay out of the wire response.
+    The ingestion ``skipped`` event is the one exception: it is a real
+    terminal outcome that the UI must explain, so it is returned with a
+    zero duration rather than being mistaken for a missing trace.
     """
     started = datetime.fromtimestamp(float(raw["started_at"]), tz=timezone.utc)
     finished_raw = raw.get("finished_at")
@@ -281,7 +360,13 @@ def to_trace_response(raw: dict) -> TraceResponse:
     for stage in raw.get("stages") or []:
         elapsed = stage.get("elapsed_ms")
         if elapsed is None:
-            continue  # not a bracketing stage — skip (see docstring)
+            is_ingestion_skip = (
+                raw.get("trace_type") == "ingestion"
+                and stage.get("event") == "skipped"
+            )
+            if not is_ingestion_skip:
+                continue  # not a bracketing stage — skip (see docstring)
+            elapsed = 0.0
         details = {
             k: v for k, v in stage.items()
             if k not in ("name", "ts", "elapsed_ms", "method", "provider")
@@ -311,6 +396,37 @@ def to_trace_response(raw: dict) -> TraceResponse:
 # Pagination
 # ---------------------------------------------------------------------------
 
+def decode_offset_cursor(cursor: str | None) -> int:
+    """Decode the base64 opaque offset cursor (garbage → 0)."""
+    if not cursor:
+        return 0
+    try:
+        return int(base64.b64decode(cursor.encode()).decode())
+    except Exception:  # noqa: BLE001 — a garbage cursor just resets.
+        return 0
+
+
+def build_cursor_page_info(
+    offset: int, page_length: int, total: int,
+) -> PageInfo:
+    """Build ``PageInfo`` for a server-side paged listing.
+
+    ``has_more`` is derived from the known ``total`` rather than by
+    loading an extra row. ``total`` may be ``-1`` (unknown) in which case
+    we fall back to assuming a further page exists when the page is full.
+    """
+    next_offset = offset + page_length
+    if total >= 0:
+        has_more = next_offset < total
+    else:
+        has_more = page_length > 0
+    next_cursor = (
+        base64.b64encode(str(next_offset).encode()).decode()
+        if has_more else None
+    )
+    return PageInfo(next_cursor=next_cursor, has_more=has_more)
+
+
 def paginate(
     items: list,
     cursor: str | None,
@@ -336,6 +452,8 @@ def paginate(
 __all__ = [
     "collection_uuid",
     "document_uuid",
+    "build_cursor_page_info",
+    "decode_offset_cursor",
     "paginate",
     "resolve_collection_name",
     "resolve_document",

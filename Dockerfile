@@ -16,15 +16,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-0 libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# 先装依赖以利用层缓存
-COPY pyproject.toml requirements.txt README.md ./
+# 依赖清单单独成层。普通源码/config 改动不会再触发完整依赖下载；
+# BuildKit cache 即使在 requirements 变化时也能复用已下载的 wheel。
+COPY requirements.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+
+# 业务代码后置。依赖已安装，editable 安装只登记本项目，不再解析/下载依赖。
+COPY pyproject.toml README.md ./
 COPY src ./src
 COPY config ./config
 COPY scripts ./scripts
-RUN pip install --no-cache-dir -e .
-
-# 其余源码（data 目录留空，运行时挂载 volume 持久化）
-COPY . .
+COPY main.py ./
+# The API is a gRPC client of DocReader and needs the generated wire stubs at
+# runtime. Copy only the shared protocol package; the parser implementation and
+# its heavy dependencies remain isolated in the DocReader image.
+COPY services/docreader/docreader/__init__.py ./docreader/__init__.py
+COPY services/docreader/docreader/proto ./docreader/proto
+RUN pip install --no-build-isolation --no-deps -e .
 
 EXPOSE 8766
 

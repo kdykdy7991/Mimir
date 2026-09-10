@@ -200,6 +200,12 @@ export class ApiClient {
     return this.request<DocumentListResponse>(appendCursorParams(path, params), { signal });
   }
 
+  listAllDocuments(params?: CursorParams, signal?: AbortSignal) {
+    // Server-side paged listing across every collection (new in the perf
+    // pass) — replaces the old client that fetched every document.
+    return this.request<DocumentListResponse>(appendCursorParams("/api/v1/documents", params), { signal });
+  }
+
   uploadDocument(collectionId: string, file: File, signal?: AbortSignal) {
     const body = new FormData();
     body.set("file", file);
@@ -237,6 +243,10 @@ export class ApiClient {
 
   getDocument(documentId: string, signal?: AbortSignal) {
     return this.request<DocumentDetail>(`/api/v1/documents/${encodeURIComponent(documentId)}`, { signal });
+  }
+
+  documentPreviewUrl(documentId: string) {
+    return `${this.baseUrl}/api/v1/documents/${encodeURIComponent(documentId)}/preview`;
   }
 
   deleteDocument(documentId: string, signal?: AbortSignal) {

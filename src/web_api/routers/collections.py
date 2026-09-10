@@ -37,6 +37,8 @@ from src.web_api.errors import (
     UnsupportedMediaTypeError,
 )
 from src.web_api.mappers import (
+    build_cursor_page_info,
+    decode_offset_cursor,
     document_uuid,
     paginate,
     resolve_collection_name,
@@ -88,16 +90,19 @@ async def list_collections(
 ) -> CollectionListResponse:
     """Cursor-paginated list of collections."""
     refs = services.document.list_collections()
+    # Page the *references* first so stats are computed only for the
+    # collections on this page, not the whole corpus.
+    page_refs, page_info = paginate(refs, cursor, limit)
+    names = [ref.name for ref in page_refs]
+    stats = services.document.get_all_collection_stats_cached(names)
     summaries = [
         to_collection_summary(
-            ref,
-            services.document.get_collection_stats(collection=ref.name),
+            ref, stats[ref.name],
             description=_description(services, ref.name),
         )
-        for ref in refs
+        for ref in page_refs
     ]
-    page, page_info = paginate(summaries, cursor, limit)
-    return CollectionListResponse(items=page, page_info=page_info)
+    return CollectionListResponse(items=summaries, page_info=page_info)
 
 
 @router.post(
@@ -118,6 +123,7 @@ async def create_collection(
             details={"collection_name": body.name},
         )
     services.document.create_collection(body.name)
+    # stats cache invalidation handled inside DocumentService.create_collection
     db = getattr(services, "db", None)
     if db is not None:
         db.upsert_collection(body.name, body.description)
@@ -211,6 +217,7 @@ async def delete_collection(
         db = getattr(services, "db", None)
         if db is not None:
             db.delete_collection(name)
+    # stats cache invalidation handled inside DocumentService.delete_collection
     return None
 
 
@@ -232,16 +239,24 @@ async def list_collection_documents(
         description=f"Page size, 1-{SETTINGS.page_limit_max}.",
     ),
 ) -> DocumentListResponse:
-    """Cursor-paginated list of documents belonging to a collection."""
+    """Cursor-paginated list of documents belonging to a collection.
+
+    No longer loads every document + chunk + image before paging: the
+    current page is selected in SQLite (``LIMIT/OFFSET``), then only that
+    page's chunk / image counts are queried.
+    """
     name = resolve_collection_name(services, collection_id)
     if name is None:
         raise CollectionNotFoundError(
             f"collection {collection_id} does not exist",
             details={"collection_id": str(collection_id)},
         )
-    infos = services.document.list_documents(collection=name)
-    summaries = [to_document_summary(info) for info in infos]
-    page, page_info = paginate(summaries, cursor, limit)
+    offset = decode_offset_cursor(cursor)
+    infos, total = services.document.list_documents_paged(
+        collection=name, offset=offset, limit=limit,
+    )
+    page = [to_document_summary(info) for info in infos]
+    page_info = build_cursor_page_info(offset, len(page), total)
     return DocumentListResponse(items=page, page_info=page_info)
 
 

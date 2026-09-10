@@ -299,7 +299,7 @@
           "collections"
         ],
         "summary": "List documents in a collection",
-        "description": "Cursor-paginated list of documents belonging to a collection.",
+        "description": "Cursor-paginated list of documents belonging to a collection.\n\nNo longer loads every document + chunk + image before paging: the\ncurrent page is selected in SQLite (``LIMIT/OFFSET``), then only that\npage's chunk / image counts are queried.",
         "operationId": "list_collection_documents_api_v1_collections__collection_id__documents_get",
         "parameters": [
           {
@@ -432,6 +432,72 @@
         }
       }
     },
+    "/api/v1/documents": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "List all documents across collections",
+        "description": "Server-side paginated listing of documents across **every** collection.\n\nMirrors the per-collection paging path: the page is selected in\nSQLite (newest-first across the whole corpus) and only the current\npage's chunk / image counts are queried — no full-corpus materialisation.",
+        "operationId": "list_all_documents_api_v1_documents_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from the previous page's ``next_cursor``.",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor from the previous page's ``next_cursor``."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Page size, 1-100.",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size, 1-100."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{document_id}": {
       "get": {
         "tags": [
@@ -499,6 +565,49 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}/preview": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Preview the original uploaded document",
+        "description": "Stream only persisted Web uploads; never expose arbitrary CLI paths.",
+        "operationId": "preview_document_api_v1_documents__document_id__preview_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Document ID (UUID).",
+              "title": "Document Id"
+            },
+            "description": "Document ID (UUID)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -1933,6 +2042,59 @@
           "status": "ok"
         }
       },
+      "DocumentChunkSummary": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "character_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Character Count"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "default": "text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "chunk_id",
+          "character_count"
+        ],
+        "title": "DocumentChunkSummary",
+        "description": "Lightweight structural row for the document-detail chunk table."
+      },
       "DocumentDetail": {
         "properties": {
           "id": {
@@ -2036,6 +2198,77 @@
               }
             ],
             "description": "Structured error from the last failed task (if any). Same shape as the top-level HTTP error envelope — branch on ``last_error.code``."
+          },
+          "table_count": {
+            "type": "integer",
+            "title": "Table Count",
+            "description": "Number of distinct table blocks recorded by table-aware chunking.",
+            "default": 0
+          },
+          "parse_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Parse Warnings",
+            "description": "Parser-emitted partial-success warnings; empty when none were emitted."
+          },
+          "parser_engine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Engine",
+            "description": "Parser engine recorded in persisted chunk metadata."
+          },
+          "parse_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Status",
+            "description": "Parser status recorded in persisted chunk metadata."
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count",
+            "description": "Source page count when supplied by the parser."
+          },
+          "vision_processed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vision Processed",
+            "description": "Whether persisted evidence shows that visual processing ran."
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentChunkSummary"
+            },
+            "type": "array",
+            "title": "Chunks",
+            "description": "Ordered structural chunk rows without embedding vectors."
           }
         },
         "type": "object",

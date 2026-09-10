@@ -187,6 +187,7 @@ class FileIntegrityChecker(ABC):
         status: str | None = None,
         collection: str | None = None,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> list[IngestionRecord]:
         """
         List ingestion history records, newest first.
@@ -194,11 +195,43 @@ class FileIntegrityChecker(ABC):
         ``status`` filters by ``"success"`` / ``"failed"`` if
         given; ``collection`` narrows to a single collection (None =
         every collection). ``limit`` caps the result list (None =
-        no cap).
+        no cap). ``offset`` skips that many rows (None / 0 = from the
+        start) — used for real database-side pagination so the list
+        never has to materialise every document in memory.
 
         Used by :class:`DocumentManager.list_documents` to enumerate
         known source files. Backends that can't answer this should
         raise ``NotImplementedError``.
+        """
+        raise NotImplementedError
+
+    def count(
+        self,
+        *,
+        status: str | None = None,
+        collection: str | None = None,
+    ) -> int:
+        """
+        Count ingestion-history records matching ``status`` / ``collection``.
+
+        A cheap aggregate used to render list pagination sizes without
+        materialising the rows. Backends that can't answer this should
+        raise ``NotImplementedError``.
+        """
+        raise NotImplementedError
+
+    def count_by_collection(
+        self,
+        *,
+        collections: list[str] | None = None,
+    ) -> dict[str, int]:
+        """
+        Count ingestion-history records grouped by collection (one query).
+
+        ``collections`` restricts the COUNT to just those collections
+        (None = every collection). Returns ``{collection: count}`` so a
+        knowledge-base list can render every collection's document count
+        without a per-collection ``COUNT(*)``.
         """
         raise NotImplementedError
 
@@ -651,6 +684,7 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         status: str | None = None,
         collection: str | None = None,
         limit: int | None = None,
+        offset: int | None = None,
     ) -> list[IngestionRecord]:
         """SQLite-backed list — see base class for the contract."""
         self._ensure_schema()
@@ -675,10 +709,64 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             if limit is not None:
                 sql += " LIMIT ?"
                 params = params + (limit,)
+            if offset:
+                sql += " OFFSET ?"
+                params = params + (offset,)
             rows = conn.execute(sql, params).fetchall()
         finally:
             conn.close()
         return [self._row_to_record(r) for r in rows]
+
+    def count(
+        self,
+        *,
+        status: str | None = None,
+        collection: str | None = None,
+    ) -> int:
+        """SQLite-backed count — see base class for the contract."""
+        self._ensure_schema()
+        conn = self._connect()
+        try:
+            sql = "SELECT COUNT(*) AS n FROM ingestion_history"
+            clauses: list[str] = []
+            params: tuple = ()
+            if status is not None:
+                clauses.append("status = ?")
+                params = params + (status,)
+            if collection is not None:
+                clauses.append("collection = ?")
+                params = params + (collection,)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            row = conn.execute(sql, params).fetchone()
+        finally:
+            conn.close()
+        return int(row["n"])
+
+    def count_by_collection(
+        self,
+        *,
+        collections: list[str] | None = None,
+    ) -> dict[str, int]:
+        """SQLite-backed grouped count — see base class for the contract."""
+        self._ensure_schema()
+        conn = self._connect()
+        try:
+            sql = (
+                "SELECT collection, COUNT(*) AS n FROM ingestion_history"
+            )
+            params: tuple = ()
+            if collections is not None:
+                if not collections:
+                    return {}
+                placeholders = ", ".join("?" for _ in collections)
+                sql += f" WHERE collection IN ({placeholders})"
+                params = tuple(collections)
+            sql += " GROUP BY collection"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return {row["collection"]: int(row["n"]) for row in rows}
 
     def get_record_by_path(
         self, file_path: str, *, collection: str | None = None,

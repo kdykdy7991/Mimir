@@ -312,6 +312,69 @@ class ImageStorage:
             conn.close()
         return int(row["n"])
 
+    def image_counts(
+        self, *, collections: list[str] | None = None,
+    ) -> dict[str, int]:
+        """Total indexed images grouped by collection (one query).
+
+        ``collections`` restricts the COUNT to just those collections
+        (None = every collection). Returns ``{collection: count}``.
+        Unlike per-document ``find_by_doc_hash``, this uses ``GROUP BY``
+        so a knowledge-base list can render all image counts in a single
+        request instead of one lookup per document.
+        """
+        self._ensure_schema()
+        conn = self._connect()
+        try:
+            sql = (
+                "SELECT collection, COUNT(*) AS n FROM image_index"
+            )
+            params: tuple = ()
+            if collections is not None:
+                placeholders = ", ".join("?" for _ in collections)
+                sql += f" WHERE collection IN ({placeholders})"
+                params = tuple(collections)
+            sql += " GROUP BY collection"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return {row["collection"]: int(row["n"]) for row in rows}
+
+    def count_by_doc_hashes(
+        self,
+        doc_hashes: set[str],
+        *,
+        collection: str | None = None,
+    ) -> dict[tuple[str | None, str], int]:
+        """Image counts for a batch of ``doc_hashes`` (one query).
+
+        Returns ``{(collection, doc_hash): count}`` for the rows whose
+        ``doc_hash`` is in ``doc_hashes``. When ``collection`` is given
+        the rows are additionally scoped to that collection. This
+        replaces the N-per-document ``find_by_doc_hash`` calls a document
+        list used to make, letting a whole page compute its image counts
+        in a single SQL statement.
+        """
+        if not doc_hashes:
+            return {}
+        self._ensure_schema()
+        conn = self._connect()
+        try:
+            placeholders = ", ".join("?" for _ in doc_hashes)
+            sql = (
+                "SELECT collection, doc_hash, COUNT(*) AS n FROM image_index "
+                f"WHERE doc_hash IN ({placeholders})"
+            )
+            params: tuple = tuple(doc_hashes)
+            if collection is not None:
+                sql += " AND collection = ?"
+                params = params + (collection,)
+            sql += " GROUP BY collection, doc_hash"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return {(row["collection"], row["doc_hash"]): int(row["n"]) for row in rows}
+
     def delete(self, image_id: str, *, remove_file: bool = True) -> bool:
         """
         Remove an entry from the index. By default also deletes the

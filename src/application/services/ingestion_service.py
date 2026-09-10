@@ -12,12 +12,12 @@ M2 批次 2 扩展（upload → task）
   :meth:`upload` 提交任务，前端通过 :meth:`get_task` 轮询。
 - ``upload(...)`` 同步触发摄入流程（在工作线程里跑），实现
   pending → running → succeeded/failed/skipped 状态机。
-- M5 临时文件落地：上传字节流写到**每任务唯一的临时路径**
+- M5 临时文件落地：上传字节流先写到**每任务唯一的临时路径**
   ``uploads/<collection>/.tmp/<task_id>-<filename>``，worker 从该临时
   文件摄取；文档身份仍是稳定 canonical 路径
   ``uploads/<collection>/<sanitised_filename>``（传给
-  ``IngestionPipeline.run(source_path=...)``，从不写盘），因此并发同名
-  上传互不覆盖、document_id 保持稳定。任务结束后临时文件被清理。
+  ``IngestionPipeline.run(source_path=...)``）。解析成功后以原子替换写入该
+  canonical 路径供管理台保真预览；document_id 保持稳定。
 - 进度通过 :class:`IngestionPipeline` 的 ``on_progress`` 回调，转成
   :class:`TaskProgress` 快照。
 
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -123,6 +124,7 @@ class IngestionService:
         trace_store: "TraceStore | None" = None,
         tracker: TaskTracker | None = None,
         upload_policy: UploadPolicy | None = None,
+        on_ingested: Callable[[], None] | None = None,
     ) -> None:
         self._engines = engines
         # Web API boot injects one shared (SQLite-backed) TaskTracker so
@@ -135,6 +137,12 @@ class IngestionService:
         # from its env-driven settings) — the application layer never
         # imports the Web API layer. Defaults mirror the historical values.
         self._policy = upload_policy if upload_policy is not None else UploadPolicy()
+        # Fired after a background task successfully ingests a NEW document
+        # (not on dedup-skip). The Web API composes this to invalidate the
+        # collection-stats + document-UUID caches that live on
+        # ``DocumentService``, so a doc is resolvable the moment the
+        # pipeline finishes writing its integrity record.
+        self._on_ingested: Callable[[], None] | None = on_ingested
         # Bound concurrent ingestion pipelines so large batches do not
         # overwhelm Embedding, Chroma, and the per-collection BM25 lock.
         self._worker_slots = threading.BoundedSemaphore(4)
@@ -290,17 +298,17 @@ class IngestionService:
 
         M5 concurrency fix: the bytes are written to a **per-task unique
         temp path** (``upload_dir/<collection>/.tmp/<task_id>-<filename>``),
-        never to the stable canonical path. Two concurrent batches
+        rather than directly to the stable canonical path. Two concurrent batches
         uploading the same filename with different content therefore
         cannot overwrite each other's in-flight file. The worker ingests
         from the temp file, labels everything with the stable canonical
-        ``source_path`` (document identity unchanged), and deletes the
-        temp file when done.
+        ``source_path`` (document identity unchanged), then atomically promotes
+        the successful upload to that canonical path for original-file preview.
         """
         # ---- 1. Resolve the canonical source path --------------------
         # ``source_path`` is the document identity (uuid5 input); it is
-        # NOT written to disk anymore. It also keeps the original filename
-        # suffix so the temp file below dispatches the right loader.
+        # It keeps the original filename suffix so the temp file below
+        # dispatches the right loader and becomes the persisted preview path.
         if source_path is None:
             source_path = self.compute_source_path(collection, filename)
         canonical = Path(source_path)
@@ -641,6 +649,12 @@ class IngestionService:
                         path=ingest_path, on_progress=on_progress, trace=trace,
                         collection=collection, source_path=canonical_source,
                     )
+                    # Preserve the original upload for faithful management-UI
+                    # preview. The collection lock serializes same-name writes;
+                    # os.replace prevents readers from observing partial bytes.
+                    canonical = Path(canonical_source)
+                    canonical.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(ingest_path, canonical)
             except Exception as exc:  # noqa: BLE001 — any failure → task failed
                 self._record_failure(task_id, exc)
                 if trace is not None:
@@ -665,6 +679,10 @@ class IngestionService:
                         task_id,
                         lambda rec: rec.mark_succeeded(),
                     )
+                    # A NEW document was written (integrity record included).
+                    # Invalidate caches now so it is immediately resolvable.
+                    if self._on_ingested is not None:
+                        self._on_ingested()
             finally:
                 # Drop the cached engines while still holding the write
                 # lock so the SparseRetriever reloads the fresh index on

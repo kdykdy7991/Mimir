@@ -433,6 +433,22 @@ class TestGetCollectionStats:
         }
 
 
+class TestGetCorpusOverviewStats:
+    def test_avoids_per_document_store_lookups(self, manager):
+        manager._chroma.get_by_metadata = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("overview must not load document chunks"),
+        )
+        manager._images.find_by_doc_hash = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("overview must not load document images"),
+        )
+
+        stats = manager.get_corpus_overview_stats(collections=["default"])
+
+        assert stats.n_documents == 2
+        assert stats.n_chunks == 3
+        assert stats.statuses == ("success", "success")
+
+
 class TestCollections:
     """M2 batch 1 — collection listing / create / cascade-delete.
 

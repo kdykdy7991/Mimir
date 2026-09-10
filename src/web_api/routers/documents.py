@@ -7,18 +7,39 @@ derived from ``(collection, source_path)`` — see ``mappers.document_uuid``.
 
 from __future__ import annotations
 
+from pathlib import Path as FilePath
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi.responses import FileResponse
 
 from src.application.composition import ApplicationServices
 from src.ingestion.storage.bm25_locks import bm25_write_lock
 from src.web_api.dependencies import get_application_services
 from src.web_api.errors import DocumentDeleteError, DocumentNotFoundError
-from src.web_api.mappers import resolve_document, to_document_detail
-from src.web_api.schemas.documents import DocumentDetail
+from src.web_api.mappers import (
+    build_cursor_page_info,
+    decode_offset_cursor,
+    resolve_document,
+    to_document_detail,
+    to_document_summary,
+)
+from src.web_api.schemas.documents import DocumentDetail, DocumentListResponse
+from src.web_api.settings import SETTINGS
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+_PREVIEW_MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".md": "text/markdown; charset=utf-8", ".markdown": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8", ".csv": "text/csv; charset=utf-8",
+    ".html": "text/plain; charset=utf-8", ".htm": "text/plain; charset=utf-8",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+}
 
 
 def _parse_document_id(document_id: str) -> UUID:
@@ -29,6 +50,38 @@ def _parse_document_id(document_id: str) -> UUID:
             f"document {document_id!r} does not exist",
             details={"document_id": document_id},
         ) from exc
+
+
+@router.get(
+    "",
+    response_model=DocumentListResponse,
+    summary="List all documents across collections",
+)
+async def list_all_documents(
+    services: ApplicationServices = Depends(get_application_services),
+    cursor: str | None = Query(
+        None, description="Opaque cursor from the previous page's ``next_cursor``.",
+    ),
+    limit: int = Query(
+        SETTINGS.page_limit_default,
+        ge=1,
+        le=SETTINGS.page_limit_max,
+        description=f"Page size, 1-{SETTINGS.page_limit_max}.",
+    ),
+) -> DocumentListResponse:
+    """Server-side paginated listing of documents across **every** collection.
+
+    Mirrors the per-collection paging path: the page is selected in
+    SQLite (newest-first across the whole corpus) and only the current
+    page's chunk / image counts are queried — no full-corpus materialisation.
+    """
+    offset = decode_offset_cursor(cursor)
+    infos, total = services.document.list_documents_paged(
+        offset=offset, limit=limit,
+    )
+    page = [to_document_summary(info) for info in infos]
+    page_info = build_cursor_page_info(offset, len(page), total)
+    return DocumentListResponse(items=page, page_info=page_info)
 
 
 @router.get(
@@ -54,7 +107,33 @@ async def get_document(
             f"document {document_id!r} does not exist",
             details={"document_id": document_id},
         )
-    return to_document_detail(detail.info, services=services)
+    return to_document_detail(detail.info, services=services, chunks=detail.chunks)
+
+
+@router.get("/{document_id}/preview", summary="Preview the original uploaded document")
+async def preview_document(
+    document_id: str = Path(..., description="Document ID (UUID)."),
+    services: ApplicationServices = Depends(get_application_services),
+) -> FileResponse:
+    """Stream only persisted Web uploads; never expose arbitrary CLI paths."""
+    resolved = resolve_document(services, _parse_document_id(document_id))
+    if resolved is None:
+        raise DocumentNotFoundError(f"document {document_id!r} does not exist")
+    _collection, source_path = resolved
+    candidate = FilePath(source_path).resolve()
+    upload_root = services.ingestion.upload_dir.resolve()
+    if not candidate.is_relative_to(upload_root) or not candidate.is_file():
+        raise DocumentNotFoundError(
+            "original upload is unavailable; re-upload the document to enable preview",
+            details={"document_id": document_id, "preview_available": False},
+        )
+    return FileResponse(
+        candidate,
+        media_type=_PREVIEW_MEDIA_TYPES.get(candidate.suffix.lower(), "application/octet-stream"),
+        filename=candidate.name,
+        content_disposition_type="inline",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.delete(

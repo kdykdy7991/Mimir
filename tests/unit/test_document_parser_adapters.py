@@ -112,6 +112,8 @@ def test_parsed_document_to_document() -> None:
     parsed = ParsedDocument(
         markdown="# t\nhello",
         metadata={"source_path": "/x/a.pdf", "doc_type": "pdf"},
+        warnings=["page 2 OCR confidence is low"],
+        parse_status=ParseStatus.PARTIAL_SUCCESS,
         images=[
             ParsedImage(
                 filename="p1.png", original_ref="img-1", mime_type="image/png",
@@ -122,6 +124,8 @@ def test_parsed_document_to_document() -> None:
     doc = ParsedDocumentAdapter().to_document(parsed)
     assert doc.text == "# t\nhello"
     assert doc.metadata["doc_type"] == "pdf"
+    assert doc.metadata["parse_status"] == "partial_success"
+    assert doc.metadata["parse_warnings"] == ["page 2 OCR confidence is low"]
     assert doc.metadata["images"][0]["id"] == "img-1"
     assert doc.id  # deterministic hash
     # id deterministic for same source+markdown

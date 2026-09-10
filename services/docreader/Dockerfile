@@ -12,11 +12,16 @@ WORKDIR /srv/docreader
 # Non-root user (plan §11): parse under nobody; root FS mounted read-only in prod.
 RUN groupadd -r docreader && useradd -r -g docreader -d /srv/docreader docreader
 
+# Runtime dependencies are isolated from source so parser edits only rebuild the
+# small source/package layer. BuildKit retains downloaded wheels across dependency
+# changes without baking pip's cache into the final image.
+COPY --chown=docreader:docreader requirements.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+
 COPY --chown=docreader:docreader pyproject.toml README.md THIRD_PARTY_NOTICES.md ./
 COPY --chown=docreader:docreader docreader ./docreader
-COPY --chown=docreader:docreader tests ./tests
-
-RUN pip install --no-cache-dir .
+RUN pip install --no-build-isolation --no-deps .
 
 USER docreader
 EXPOSE 50051

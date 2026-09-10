@@ -106,6 +106,10 @@ export interface paths {
         /**
          * List documents in a collection
          * @description Cursor-paginated list of documents belonging to a collection.
+         *
+         *     No longer loads every document + chunk + image before paging: the
+         *     current page is selected in SQLite (``LIMIT/OFFSET``), then only that
+         *     page's chunk / image counts are queried.
          */
         get: operations["list_collection_documents_api_v1_collections__collection_id__documents_get"];
         put?: never;
@@ -139,6 +143,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List all documents across collections
+         * @description Server-side paginated listing of documents across **every** collection.
+         *
+         *     Mirrors the per-collection paging path: the page is selected in
+         *     SQLite (newest-first across the whole corpus) and only the current
+         *     page's chunk / image counts are queried — no full-corpus materialisation.
+         */
+        get: operations["list_all_documents_api_v1_documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -158,6 +186,26 @@ export interface paths {
          * @description Coordinated delete across vector store + BM25 + image storage.
          */
         delete: operations["delete_document_api_v1_documents__document_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{document_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the original uploaded document
+         * @description Stream only persisted Web uploads; never expose arbitrary CLI paths.
+         */
+        get: operations["preview_document_api_v1_documents__document_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -953,6 +1001,27 @@ export interface components {
             detail?: string | null;
         };
         /**
+         * DocumentChunkSummary
+         * @description Lightweight structural row for the document-detail chunk table.
+         */
+        DocumentChunkSummary: {
+            /** Index */
+            index: number;
+            /** Chunk Id */
+            chunk_id: string;
+            /** Heading */
+            heading?: string | null;
+            /** Page */
+            page?: number | null;
+            /** Character Count */
+            character_count: number;
+            /**
+             * Content Type
+             * @default text
+             */
+            content_type: string;
+        };
+        /**
          * DocumentDetail
          * @description ``GET /documents/{id}`` response — extends summary with ingestion refs.
          *
@@ -1038,6 +1107,42 @@ export interface components {
             last_query_id?: string | null;
             /** @description Structured error from the last failed task (if any). Same shape as the top-level HTTP error envelope — branch on ``last_error.code``. */
             last_error?: components["schemas"]["TaskError"] | null;
+            /**
+             * Table Count
+             * @description Number of distinct table blocks recorded by table-aware chunking.
+             * @default 0
+             */
+            table_count: number;
+            /**
+             * Parse Warnings
+             * @description Parser-emitted partial-success warnings; empty when none were emitted.
+             */
+            parse_warnings?: string[];
+            /**
+             * Parser Engine
+             * @description Parser engine recorded in persisted chunk metadata.
+             */
+            parser_engine?: string | null;
+            /**
+             * Parse Status
+             * @description Parser status recorded in persisted chunk metadata.
+             */
+            parse_status?: string | null;
+            /**
+             * Page Count
+             * @description Source page count when supplied by the parser.
+             */
+            page_count?: number | null;
+            /**
+             * Vision Processed
+             * @description Whether persisted evidence shows that visual processing ran.
+             */
+            vision_processed?: boolean | null;
+            /**
+             * Chunks
+             * @description Ordered structural chunk rows without embedding vectors.
+             */
+            chunks?: components["schemas"]["DocumentChunkSummary"][];
         };
         /**
          * DocumentListResponse
@@ -2442,6 +2547,40 @@ export interface operations {
             };
         };
     };
+    list_all_documents_api_v1_documents_get: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from the previous page's ``next_cursor``. */
+                cursor?: string | null;
+                /** @description Page size, 1-100. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_document_api_v1_documents__document_id__get: {
         parameters: {
             query?: never;
@@ -2492,6 +2631,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_document_api_v1_documents__document_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID (UUID). */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

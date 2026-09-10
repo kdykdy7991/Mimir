@@ -76,6 +76,17 @@ class DocumentSummary(BaseModel):
     updated_at: UtcDatetime
 
 
+class DocumentChunkSummary(BaseModel):
+    """Lightweight structural row for the document-detail chunk table."""
+
+    index: int = Field(..., ge=0)
+    chunk_id: str
+    heading: str | None = None
+    page: int | None = None
+    character_count: int = Field(..., ge=0)
+    content_type: str = "text"
+
+
 class DocumentDetail(DocumentSummary):
     """``GET /documents/{id}`` response — extends summary with ingestion refs.
 
@@ -123,6 +134,34 @@ class DocumentDetail(DocumentSummary):
             "Structured error from the last failed task (if any). Same shape "
             "as the top-level HTTP error envelope — branch on ``last_error.code``."
         ),
+    )
+    table_count: int = Field(
+        0,
+        description="Number of distinct table blocks recorded by table-aware chunking.",
+    )
+    parse_warnings: list[str] = Field(
+        default_factory=list,
+        description="Parser-emitted partial-success warnings; empty when none were emitted.",
+    )
+    parser_engine: str | None = Field(
+        None,
+        description="Parser engine recorded in persisted chunk metadata.",
+    )
+    parse_status: str | None = Field(
+        None,
+        description="Parser status recorded in persisted chunk metadata.",
+    )
+    page_count: int | None = Field(
+        None, ge=0,
+        description="Source page count when supplied by the parser.",
+    )
+    vision_processed: bool | None = Field(
+        None,
+        description="Whether persisted evidence shows that visual processing ran.",
+    )
+    chunks: list[DocumentChunkSummary] = Field(
+        default_factory=list,
+        description="Ordered structural chunk rows without embedding vectors.",
     )
 
 
@@ -184,6 +223,7 @@ __all__ = [
     "BatchUploadResponse",
     "DocumentStatus",
     "DocumentSummary",
+    "DocumentChunkSummary",
     "DocumentDetail",
     "DocumentListResponse",
     "DocumentUploadResponse",

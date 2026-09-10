@@ -49,13 +49,13 @@ class TestDocumentParserSettings:
         s = DocumentParserSettings()
         assert s.backend == "legacy"
         assert s.enabled is True
-        assert s.endpoint == "127.0.0.1:50051"
+        assert s.endpoint == "127.0.0.1:50052"
 
     def test_loads_from_yaml(self) -> None:
         from src.core.settings import load_settings
         s = load_settings("config/settings.yaml")
         assert s.document_parser.backend == "docreader"
-        assert s.document_parser.endpoint == "127.0.0.1:50051"
+        assert s.document_parser.endpoint == "127.0.0.1:50052"
 
     def test_env_rollback_switch(self, monkeypatch) -> None:
         from src.core.settings import load_settings

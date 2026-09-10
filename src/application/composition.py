@@ -209,6 +209,8 @@ def build_application_services(
     if add_listener is not None:
         add_listener(usage_store.record)
 
+    document_service = DocumentService(manager)
+
     return ApplicationServices(
         query=QueryService(
             engines,
@@ -223,8 +225,12 @@ def build_application_services(
             # Upload limits are injected (the Web API boot builds the
             # policy from its env-driven settings); None → app defaults.
             upload_policy=upload_policy,
+            # After the background pipeline writes a NEW document's
+            # integrity record, drop the cached collection-stats aggregate
+            # and document-UUID index so lists + detail resolve immediately.
+            on_ingested=document_service.invalidate_ingest_caches,
         ),
-        document=DocumentService(manager),
+        document=document_service,
         system=SystemService(
             settings,
             embedding=embedding,

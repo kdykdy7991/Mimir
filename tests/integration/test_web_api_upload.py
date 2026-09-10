@@ -256,6 +256,46 @@ class TestUploadDocument:
         )
         assert doc["id"] == str(expected_id)
 
+    def test_original_upload_can_be_streamed_for_preview(
+        self, tmp_path, ok_pipeline,
+    ) -> None:
+        services, _hook = _build_services(tmp_path, ok_pipeline)
+        client = TestClient(create_app(services=services))
+        source = services.ingestion.compute_source_path("default", "preview.pdf")
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"%PDF-1.4 original")
+        services.document.manager._integrity.mark_success(
+            "preview-hash", str(source), file_size=17,
+            last_modified=1.0, collection="default",
+        )
+        services.document.invalidate_ingest_caches()
+        doc_id = document_uuid("default", str(source))
+
+        response = client.get(f"/api/v1/documents/{doc_id}/preview")
+
+        assert response.status_code == 200
+        assert response.content == b"%PDF-1.4 original"
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.headers["content-disposition"].startswith("inline;")
+
+    def test_preview_refuses_sources_outside_upload_root(
+        self, tmp_path, ok_pipeline,
+    ) -> None:
+        services, _hook = _build_services(tmp_path, ok_pipeline)
+        client = TestClient(create_app(services=services))
+        outside = tmp_path / "outside.pdf"
+        outside.write_bytes(b"secret")
+        services.document.manager._integrity.mark_success(
+            "outside-hash", str(outside), file_size=6,
+            last_modified=1.0, collection="default",
+        )
+        services.document.invalidate_ingest_caches()
+        doc_id = document_uuid("default", str(outside))
+
+        response = client.get(f"/api/v1/documents/{doc_id}/preview")
+
+        assert response.status_code == 404
+
     def test_task_transitions_pending_to_succeeded(
         self, tmp_path, ok_pipeline,
     ) -> None:
@@ -295,8 +335,8 @@ class TestUploadDocument:
         task_id = upload.json()["task_id"]
 
         # M5: the upload bytes are staged at a per-task temp path under
-        # upload_dir/<collection>/.tmp/ (the canonical path is never
-        # written — concurrent same-name uploads must not collide).
+        # upload_dir/<collection>/.tmp/ (the canonical path is not written
+        # until parsing succeeds, so concurrent same-name uploads do not collide).
         staged = list((tmp_path / "uploads" / "default" / ".tmp").glob("*q3.pdf"))
         assert len(staged) == 1
         assert staged[0].read_bytes() == b"PAYLOAD"
@@ -305,6 +345,7 @@ class TestUploadDocument:
         gate.set()
         _wait_for_terminal(services.ingestion, task_id)
         assert list((tmp_path / "uploads" / "default" / ".tmp").glob("*")) == []
+        assert (tmp_path / "uploads" / "default" / "q3.pdf").read_bytes() == b"PAYLOAD"
 
 
 # ---------------------------------------------------------------------------

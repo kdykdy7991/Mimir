@@ -212,7 +212,7 @@ class DocumentParserSettings(BaseModel):
     # (the Phase-7 cut-over); when backend=docreader the pipeline fails fast at
     # startup if the DocReader transport can't be built (see composition).
     enabled: bool = True
-    endpoint: str = "127.0.0.1:50051"
+    endpoint: str = "127.0.0.1:50052"
     request_timeout_seconds: float = 300.0
     max_file_bytes: int = 31457280
     default_engine: str = "builtin"

@@ -43,6 +43,13 @@ class _FakeStats:
     n_images: int = 0
 
 
+@dataclass
+class _FakeCorpusStats:
+    n_documents: int = 0
+    n_chunks: int = 0
+    statuses: tuple[str, ...] = ()
+
+
 class _FakeManager:
     """Records delegation; returns canned values."""
 
@@ -72,6 +79,10 @@ class _FakeManager:
     def get_collection_stats(self, *, collection: str = "default") -> _FakeStats:
         self.calls.append(("stats", {"collection": collection}))
         return self._stats
+
+    def get_corpus_overview_stats(self, *, collections: list[str]) -> _FakeCorpusStats:
+        self.calls.append(("corpus_overview", {"collections": collections}))
+        return _FakeCorpusStats(n_documents=3, n_chunks=17, statuses=("success",))
 
 
 @pytest.fixture
@@ -125,6 +136,17 @@ class TestGetCollectionStats:
         stats = svc.get_collection_stats(collection="default")
         assert stats.n_documents == 3
         assert manager.calls[0] == ("stats", {"collection": "default"})
+
+
+class TestGetCorpusOverviewStats:
+    def test_delegates(self, svc: DocumentService, manager: _FakeManager) -> None:
+        stats = svc.get_corpus_overview_stats(["default", "reports"])
+        assert stats.n_documents == 3
+        assert stats.n_chunks == 17
+        assert manager.calls[0] == (
+            "corpus_overview",
+            {"collections": ["default", "reports"]},
+        )
 
 
 __all__ = []

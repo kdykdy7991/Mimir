@@ -155,6 +155,12 @@ class ParsedDocumentAdapter:
 
     def to_document(self, parsed: ParsedDocument) -> Document:
         metadata: dict = dict(parsed.metadata)
+        # Preserve the parser's partial-success diagnostics through chunking
+        # and vector persistence so the read-only document detail API can
+        # expose real warnings instead of reconstructing or inventing them.
+        metadata["parse_status"] = parsed.parse_status.value
+        if parsed.warnings:
+            metadata["parse_warnings"] = list(parsed.warnings)
         doc_id = metadata.pop("doc_id", None) or self._hash_id(
             parsed.markdown, metadata.get("source_path", ""),
         )
