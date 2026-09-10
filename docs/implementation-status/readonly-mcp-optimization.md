@@ -12,9 +12,9 @@
 | Phase 0 | 固定基线和边界 | done | 2 |
 | Phase 1 | 建立只读 Client 边界 | done | 5 |
 | Phase 2 | 规范现有工具 | done | 3 |
-| Phase 3 | 新增文档 Chunk 分页 | todo | — |
-| Phase 4 | HTTP 解耦 | todo | — |
-| Phase 5 | 兼容、文档和交付 | todo | — |
+| Phase 3 | 新增文档 Chunk 分页 | done | 2 |
+| Phase 4 | HTTP 解耦 | done | 5 |
+| Phase 5 | 兼容、文档和交付 | done | 1 |
 
 ## 既有基线（本轮开始前已确认）
 
@@ -390,3 +390,15 @@
 - 状态：done
 - 提交：见本提交
 - 修改文件：`docs/mcp-integration.md`（追加「4. Read-Only MCP 优化」节）、`docs/THIRD_PARTY.md`（已有，见 P4.4）、OpenAPI `internal-mcp-readonly` tag（P4.1 已加）。
+
+### Phase 5 Gate / 交付验证总览
+
+- **全套测试**（`pytest -q`）：`1471 passed, 41 failed, 1 skipped, 1 error`。
+  - 较基线 `1384 passed / 40 failed`：净 +87 通过（全部为本计划新增用例）；
+  - 41 failed + 1 error 全部为**既有外部**失败类别：LLM / Embedding 端点未启动、
+    streamable-http CLI 子进程（`/health` 不可达）、上传校验、LLM/提示词 smoke；
+    **无一落在本计划变更的 MCP / 只读 / 内部 API 模块**（本项目相关测试 65 passed 复跑确认）。
+- **独立 MCP 镜像 build**（P4.4）：两次尝试均因访问 PyPI 的网络 `ReadTimeoutError`
+  失败（环境网络问题，非代码问题）；`docker compose config --quiet` 通过、
+  `health_check.py --expect-upstream-down` exit 0。镜像构建以「受网络阻塞」记录。
+- **最终状态**：已完成 Phase 0–5 全部实现与门禁；P4.4 容器镜像构建受外部网络阻塞（工件已交付）。
