@@ -201,7 +201,12 @@ class DocumentParserSettings(BaseModel):
     defaults to ``legacy`` so nothing changes until the migration is cut over
     in Phase 7, and can be flipped back with no data migration.
     """
-    backend: str = "docreader"  # legacy | docreader (Phase 7: default=docreader, legacy rollback via env/DOCUMENT_PARSER_BACKEND)
+    backend: str = "legacy"  # legacy | docreader
+    # NOTE: this is the safe *code* default used when settings are built
+    # without a config file (tests / programmatic embedders). The shipped
+    # deployment default lives in config/settings.yaml and is ``docreader``
+    # (the Phase-7 cut-over); when backend=docreader the pipeline fails fast at
+    # startup if the DocReader transport can't be built (see composition).
     enabled: bool = True
     endpoint: str = "127.0.0.1:50051"
     request_timeout_seconds: float = 300.0

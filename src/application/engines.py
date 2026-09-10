@@ -162,12 +162,10 @@ class EngineCache:
         from scripts.ingest import build_pipeline
 
         # Phase 7: honor document_parser.backend the same way the CLI does.
-        document_parser = None
-        try:
-            from src.document_parser.factory import build_document_parser_from_settings
-            document_parser = build_document_parser_from_settings(self._settings.document_parser)
-        except Exception:  # noqa: BLE001
-            document_parser = None  # keep legacy LoaderRegistry as the fallback
+        # resolve_document_parser returns None for legacy/disabled (→ legacy
+        # LoaderRegistry) and fails fast on a docreader build/transport failure.
+        from src.document_parser.factory import resolve_document_parser
+        document_parser = resolve_document_parser(self._settings.document_parser)
 
         return build_pipeline(
             settings=self._settings,

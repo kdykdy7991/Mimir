@@ -42,9 +42,12 @@ class _FakeTransport:
 
 
 class TestDocumentParserSettings:
-    def test_defaults_docreader(self) -> None:
+    def test_code_default_is_legacy(self) -> None:
+        # Code default is legacy so programmatic/tests never attempt a
+        # DocReader transport implicitly; the deployed default comes from
+        # config/settings.yaml (docreader) — see test_loads_from_yaml.
         s = DocumentParserSettings()
-        assert s.backend == "docreader"
+        assert s.backend == "legacy"
         assert s.enabled is True
         assert s.endpoint == "127.0.0.1:50051"
 

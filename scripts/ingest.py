@@ -288,21 +288,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     # Phase 7: honor the document_parser.backend feature flag. When it selects
-    # ``docreader`` (the default after cut-over), bridge the unified parser into
-    # the pipeline's loader slot via DocumentParserLoader; when ``legacy`` (or,
-    # deliberately, when a grpc transport can't be built) fall back to the old
-    # LoaderRegistry by passing no document_parser.
-    document_parser = None
-    try:
-        from src.document_parser.factory import build_document_parser_from_settings
-        document_parser = build_document_parser_from_settings(settings.document_parser)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "document_parser.backend=%r not fully wired (%s) — falling back to "
-            "legacy LoaderRegistry for this run.",
-            settings.document_parser.backend, exc,
-        )
-        document_parser = None
+    # ``docreader`` (the deployed default, from config/settings.yaml), bridge the
+    # unified parser into the pipeline's loader slot via DocumentParserLoader.
+    # resolve_document_parser fails fast (raises) on a docreader build/transport
+    # failure — a misconfigured docreader backend must not silently fall back to
+    # the old loaders. When backend=legacy/disabled it returns None so the
+    # legacy LoaderRegistry is used (the documented rollback path).
+    from src.document_parser.factory import resolve_document_parser
+    document_parser = resolve_document_parser(settings.document_parser)
 
     pipeline = build_pipeline(
         settings=settings,

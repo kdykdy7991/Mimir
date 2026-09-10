@@ -87,3 +87,26 @@ def build_document_parser_from_settings(
 def _grpc_from(settings: DocumentParserSettings):
     from src.document_parser.grpc_transport import DocReaderGrpcTransport
     return DocReaderGrpcTransport(settings.endpoint, timeout=float(settings.request_timeout_seconds))
+
+
+def resolve_document_parser(
+    settings: DocumentParserSettings,
+    *,
+    loader: BaseLoader | None = None,
+    grpc_transport=None,
+) -> DocumentParser | None:
+    """Return the parser the ingestion entry should bridge into the pipeline.
+
+    - ``backend == "docreader"`` and enabled: build the DocReader parser.
+      A build/transport failure RAISES here (fail-fast at startup / pipeline
+      construction) rather than silently substituting the legacy chain — a
+      misconfigured docreader backend must never quietly parse through the old
+      loaders.
+    - otherwise (``legacy`` explicit, disabled, or default-safe code default):
+      return None so the caller keeps the legacy ``LoaderRegistry`` path.
+    """
+    if not settings.enabled or settings.backend != "docreader":
+        return None
+    return build_document_parser_from_settings(
+        settings, loader=loader, grpc_transport=grpc_transport,
+    )

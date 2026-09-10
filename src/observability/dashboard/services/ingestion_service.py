@@ -105,6 +105,13 @@ class IngestionService:
         llm = (
             LLMFactory.create(settings.llm) if settings.llm else None
         )
+        # Phase 7: same backend routing as CLI / Web API — honor
+        # document_parser.backend (docreader → DocumentParserLoader; any other
+        # → legacy LoaderRegistry). resolve_document_parser raises on a
+        # docreader build failure so misconfiguration surfaces here at
+        # construction rather than silently parsing through the old chain.
+        from src.document_parser.factory import resolve_document_parser
+        document_parser = resolve_document_parser(settings.document_parser)
         return build_pipeline(
             settings=settings,
             data_dir=self._data_dir,
@@ -113,6 +120,7 @@ class IngestionService:
             embedding=embedding,
             vector_store=vector_store,
             llm=llm,
+            document_parser=document_parser,
         )
 
     def ingest_uploaded_file(
