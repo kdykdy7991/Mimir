@@ -59,6 +59,11 @@ def _odl() -> BaseParser:
     return OpenDataLoaderParser()
 
 
+def _docx() -> BaseParser:
+    from docreader.parser.docx_parser import DocxParser
+    return DocxParser()
+
+
 def _default_engines() -> None:
     if not _ENGINES:
         register_engine("txt", name="builtin", factory=_plain_text,
@@ -74,6 +79,8 @@ def _default_engines() -> None:
             description="PDF (local OpenDataLoader, JVM layout engine)",
             available=_odl_available,
         )
+        register_engine("docx", name="builtin", factory=_docx,
+                        description="DOCX: OOXML paragraphs and tables to Markdown")
 
 
 def _odl_available():
