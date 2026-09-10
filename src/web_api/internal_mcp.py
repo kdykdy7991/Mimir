@@ -97,11 +97,18 @@ def _require_internal_key(request: Request) -> JSONResponse | None:
 
 
 def _principal_from_request(request: Request) -> _ScopedPrincipal:
-    """Derive a strictly-scoped principal; missing scope ⇒ deny-all."""
+    """Derive a strictly-scoped principal; missing/invalid scope ⇒ deny-all."""
+    from src.mcp_server.clients.scope import decode_scope_header
+
     raw = request.headers.get(_SCOPE_HEADER, "")
-    allowed = frozenset(
-        part.strip() for part in raw.split(",") if part.strip()
-    )
+    allowed: frozenset[str] = frozenset()
+    if raw:
+        try:
+            allowed = frozenset(decode_scope_header(raw))
+        except (ValueError, TypeError):
+            # Malformed scope never widens privileges — fail closed to the
+            # caller's own (deny-all) view.
+            allowed = frozenset()
     return _ScopedPrincipal(
         key_id="internal-mcp", name="internal-mcp", allowed_collections=allowed,
     )

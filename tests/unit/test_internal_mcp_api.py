@@ -74,7 +74,8 @@ def client(monkeypatch):
 def _req(client, method, path, *, scope=None, key=KEY, **kw):
     headers = {"X-API-Key": key}
     if scope is not None:
-        headers["X-MCP-Allowed-Collections"] = ",".join(scope)
+        from src.mcp_server.clients.scope import encode_scope_header
+        headers["X-MCP-Allowed-Collections"] = encode_scope_header(scope)
     if kw.get("headers"):
         headers.update(kw.pop("headers"))
     return client.request(method, path, headers=headers, **kw)

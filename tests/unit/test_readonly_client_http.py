@@ -215,6 +215,8 @@ def test_504_upstream_timeout_maps_to_upstream_timeout():
 def test_scope_header_forwarded_for_collection_principal():
     from dataclasses import dataclass
 
+    from src.mcp_server.clients.scope import decode_scope_header
+
     @dataclass(frozen=True)
     class Scoped:
         key_id: str
@@ -229,7 +231,25 @@ def test_scope_header_forwarded_for_collection_principal():
 
     c = _client(handler)
     c.list_collections(Scoped("k", "n", frozenset({"hr", "finance"})))
-    assert seen["scope"] == "finance,hr"
+    assert sorted(decode_scope_header(seen["scope"])) == ["finance", "hr"]
+
+
+def test_scope_header_collision_free_for_comma_names():
+    """A collection whose NAME contains a comma must survive round-trip intact.
+
+    Regression for the P0 scope-escalation review finding: a grant to a
+    single collection "finance,hr" must decode as ONE collection, not two.
+    """
+    from src.mcp_server.clients.scope import (
+        decode_scope_header,
+        encode_scope_header,
+    )
+
+    header = encode_scope_header({"finance,hr"})
+    assert decode_scope_header(header) == ("finance,hr",)
+    # Two distinct grants still round-trip as two.
+    header2 = encode_scope_header(["finance", "hr"])
+    assert sorted(decode_scope_header(header2)) == ["finance", "hr"]
 
 
 def test_no_scope_header_for_trusted_local_principal():

@@ -432,3 +432,25 @@
 - 全链路只读 MCP 门禁：`177 passed`（含 stdio 子进程集成、HTTP 端到端隔离、内部 API 认证、快照、兼容层）；`git diff --check` 通过；工作区干净。
 - 兼容性保持：`get_document_summary`、`doc_id`、`n_collections`、`n_results`+`citations`、`no_rerank`。
 - 已知限制不变：P4.4 独立镜像构建受本环境 PyPI 网络超时（`files.pythonhosted.org`）阻塞；全量基线 41 failed/1 error 为既有外部依赖（LLM/Embedding vLLM、streamable-http /health 等）失败，非本计划回归。
+
+---
+
+## 复审整改 #2（3 项新发现）
+
+### 整改 E（P0）：collection scope 无歧义编码，杜绝逗号权限扩张
+- 根因：集合名允许含逗号，`",".join(sorted(allowed))` 经 HTTP 边界按逗号拆分会把授权给单集合 `"finance,hr"` 扩展成 finance 和 hr 两个集合（越权）。
+- 修复：新增 `src/mcp_server/clients/scope.py`，以 Base64URL(JSON 数组) 无分隔符编码集合授权集合；`HttpRagReadOnlyClient` 发送端与内部 API 接收端共用同一对 `encode_scope_header`/`decode_scope_header`。接收端解析失败 fail-closed（deny-all），绝不静默放宽。
+- 测试：`tests/unit/test_scope_encoding.py`（单集合含逗号往返保持单一、双集合含逗号仍区分、异常 payload 拒绝）+ `test_readonly_client_http.py` 逗号碰撞回归 + `test_internal_mcp_api.py` 头部改用新编码。
+
+### 整改 F（P1）：独立 MCP 容器健康检查读取内部门禁凭证
+- 根因：`deploy/mcp/health_check.py` 未读取 `MCP_INTERNAL_API_KEY`，新鉴权后即使主 API 正常也会 401 → 容器恒 unhealthy。
+- 修复：从环境读取 `MCP_INTERNAL_API_KEY` 并传入 `HttpRagReadOnlyClient`（`trust_env=False`，本地回环探测不继承代理环境；缺 key fail-closed → 出口 1 视为 unhealthy）。
+- 测试：`tests/unit/test_health_check.py`（真实 uvicorn 全链路：正确 key → 0；缺 key / 错 key → 1）。
+
+### 整改 G（P2）：缺失配置回退保证 in-process
+- 根因：`server._bootstrap_rag_client` 捕获 `FileNotFoundError` 后调用 `build_readonly_client(config_path=None)`，工厂仍会重读 `./config/settings.yaml`，未必创建 in-process，与日志不符。
+- 修复：回退分支直接构造 `InProcessRagReadOnlyClient(data_dir=DEFAULT_DATA)`，行为与注释/日志一致。
+- 测试：`tests/unit/test_server_bootstrap_client.py::test_missing_config_file_tolerated` 仍断言 in-process（语义收紧后通过）。
+
+### 复审 #2 验收
+- 三项新发现已修复 + 回归测试；只读 MCP 全链路门禁 `186 passed`；`git diff --check` 通过。

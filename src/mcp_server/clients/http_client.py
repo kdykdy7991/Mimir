@@ -186,7 +186,8 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         allowed = getattr(principal, "allowed_collections", None)
         if not allowed:
             return None
-        return {"X-MCP-Allowed-Collections": ",".join(sorted(allowed))}
+        from src.mcp_server.clients.scope import encode_scope_header
+        return {"X-MCP-Allowed-Collections": encode_scope_header(allowed)}
 
     def _get(
         self, path: str, params: dict[str, Any] | None = None,
