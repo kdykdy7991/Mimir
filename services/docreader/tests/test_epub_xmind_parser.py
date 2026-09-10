@@ -43,6 +43,51 @@ def test_epub_registered_and_routed() -> None:
     assert "Chapter One" in doc.content
 
 
+_CN = "{urn:oasis:names:tc:opendocument:xmlns:container}"
+_OPF = "{http://www.idpf.org/2007/opf}"
+
+
+def _spine_epub_bytes() -> bytes:
+    """An EPUB whose spine order differs from filename-sort order."""
+    container = (
+        f'<?xml version="1.0"?><container xmlns="{_CN[1:-1]}">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>'
+    ).encode()
+    opf = (
+        f'<?xml version="1.0"?><package xmlns="{_OPF[1:-1]}">'
+        '<manifest>'
+        '<item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="c2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>'
+        '</manifest>'
+        '<spine><itemref idref="c2"/><itemref idref="c1"/></spine>'
+        '</package>'
+    ).encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/chapter1.xhtml",
+                    b"<html><body><p>first-in-filename</p></body></html>")
+        zf.writestr("OEBPS/chapter2.xhtml",
+                    b"<html><body><p>spine-first</p></body></html>")
+    return buf.getvalue()
+
+
+def test_epub_follows_spine_reading_order() -> None:
+    doc = EpubParser().parse(_spine_epub_bytes())
+    # spine lists c2 then c1, so spine-first precedes first-in-filename
+    assert doc.content.index("spine-first") < doc.content.index("first-in-filename")
+
+
+def test_epub_without_container_falls_back_to_filename_order() -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("OEBPS/b.xhtml", b"<html><body><p>beta</p></body></html>")
+        zf.writestr("OEBPS/a.xhtml", b"<html><body><p>alpha</p></body></html>")
+    doc = EpubParser().parse(buf.getvalue())
+    assert doc.content.index("alpha") < doc.content.index("beta")
+
+
 def _xmind_json_bytes() -> bytes:
     data = [{"rootTopic": {"title": "Root", "children": {
         "attached": [{"title": "Child A", "children": {"attached": [{"title": "Grandchild"}]}},
