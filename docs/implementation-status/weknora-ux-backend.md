@@ -52,6 +52,54 @@
 
 ---
 
+## B1.1 单 Chunk 详情读取 — ✔ 完成
+
+**状态**：通过（含 B1 阶段相关门禁部分，门禁合集见下方）。
+
+**实际修改文件**：
+
+- 新增 `src/ingestion/chunk_order.py` — 下沉 Chunk 稳定排序（`chunk_sort_key`/
+  `stable_order_chunks`）与 `source_locator` 归一化（`build_source_locator`）、
+  `page_number_of`/`heading_of`/`chunk_id_of`；供 MCP 与 Web 单源复用。
+- `src/mcp_server/clients/in_process.py` — `_chunk_sort_key`/`_ordered_chunks`/
+  `_page_number` 改委托共享 helper，删除重复排序规则。
+- `src/web_api/schemas/documents.py` — 新增 `SourceLocator`、`DocumentChunkDetail`。
+- `src/web_api/errors.py` — 新增 `ChunkNotFoundError`（404 `CHUNK_NOT_FOUND`）。
+- `src/web_api/routers/documents.py` — 新增 `GET /documents/{id}/chunks/{chunk_id}`。
+- `tests/integration/test_web_api_chunks.py`（新增）、`tests/unit/test_ux_api_contracts.py`、
+  `docs/openapi/openapi.v0.2.json`（重新生成）。
+
+**数据库/API/兼容性决策**：
+
+- 先按文档归属（collection, source_path）解析并校验 collection，再读 Chunk；错文档 Chunk 返回
+  `404 CHUNK_NOT_FOUND`，未知文档 `404 DOCUMENT_NOT_FOUND`（防枚举语义不变）。
+- 相邻关系用与 MCP `get_document_chunks` 同一 `stable_order_chunks` 排序（chunk_index → 旧 ID 索引 → ID），
+  不复制第二套规则。
+- 缺页码/标题/相邻项返回 `null`；`page<1` 归一为 `null`。
+- `source_locator.kind ∈ {pdf_page, image, section, none}`；image 定位整图故 `page=null`；
+  禁止猜测，无可靠定位 → `none`。
+
+**新增测试**（`tests/integration/test_web_api_chunks.py`，7 项）：正常详情、首尾相邻、
+旧数据无 chunk_index 排序、错文档 Chunk 404、未知文档 404、缺定位信息降级、image/section/none 定位映射。
+`tests/unit/test_ux_api_contracts.py` 新增 `test_b11_chunk_detail_contract`。
+
+**执行命令与结果**：
+
+- `python -m scripts.export_openapi` → 26 paths, 52 schemas
+- `python -m pytest tests/unit/test_readonly_client_chunks.py tests/unit/test_get_document_chunks.py tests/unit/test_readonly_client_inprocess_services.py -q` → 15 passed（MCP Chunk 回归）
+- B1 门禁（B1 相关测试 + MCP Chunk 回归 + 文档详情回归 + OpenAPI 快照）：
+  `python -m pytest tests/integration/test_web_api_chunks.py tests/unit/test_ux_api_contracts.py tests/contract/test_openapi_snapshot.py tests/integration/test_web_api_endpoints.py tests/unit/test_readonly_client_chunks.py tests/unit/test_get_document_chunks.py tests/unit/test_readonly_client_inprocess_services.py tests/unit/test_readonly_client_contracts.py tests/unit/test_readonly_client_document.py tests/unit/test_document_detail_presentation.py -q` → 72 passed
+
+**git diff --check**：通过。
+
+**提交哈希**：B1.1 提交见当前小节末尾。
+
+**遗留问题**：无新遗留；本任务已完成 source_locator 归一化（属 B1.3 契约，先落地于 B1.1 使响应完整）。
+
+**下一任务**：B1.2 文档 Chunk 分页、搜索和过滤。
+
+---
+
 ## B0.1 建立 OpenAPI 契约测试 — ✔ 完成
 
 **状态**：通过（含 B0 Phase Gate）。

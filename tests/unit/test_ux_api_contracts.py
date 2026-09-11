@@ -159,6 +159,24 @@ def test_existing_chunk_summary_contract() -> None:
     assert content_type.get("default", "text") == "text"
 
 
+def test_b11_chunk_detail_contract() -> None:
+    """``GET /documents/{id}/chunks/{id}`` full-body schema is frozen (B1.1)."""
+    openapi = _live_openapi()
+    paths = openapi.get("paths", {})
+    assert "/api/v1/documents/{document_id}/chunks/{chunk_id}" in paths
+    assert_schema_fields(
+        openapi, "DocumentChunkDetail",
+        required={"chunk_id", "document_id", "index", "text", "character_count",
+                  "source_locator"},
+        properties={"heading", "page", "content_type",
+                    "previous_chunk_id", "next_chunk_id"},
+    )
+    locator = _schemas(openapi).get("SourceLocator", {})
+    kind = (locator.get("properties", {}).get("kind") or {}).get("enum")
+    assert kind is not None, "SourceLocator.kind must be an explicit enum"
+    assert set(kind) == {"pdf_page", "image", "section", "none"}, f"got {kind}"
+
+
 def test_existing_trace_contract() -> None:
     """``GET /queries/{id}/trace`` / ``/ingestions/{id}/trace`` shapes."""
     openapi = _live_openapi()

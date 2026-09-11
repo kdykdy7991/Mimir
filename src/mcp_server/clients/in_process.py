@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 import time
 from pathlib import Path
@@ -28,6 +27,12 @@ from uuid import uuid4
 
 from src.core.settings import Settings, load_settings
 
+from src.ingestion.chunk_order import (
+    chunk_id_of,
+    chunk_sort_key,
+    page_number_of,
+    stable_order_chunks,
+)
 from src.mcp_server.auth.authorization import (
     CollectionAccessDenied,
     filter_accessible_collections,
@@ -464,33 +469,14 @@ class InProcessRagReadOnlyClient:
 
     @staticmethod
     def _chunk_sort_key(hit: dict[str, Any]) -> tuple[int, int, str]:
-        """Stable ordering key: authoritative ``chunk_index`` metadata, then
-        the index embedded in the chunk id (legacy), then the chunk id.
-
-        Returns ``(source_rank, index, id)`` where ``source_rank`` groups
-        by how the index was derived so mixed data still orders correctly.
-        """
-        meta = hit.get("metadata") or {}
-        idx = meta.get("chunk_index")
-        if idx is not None:
-            try:
-                return (0, int(idx), str(hit.get("id") or ""))
-            except (TypeError, ValueError):
-                pass
-        chunk_id = str((hit.get("id") or "") or str(meta.get("chunk_id") or ""))
-        match = re.search(r"_(\d{4})_", chunk_id)
-        if match:
-            try:
-                return (1, int(match.group(1)), chunk_id)
-            except (TypeError, ValueError):
-                pass
-        return (2, 0, chunk_id)
+        """Stable ordering key — delegates to the shared helper (B1)."""
+        return chunk_sort_key(hit)
 
     def _ordered_chunks(self, collection: str, source_path: str) -> list[dict]:
         """Read every chunk for a document and order it deterministically
         without relying on the vector store's natural order."""
         hits = self._read_document_chunks(collection, source_path)
-        return sorted(hits, key=self._chunk_sort_key)
+        return stable_order_chunks(hits)
 
     def get_document_chunks(
         self,
@@ -524,7 +510,7 @@ class InProcessRagReadOnlyClient:
                 ),
                 index=start + i,
                 text=(hit.get("text") or ""),
-                page=_page_number(hit.get("metadata") or {}),
+                page=page_number_of(hit.get("metadata") or {}),
                 section=str((hit.get("metadata") or {}).get("section") or ""),
             )
             for i, hit in enumerate(window)
@@ -536,16 +522,6 @@ class InProcessRagReadOnlyClient:
             total=total,
             chunks=chunks,
         )
-
-
-def _page_number(metadata: dict[str, Any]) -> int | None:
-    page = metadata.get("page_num")
-    if page is None:
-        page = metadata.get("page")
-    try:
-        return int(page) if page is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 __all__ = ["InProcessRagReadOnlyClient"]

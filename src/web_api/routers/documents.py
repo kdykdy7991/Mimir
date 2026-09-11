@@ -14,9 +14,20 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import FileResponse
 
 from src.application.composition import ApplicationServices
+from src.ingestion.chunk_order import (
+    build_source_locator,
+    chunk_id_of,
+    heading_of,
+    page_number_of,
+    stable_order_chunks,
+)
 from src.ingestion.storage.bm25_locks import bm25_write_lock
 from src.web_api.dependencies import get_application_services
-from src.web_api.errors import DocumentDeleteError, DocumentNotFoundError
+from src.web_api.errors import (
+    ChunkNotFoundError,
+    DocumentDeleteError,
+    DocumentNotFoundError,
+)
 from src.web_api.mappers import (
     build_cursor_page_info,
     decode_offset_cursor,
@@ -24,7 +35,11 @@ from src.web_api.mappers import (
     to_document_detail,
     to_document_summary,
 )
-from src.web_api.schemas.documents import DocumentDetail, DocumentListResponse
+from src.web_api.schemas.documents import (
+    DocumentChunkDetail,
+    DocumentDetail,
+    DocumentListResponse,
+)
 from src.web_api.settings import SETTINGS
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -108,6 +123,84 @@ async def get_document(
             details={"document_id": document_id},
         )
     return to_document_detail(detail.info, services=services, chunks=detail.chunks)
+
+
+def _sanitize_page(value: int | None) -> int | None:
+    """Page must be a positive 1-based int, else ``None`` (missing)."""
+    if value is None or value < 1:
+        return None
+    return value
+
+
+@router.get(
+    "/{document_id}/chunks/{chunk_id}",
+    response_model=DocumentChunkDetail,
+    summary="Get an authorized chunk's full text and neighbors",
+)
+async def get_document_chunk(
+    document_id: str = Path(..., description="Document ID (UUID)."),
+    chunk_id: str = Path(..., description="Stable chunk identifier."),
+    services: ApplicationServices = Depends(get_application_services),
+) -> DocumentChunkDetail:
+    """Return a single chunk's full body, source locator, and stable neighbors.
+
+    Ownership is resolved by document first; a chunk id that does not belong
+    to this document returns ``404`` without leaking why. Ordering (and hence
+    ``previous_chunk_id`` / ``next_chunk_id``) reuses the MCP
+    ``get_document_chunks`` stable order — the same helper, not a second rule.
+    """
+    doc_uuid = _parse_document_id(document_id)
+    resolved = resolve_document(services, doc_uuid)
+    if resolved is None:
+        raise DocumentNotFoundError(
+            f"document {document_id!r} does not exist",
+            details={"document_id": document_id},
+        )
+    collection, source_path = resolved
+    detail = services.document.get_document_detail(source_path, collection)
+    if detail is None:
+        raise DocumentNotFoundError(
+            f"document {document_id!r} does not exist",
+            details={"document_id": document_id},
+        )
+
+    ordered = stable_order_chunks(detail.chunks)
+    pos = next(
+        (i for i, hit in enumerate(ordered) if chunk_id_of(hit) == chunk_id),
+        None,
+    )
+    if pos is None:
+        raise ChunkNotFoundError(
+            f"chunk {chunk_id!r} does not exist in document {document_id!r}",
+            details={"chunk_id": chunk_id, "document_id": document_id},
+        )
+
+    hit = ordered[pos]
+    text = str(hit.get("text") or "")
+    meta = hit.get("metadata") or {}
+    content_type = str(meta.get("content_type") or "text")
+    prior = ordered[pos - 1] if pos > 0 else None
+    nxt = ordered[pos + 1] if pos + 1 < len(ordered) else None
+    heading = heading_of(hit)
+    locator = build_source_locator(
+        meta,
+        source_path=source_path,
+        content_type=content_type,
+        heading=heading,
+    )
+    return DocumentChunkDetail(
+        chunk_id=chunk_id,
+        document_id=doc_uuid,
+        index=pos,
+        text=text,
+        heading=heading,
+        page=_sanitize_page(page_number_of(meta)),
+        content_type=content_type,
+        character_count=len(text),
+        previous_chunk_id=chunk_id_of(prior) if prior is not None else None,
+        next_chunk_id=chunk_id_of(nxt) if nxt is not None else None,
+        source_locator=locator,
+    )
 
 
 @router.get("/{document_id}/preview", summary="Preview the original uploaded document")

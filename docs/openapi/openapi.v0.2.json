@@ -579,6 +579,62 @@
         }
       }
     },
+    "/api/v1/documents/{document_id}/chunks/{chunk_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get an authorized chunk's full text and neighbors",
+        "description": "Return a single chunk's full body, source locator, and stable neighbors.\n\nOwnership is resolved by document first; a chunk id that does not belong\nto this document returns ``404`` without leaking why. Ordering (and hence\n``previous_chunk_id`` / ``next_chunk_id``) reuses the MCP\n``get_document_chunks`` stable order — the same helper, not a second rule.",
+        "operationId": "get_document_chunk_api_v1_documents__document_id__chunks__chunk_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Document ID (UUID).",
+              "title": "Document Id"
+            },
+            "description": "Document ID (UUID)."
+          },
+          {
+            "name": "chunk_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Stable chunk identifier.",
+              "title": "Chunk Id"
+            },
+            "description": "Stable chunk identifier."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentChunkDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{document_id}/preview": {
       "get": {
         "tags": [
@@ -2208,6 +2264,124 @@
           "status": "ok"
         }
       },
+      "DocumentChunkDetail": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id",
+            "description": "Stable chunk identifier."
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "Owning stable document ID."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index",
+            "description": "Zero-based position in the document's stable chunk order."
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Full chunk body text."
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading",
+            "description": "Section heading if derivable."
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "Source page if derivable."
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "description": "Chunk type ('text'|'table'|...).",
+            "default": "text"
+          },
+          "character_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Character Count",
+            "description": "``len(text)``."
+          },
+          "previous_chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Chunk Id",
+            "description": "Previous chunk in the stable order, or null."
+          },
+          "next_chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Chunk Id",
+            "description": "Next chunk in the stable order, or null."
+          },
+          "source_locator": {
+            "$ref": "#/components/schemas/SourceLocator",
+            "description": "Normalized position in the original file."
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "document_id",
+          "index",
+          "text",
+          "character_count",
+          "source_locator"
+        ],
+        "title": "DocumentChunkDetail",
+        "description": "``GET /documents/{document_id}/chunks/{chunk_id}`` response (B1.1).\n\nFull chunk text plus stable navigation. Missing page/heading/neighbors\nserialise as ``null`` rather than erroring, so old or sparse data stays\nrenderable.",
+        "example": {
+          "character_count": 864,
+          "chunk_id": "stable-id",
+          "content_type": "text",
+          "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+          "heading": "3.2 服务部署",
+          "index": 17,
+          "next_chunk_id": "...",
+          "page": 12,
+          "previous_chunk_id": "...",
+          "source_locator": {
+            "kind": "pdf_page",
+            "page": 12
+          },
+          "text": "3.2 服务部署 ……"
+        }
+      },
       "DocumentChunkSummary": {
         "properties": {
           "index": {
@@ -3609,6 +3783,44 @@
         },
         "type": "object",
         "title": "RetrievalHealth"
+      },
+      "SourceLocator": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pdf_page",
+              "image",
+              "section",
+              "none"
+            ],
+            "title": "Kind",
+            "description": "Normalized locator kind; never guessed."
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "1-based page, set only when ``kind == 'pdf_page'``."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "SourceLocator",
+        "description": "Where, in the original file, a chunk points to (task book B1.3).\n\n``pdf_page`` carries a 1-based ``page``; ``image``/``section``/``none``\nhave no page (``page`` is ``None``). The preview URL stays behind the\nexisting controlled preview endpoint — no filesystem path leaks here.",
+        "example": {
+          "kind": "pdf_page",
+          "page": 12
+        }
       },
       "SystemHealth": {
         "properties": {

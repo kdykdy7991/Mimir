@@ -41,6 +41,35 @@ Kept distinct from :class:`TaskStatus` because one document may have
 many ingestion tasks over its lifetime. See v0.1 contract §5.
 """
 
+SourceLocatorKind = Literal["pdf_page", "image", "section", "none"]
+"""Normalized source-position discriminators (task book B1.3).
+
+``none`` means there is no reliable locator — the API must not guess.
+"""
+
+
+class SourceLocator(BaseModel):
+    """Where, in the original file, a chunk points to (task book B1.3).
+
+    ``pdf_page`` carries a 1-based ``page``; ``image``/``section``/``none``
+    have no page (``page`` is ``None``). The preview URL stays behind the
+    existing controlled preview endpoint — no filesystem path leaks here.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"kind": "pdf_page", "page": 12},
+        }
+    )
+
+    kind: SourceLocatorKind = Field(
+        ..., description="Normalized locator kind; never guessed.",
+    )
+    page: int | None = Field(
+        None, ge=1,
+        description="1-based page, set only when ``kind == 'pdf_page'``.",
+    )
+
 
 class DocumentSummary(BaseModel):
     """Lightweight row for collection document list."""
@@ -85,6 +114,54 @@ class DocumentChunkSummary(BaseModel):
     page: int | None = None
     character_count: int = Field(..., ge=0)
     content_type: str = "text"
+
+
+class DocumentChunkDetail(BaseModel):
+    """``GET /documents/{document_id}/chunks/{chunk_id}`` response (B1.1).
+
+    Full chunk text plus stable navigation. Missing page/heading/neighbors
+    serialise as ``null`` rather than erroring, so old or sparse data stays
+    renderable.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "chunk_id": "stable-id",
+                "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+                "index": 17,
+                "text": "3.2 服务部署 ……",
+                "heading": "3.2 服务部署",
+                "page": 12,
+                "content_type": "text",
+                "character_count": 864,
+                "previous_chunk_id": "...",
+                "next_chunk_id": "...",
+                "source_locator": {"kind": "pdf_page", "page": 12},
+            }
+        }
+    )
+
+    chunk_id: str = Field(..., description="Stable chunk identifier.")
+    document_id: UUID = Field(..., description="Owning stable document ID.")
+    index: int = Field(
+        ..., ge=0,
+        description="Zero-based position in the document's stable chunk order.",
+    )
+    text: str = Field(..., description="Full chunk body text.")
+    heading: str | None = Field(None, description="Section heading if derivable.")
+    page: int | None = Field(None, ge=1, description="Source page if derivable.")
+    content_type: str = Field("text", description="Chunk type ('text'|'table'|...).")
+    character_count: int = Field(..., ge=0, description="``len(text)``.")
+    previous_chunk_id: str | None = Field(
+        None, description="Previous chunk in the stable order, or null.",
+    )
+    next_chunk_id: str | None = Field(
+        None, description="Next chunk in the stable order, or null.",
+    )
+    source_locator: SourceLocator = Field(
+        ..., description="Normalized position in the original file.",
+    )
 
 
 class DocumentDetail(DocumentSummary):
@@ -222,8 +299,11 @@ __all__ = [
     "BatchFileStatus",
     "BatchUploadResponse",
     "DocumentStatus",
+    "SourceLocator",
+    "SourceLocatorKind",
     "DocumentSummary",
     "DocumentChunkSummary",
+    "DocumentChunkDetail",
     "DocumentDetail",
     "DocumentListResponse",
     "DocumentUploadResponse",

@@ -65,6 +65,16 @@ class DocumentNotFoundError(NotFoundError):
     code = "DOCUMENT_NOT_FOUND"
 
 
+class ChunkNotFoundError(NotFoundError):
+    """``404`` — specific code for a chunk that is not part of the document.
+
+    Kept generic about *why* (missing vs wrong-document chunk) so the public
+    API does not reveal whether a neighbouring chunk exists.
+    """
+
+    code = "CHUNK_NOT_FOUND"
+
+
 class DocumentDeleteError(APIError):
     """``500`` — coordinated document deletion was only partially completed."""
 
@@ -165,6 +175,7 @@ __all__ = [
     "NotFoundError",
     "CollectionNotFoundError",
     "DocumentNotFoundError",
+    "ChunkNotFoundError",
     "DocumentDeleteError",
     "TaskNotFoundError",
     "QueryNotFoundError",
