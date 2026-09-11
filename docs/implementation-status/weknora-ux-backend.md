@@ -52,6 +52,45 @@
 
 ---
 
+## B1.3 原文件定位契约 — ✔ 完成
+
+**状态**：通过（含 B1 项目门禁合集通过）。
+
+**实际修改文件**：
+
+- 新增 `tests/unit/test_chunk_order.py` — 对 `build_source_locator` 各类映射与降级、
+  `page_number_of`/`heading_of`/`chunk_id_of`/`chunk_sort_key`/`stable_order_chunks`
+  的专项单元测试。
+
+**说明**：`source_locator` 归一化逻辑（`src/ingestion/chunk_order.py::build_source_locator`）
+已在 B1.1 落地并为 B1.1 响应所复用；本任务补齐其契约测试与降级覆盖，未改解析器、
+未改预览接口（预览仍走既有受控 `GET /documents/{id}/preview`，不暴露磁盘路径）。
+
+**数据库/API/兼容性决策**：
+
+- PDF → 1-based `pdf_page`（缺页/页码 <1 → `none`）；图片（扩展名或
+  `image_ocr`/`image_caption`）→ 整体图片 `image`（`page=null`）；
+  DOCX/Markdown/TXT 在存在 heading（元数据或正文 Markdown 标题）时 → `section`；
+  无可靠定位元数据 → `none`，禁止猜测。未知扩展名一律 `none`。
+
+**新增测试**：`tests/unit/test_chunk_order.py`（14 项）：PDF 1-based 页码、缺页/零负页降级、
+图片扩展名、图片内容类型、docx/txt heading、正文标题 section、section 扩展名无 heading 降级、
+未知扩展名 none、禁止猜测、页码归一化、heading 推导、chunk id 回退、排序 key、稳定顺序。
+
+**执行命令与结果**：
+
+- `python -m pytest tests/unit/test_chunk_order.py tests/integration/test_web_api_chunks.py tests/unit/test_ux_api_contracts.py tests/contract/test_openapi_snapshot.py tests/unit/test_readonly_client_chunks.py tests/unit/test_get_document_chunks.py -q` → 63 passed
+
+**git diff --check**：通过。
+
+**提交哈希**：B1.3 提交见当前小节末尾。
+
+**遗留问题**：无新遗留（本任务未改 OpenAPI schema，快照保持 B1.2 版本有效）。
+
+**下一任务**：B2.1 标签数据模型和迁移。
+
+---
+
 ## B1.2 文档 Chunk 分页、搜索和过滤 — ✔ 完成
 
 **状态**：通过（含 B1 项目门禁合集通过）。
