@@ -103,8 +103,32 @@ async def _validation_error_handler(
         code="VALIDATION_ERROR",
         message="Request validation failed.",
         request_id=get_request_id(request),
-        details={"errors": exc.errors()},
+        details={"errors": _redact_validation_errors(exc)},
     )
+
+
+# Field names that, if they appear in a validation ``loc``, must never have
+# their raw ``input`` value echoed (B4.4 — the MCP Client Key is a one-time
+# secret; the Authorization header never leaves the request layer).
+_SENSITIVE_FIELD_TOKENS = ("api_key", "secret", "token", "password", "authorization")
+
+
+def _redact_validation_errors(exc: RequestValidationError) -> list[dict]:
+    """Return ``exc.errors()`` with sensitive field inputs redacted.
+
+    Pydantic's default error detail carries the offending ``input`` value;
+    for a ``SecretStr``/token/key field that value is the secret itself and
+    must not reach the response, log or frontend.
+    """
+    out: list[dict] = []
+    for err in exc.errors():
+        err = dict(err)
+        loc = err.get("loc") or ()
+        parts = [str(part).lower() for part in loc]
+        if any(any(tok in part for tok in _SENSITIVE_FIELD_TOKENS) for part in parts):
+            err["input"] = "<redacted>"
+        out.append(err)
+    return out
 
 
 async def _http_exception_handler(

@@ -33,7 +33,14 @@ class MCPKeyMetadata(BaseModel):
 class MCPKeySecretResponse(MCPKeyMetadata):
     """Returned only by create/rotate; ``api_key`` is never listable."""
 
-    api_key: str
+    api_key: str = Field(
+        ...,
+        description=(
+            "The MCP Client Key. Returned exactly once at create/rotate time "
+            "and never readable again; send-only for the connection test."
+        ),
+        json_schema_extra={"writeOnly": True, "format": "password"},
+    )
 
 
 class MCPKeyListResponse(BaseModel):
