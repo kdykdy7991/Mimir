@@ -52,6 +52,46 @@
 
 ---
 
+## B2.3 文件夹数据模型和迁移 — ✔ 完成
+
+**状态**：通过。
+
+**实际修改文件**：
+
+- `src/application/services/web_store.py` — `document_folders` / `document_placements` 建表
+  （`(collection_id, parent_id, normalized_name)` 唯一；平铺树，根用 parent_id NULL）；
+  `MAX_FOLDER_DEPTH=5`、`normalize_folder_name`；新增 `create_folder`/`get_folder`/
+  `list_folders`/`rename_folder`/`move_folder`/`delete_folder`/`move_document`/
+  `document_placement`/`documents_by_folder`/`count_documents_in_folder`。
+- 新增 `tests/unit/application/test_folders_store.py`。
+
+**数据库/API/兼容性决策**：
+
+- 文件夹纯逻辑目录，移动原始文件物理路径；根=parent_id NULL，无数值型根行。
+- collection 内同父下规范化名唯一；深度上限 5；移动做环检测（禁止移入自身后代）并重算子树深度。
+- 删除文件夹：子文件夹与文档上移父文件夹，返回 `{reparented_folders, reparented_documents}`，不删除文档。
+- 文档→文件夹放置存 `document_placements(document_id PK, folder_id, collection_id)`，folder_id NULL=根。
+- `WebApiDB.__init__` 幂等建表，既有库自动补建。
+
+**新增测试**：`tests/unit/application/test_folders_store.py`（12 项）：迁移建表、根/嵌套创建、
+同父唯一名、未知父拒绝、深度上限、移动环阻止、移动重算深度、删除重挂载子文件夹+文档计数、
+按文件夹查询与计数、放置 upsert/清理、list 稳定顺序、名称长度校验。
+
+**执行命令与结果**：
+
+- `python -m pytest tests/unit/application/test_folders_store.py tests/unit/application/test_tags_store.py -q` → 24 passed
+- `python -m pytest tests/unit/application/ -q` → 87 passed（既有 store/task/service 无回归）
+
+**git diff --check**：通过。
+
+**提交哈希**：B2.3 提交见当前小节末尾。
+
+**遗留问题**：无新遗留。
+
+**下一任务**：B2.4 文件夹 CRUD 与文档移动接口。
+
+---
+
 ## B2.2 标签 CRUD 与文档绑定接口 — ✔ 完成
 
 **状态**：通过。

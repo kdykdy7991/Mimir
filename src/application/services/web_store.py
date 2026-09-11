@@ -43,9 +43,17 @@ DEFAULT_DB_PATH = "./data/db/web_api.db"
 # the server only accepts these, never arbitrary CSS.
 TAG_COLORS = frozenset({"grey", "blue", "green", "red", "purple", "amber"})
 
+# Maximum logical folder depth (root = depth 0). Hard cap (B2.4).
+MAX_FOLDER_DEPTH = 5
+
 
 def normalize_tag_name(name: str) -> str:
     """Whitespace-stripped, case-folded uniqueness key for a tag name."""
+    return name.strip().casefold()
+
+
+def normalize_folder_name(name: str) -> str:
+    """Whitespace-stripped, case-folded uniqueness key for a folder name."""
     return name.strip().casefold()
 
 
@@ -159,6 +167,34 @@ class WebApiDB:
                 );
                 CREATE INDEX IF NOT EXISTS idx_tag_links_tag
                     ON document_tag_links(tag_id);
+
+                -- Logical document folders (task book B2.3). A plain tree:
+                -- root is expressed by parent_id NULL (no fake root row).
+                CREATE TABLE IF NOT EXISTS document_folders (
+                    folder_id       TEXT PRIMARY KEY,
+                    collection_id   TEXT NOT NULL,
+                    parent_id       TEXT,
+                    name            TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL,
+                    depth           INTEGER NOT NULL DEFAULT 0,
+                    created_at      REAL NOT NULL,
+                    updated_at      REAL NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_col_parent_name
+                    ON document_folders(collection_id, parent_id, normalized_name);
+                CREATE INDEX IF NOT EXISTS idx_folders_parent
+                    ON document_folders(parent_id);
+
+                -- Nullable per-document folder placement (``folder_id`` NULL
+                -- means the document sits at the collection root).
+                CREATE TABLE IF NOT EXISTS document_placements (
+                    document_id     TEXT PRIMARY KEY,
+                    folder_id       TEXT,
+                    collection_id   TEXT NOT NULL,
+                    updated_at      REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_placements_folder
+                    ON document_placements(folder_id);
                 """
             )
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(query_results)")}
@@ -225,6 +261,272 @@ class WebApiDB:
             return cursor.rowcount > 0
         finally:
             conn.close()
+
+    # ------------------------------------------------------------------
+    # Folders (task book B2.3 / B2.4)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _validate_folder_name(name: str) -> str:
+        stripped = name.strip()
+        if not 1 <= len(stripped) <= 64:
+            raise ValueError("folder name must be 1-64 characters after trimming")
+        return stripped
+
+    def get_folder(self, folder_id: str) -> dict[str, Any] | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM document_folders WHERE folder_id = ?", (folder_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row is not None else None
+
+    def create_folder(
+        self, *, collection_id: str, name: str, parent_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a folder; siblings must have unique normalized names.
+
+        ``parent_id`` is validated to exist in the same collection and the
+        resulting depth must not exceed :data:`MAX_FOLDER_DEPTH`. Raises
+        ``ValueError`` on invalid input and ``sqlite3.IntegrityError`` on a
+        sibling-name collision.
+        """
+        import time
+        from uuid import uuid4
+
+        cleaned = self._validate_folder_name(name)
+        depth = 0
+        if parent_id is not None:
+            parent = self.get_folder(parent_id)
+            if parent is None:
+                raise ValueError("parent folder does not exist")
+            depth = int(parent["depth"]) + 1
+            if depth > MAX_FOLDER_DEPTH:
+                raise ValueError(f"folder depth exceeds the maximum {MAX_FOLDER_DEPTH}")
+        folder_id = str(uuid4())
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO document_folders
+                    (folder_id, collection_id, parent_id, name, normalized_name,
+                     depth, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (folder_id, collection_id, parent_id, cleaned,
+                 normalize_folder_name(cleaned), depth, now, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_folder(folder_id)  # type: ignore[return-value]
+
+    def list_folders(self, collection_id: str) -> list[dict[str, Any]]:
+        """All folders in a collection (flat, stable; tree built by clients)."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM document_folders
+                WHERE collection_id = ?
+                ORDER BY depth ASC, normalized_name ASC, created_at ASC, folder_id ASC
+                """,
+                (collection_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    def rename_folder(self, folder_id: str, name: str) -> dict[str, Any] | None:
+        import time
+
+        if self.get_folder(folder_id) is None:
+            return None
+        cleaned = self._validate_folder_name(name)
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                UPDATE document_folders
+                   SET name = ?, normalized_name = ?, updated_at = ?
+                 WHERE folder_id = ?
+                """,
+                (cleaned, normalize_folder_name(cleaned), time.time(), folder_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_folder(folder_id)
+
+    def _descendant_folder_ids(self, conn, folder_id: str) -> set[str]:
+        """All folder ids strictly below ``folder_id`` (cycle check helper)."""
+        descendants: set[str] = set()
+        frontier = [folder_id]
+        while frontier:
+            nxt: list[str] = []
+            for fid in frontier:
+                rows = conn.execute(
+                    "SELECT folder_id FROM document_folders WHERE parent_id = ?", (fid,),
+                ).fetchall()
+                for r in rows:
+                    cid = r["folder_id"]
+                    if cid not in descendants:
+                        descendants.add(cid)
+                        nxt.append(cid)
+            frontier = nxt
+        return descendants
+
+    def move_folder(
+        self, *, folder_id: str, new_parent_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Re-parent a folder (``new_parent_id`` None = root) with depth/cycle checks."""
+        import time
+
+        folder = self.get_folder(folder_id)
+        if folder is None:
+            return None
+        conn = self._connect()
+        try:
+            if new_parent_id is not None:
+                parent = self.get_folder(new_parent_id)
+                if parent is None or parent["collection_id"] != folder["collection_id"]:
+                    raise ValueError("target parent folder does not exist in the collection")
+                # cycle: moving a folder under one of its own descendants
+                descendants = self._descendant_folder_ids(conn, folder_id)
+                if new_parent_id in descendants:
+                    raise ValueError("cannot move a folder into its own descendant")
+            new_depth = 0 if new_parent_id is None else int(
+                self.get_folder(new_parent_id)["depth"]
+            ) + 1
+            if new_depth > MAX_FOLDER_DEPTH:
+                raise ValueError(f"folder depth exceeds the maximum {MAX_FOLDER_DEPTH}")
+            conn.execute(
+                """
+                UPDATE document_folders SET parent_id = ?, updated_at = ? WHERE folder_id = ?
+                """,
+                (new_parent_id, time.time(), folder_id),
+            )
+            # recompute depth for the moved subtree
+            self._recompute_depth(conn, folder_id, new_depth)
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_folder(folder_id)
+
+    def _recompute_depth(self, conn, folder_id: str, depth: int) -> None:
+        conn.execute(
+            "UPDATE document_folders SET depth = ? WHERE folder_id = ?", (depth, folder_id),
+        )
+        for row in conn.execute(
+            "SELECT folder_id FROM document_folders WHERE parent_id = ?", (folder_id,),
+        ).fetchall():
+            self._recompute_depth(conn, row["folder_id"], depth + 1)
+
+    def delete_folder(self, folder_id: str) -> dict[str, Any]:
+        """Delete a folder; children + documents move up to its parent.
+
+        Returns ``{"reparented_folders": int, "reparented_documents": int}``.
+        The parents must not delete: documents keep their collection scope.
+        """
+        import time
+
+        folder = self.get_folder(folder_id)
+        if folder is None:
+            return {"reparented_folders": 0, "reparented_documents": 0}
+        parent_id = folder["parent_id"]
+        new_depth = (int(folder["depth"]) - 1) if parent_id else 0
+        conn = self._connect()
+        try:
+            children = [r["folder_id"] for r in conn.execute(
+                "SELECT folder_id FROM document_folders WHERE parent_id = ?", (folder_id,),
+            ).fetchall()]
+            # re-parent child folders to our parent and recompute their depth
+            for cid in children:
+                conn.execute(
+                    "UPDATE document_folders SET parent_id = ?, updated_at = ? WHERE folder_id = ?",
+                    (parent_id, time.time(), cid),
+                )
+                self._recompute_depth(conn, cid, max(new_depth, 0))
+            # documents in this folder move up to the parent (NULL = root)
+            cur_docs = conn.execute(
+                """
+                UPDATE document_placements SET folder_id = ?, updated_at = ? WHERE folder_id = ?
+                """,
+                (parent_id, time.time(), folder_id),
+            )
+            conn.execute(
+                "UPDATE document_folders SET updated_at = ? WHERE folder_id = ?",
+                (time.time(), folder_id),
+            )
+            conn.execute("DELETE FROM document_folders WHERE folder_id = ?", (folder_id,))
+            conn.commit()
+            return {
+                "reparented_folders": len(children),
+                "reparented_documents": cur_docs.rowcount,
+            }
+        finally:
+            conn.close()
+
+    def move_document(self, *, document_id: str, folder_id: str | None, collection_id: str) -> None:
+        """Set (or clear) a document's folder placement."""
+        import time
+
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO document_placements (document_id, folder_id, collection_id, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE
+                    SET folder_id = excluded.folder_id,
+                        collection_id = excluded.collection_id,
+                        updated_at = excluded.updated_at
+                """,
+                (document_id, folder_id, collection_id, time.time()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def document_placement(self, document_id: str) -> dict[str, Any] | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM document_placements WHERE document_id = ?", (document_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row is not None else None
+
+    def documents_by_folder(self, folder_id: str | None, collection_id: str) -> list[str]:
+        """Document ids placed in ``folder_id`` (None = collection root)."""
+        conn = self._connect()
+        try:
+            if folder_id is None:
+                rows = conn.execute(
+                    "SELECT document_id FROM document_placements WHERE collection_id = ? AND folder_id IS NULL",
+                    (collection_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT document_id FROM document_placements WHERE folder_id = ?", (folder_id,),
+                ).fetchall()
+        finally:
+            conn.close()
+        return [r["document_id"] for r in rows]
+
+    def count_documents_in_folder(self, folder_id: str) -> int:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM document_placements WHERE folder_id = ?",
+                (folder_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return int(row["n"] if row else 0)
 
     # ------------------------------------------------------------------
     # Tags (task book B2.1 / B2.2)
@@ -693,4 +995,7 @@ class WebApiDB:
             conn.close()
 
 
-__all__ = ["DEFAULT_DB_PATH", "TAG_COLORS", "WebApiDB", "normalize_tag_name"]
+__all__ = [
+    "DEFAULT_DB_PATH", "MAX_FOLDER_DEPTH", "TAG_COLORS", "WebApiDB",
+    "normalize_folder_name", "normalize_tag_name",
+]
