@@ -14,7 +14,6 @@ import {
   ChevronDown,
   FileCheck2,
   FileClock,
-  FileText,
   Files,
   LoaderCircle,
   RotateCcw,
@@ -22,6 +21,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+
 import { apiClient } from "@/api";
 import { ApiError } from "@/api/error";
 import { useApiResource } from "@/api/use-api-resource";
@@ -34,13 +34,18 @@ import {
   StatusBadge,
 } from "@/components";
 import type {
-  CollectionDetail,
   BatchDocumentResponse,
+  CollectionDetail,
   DocumentFolder,
   DocumentListFilters,
   DocumentTag,
   TaskStatusResponse,
 } from "@/types";
+import {
+  BatchResultPanel,
+  BatchToolbar,
+  type BatchTagAction,
+} from "./batch-toolbar";
 import { DocumentTable, type DocumentRow } from "./document-table";
 import { createUploadBatchId } from "./upload-batch-id";
 import { calculateBatchProgress } from "./upload-batch-progress";
@@ -146,10 +151,6 @@ async function loadData({
   cursor,
   filters,
 }: LoadArgs): Promise<Data> {
-  // Single-collection mode. In the real collection-detail page the parent
-  // already rendered ``collection``, so we skip the redundant getCollection.
-  // When only ``collectionId`` is given (other callers / tests) we still
-  // fetch the collection once for its name + document total.
   if (collectionId || collection) {
     const detail =
       collection ??
@@ -171,10 +172,6 @@ async function loadData({
     };
   }
 
-  // Cross-collection ("全部文档") page: the server pages across every
-  // collection, so we only fetch one page of documents instead of every
-  // document in the corpus. Collections are still listed once (their stats
-  // are now aggregated cheaply server-side) for the name map + upload target.
   const collections: CollectionDetail[] = [];
   let collectionCursor: string | null | undefined;
   do {
@@ -210,10 +207,12 @@ export function DocumentsView({
   collection,
   collectionId,
   embedded = false,
+  openUploadSignal,
 }: {
   collection?: CollectionDetail;
   collectionId?: string;
   embedded?: boolean;
+  openUploadSignal?: number;
 }) {
   const [pagination, setPagination] = useState<{
     collectionId?: string;
@@ -329,10 +328,18 @@ export function DocumentsView({
   const [tags, setTags] = useState<DocumentTag[]>([]);
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [batchResult, setBatchResult] = useState<BatchDocumentResponse>();
-  const [batchTagAction, setBatchTagAction] = useState<
-    "add" | "remove" | "replace"
-  >("add");
+  const [batchTagAction, setBatchTagAction] = useState<BatchTagAction>("add");
   const [batchPending, setBatchPending] = useState(false);
+
+  // Header "上传文档" button toggles the same dialog by incrementing the
+  // `openUploadSignal` counter — single source of truth, no portal duplication.
+  useEffect(() => {
+    if (openUploadSignal === undefined) return;
+    if (openUploadSignal > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUploadOpen(true);
+    }
+  }, [openUploadSignal]);
   const filtered = useMemo(() => data?.documents ?? [], [data]);
   const totalDocuments = data?.total;
   const totalPages =
@@ -424,6 +431,13 @@ export function DocumentsView({
     }
   }
 
+  // Single entry point for any filter/search/page change so we never forget
+  // to clear the cross-page selection. (Centralised per the risk note in the
+  // knowledge-base detail-page brief.)
+  function resetSelection() {
+    setSelectedIds((current) => (current.size ? new Set() : current));
+  }
+
   function clearDocumentFilters() {
     setQuery("");
     setFolderFilter("");
@@ -437,8 +451,7 @@ export function DocumentsView({
   }
 
   function previousPage() {
-    setQuery("");
-    setSelectedIds(new Set());
+    resetSelection();
     retry();
     setPagination((current) => ({
       ...(collectionId ? { collectionId } : {}),
@@ -452,8 +465,7 @@ export function DocumentsView({
   function nextPage() {
     const nextCursor = data?.pageInfo?.next_cursor;
     if (!nextCursor) return;
-    setQuery("");
-    setSelectedIds(new Set());
+    resetSelection();
     retry();
     setPagination((current) => ({
       ...(collectionId ? { collectionId } : {}),
@@ -603,285 +615,76 @@ export function DocumentsView({
         />
       ) : (
         <section className="glass-surface rounded-xl p-4 sm:p-6">
-          <label className="relative block">
-            <span className="sr-only">搜索文档</span>
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm outline-none focus:border-primary"
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setSelectedIds(new Set());
-              }}
-              placeholder={collectionId ? "搜索当前页文件名…" : "搜索文件名…"}
-              value={query}
-            />
-          </label>
+          <FilterBar
+            {...(collectionId ? { collectionId } : {})}
+            fileType={fileType}
+            folderFilter={folderFilter}
+            folders={folders}
+            onClearFilters={clearDocumentFilters}
+            onQueryChange={setQuery}
+            onResetSelection={resetSelection}
+            onTagFiltersChange={setTagFilters}
+            placeholder={collectionId ? "搜索当前页文件名…" : "搜索文件名…"}
+            query={query}
+            resetSelection={resetSelection}
+            setFileType={setFileType}
+            setFolderFilter={setFolderFilter}
+            setSort={setSort}
+            setStatusFilter={setStatusFilter}
+            setUpdatedAfter={setUpdatedAfter}
+            setUpdatedBefore={setUpdatedBefore}
+            sort={sort}
+            statusFilter={statusFilter}
+            tagFilters={tagFilters}
+            tags={tags}
+            updatedAfter={updatedAfter}
+            updatedBefore={updatedBefore}
+          />
+          {collectionId && folders.length === 0 && !loading ? null : null}
           {collectionId ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <select
-                aria-label="按文件夹筛选"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                onChange={(event) => {
-                  setFolderFilter(event.target.value);
-                  setSelectedIds(new Set());
-                }}
-                value={folderFilter}
-              >
-                <option value="">全部文件夹</option>
-                <option value="root">根目录</option>
-                {folders.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {"　".repeat(folder.depth)}
-                    {folder.name}
-                  </option>
-                ))}
-              </select>
-              <details className="relative">
-                <summary className="flex h-9 cursor-pointer list-none items-center justify-between rounded-md border border-border bg-surface px-2 text-sm">
-                  {tagFilters.length
-                    ? `已选 ${tagFilters.length} 个标签（同时满足）`
-                    : "全部标签"}
-                  <ChevronDown className="size-4" />
-                </summary>
-                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-surface-raised p-2 shadow-lg">
-                  {tags.length ? (
-                    tags.map((tag) => (
-                      <label
-                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
-                        key={tag.id}
-                      >
-                        <input
-                          checked={tagFilters.includes(tag.id)}
-                          onChange={(event) => {
-                            setTagFilters((current) =>
-                              event.target.checked
-                                ? [...current, tag.id]
-                                : current.filter((id) => id !== tag.id),
-                            );
-                            setSelectedIds(new Set());
-                          }}
-                          type="checkbox"
-                        />
-                        {tag.name}
-                      </label>
-                    ))
-                  ) : (
-                    <p className="px-2 py-1 text-xs text-muted-foreground">
-                      暂无标签
-                    </p>
-                  )}
-                </div>
-              </details>
-              <select
-                aria-label="按状态筛选"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                onChange={(event) => {
-                  setStatusFilter(event.target.value);
-                  setSelectedIds(new Set());
-                }}
-                value={statusFilter}
-              >
-                <option value="">全部状态</option>
-                <option value="ready">已就绪</option>
-                <option value="failed">失败</option>
-              </select>
-              <select
-                aria-label="按文件格式筛选"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                onChange={(event) => {
-                  setFileType(event.target.value);
-                  setSelectedIds(new Set());
-                }}
-                value={fileType}
-              >
-                <option value="">全部格式</option>
-                <option value="pdf">PDF</option>
-                <option value="md">Markdown</option>
-                <option value="txt">TXT</option>
-              </select>
-              <select
-                aria-label="文档排序"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                onChange={(event) => {
-                  setSort(event.target.value as DocumentListFilters["sort"]);
-                  setSelectedIds(new Set());
-                }}
-                value={sort}
-              >
-                <option value="updated_desc">最近更新</option>
-                <option value="updated_asc">最早更新</option>
-                <option value="name_asc">名称 A–Z</option>
-                <option value="name_desc">名称 Z–A</option>
-                <option value="size_desc">文件最大优先</option>
-              </select>
-              <label className="text-xs text-muted-foreground">
-                更新开始
-                <input
-                  className="mt-1 h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
-                  onChange={(event) => setUpdatedAfter(event.target.value)}
-                  type="date"
-                  value={updatedAfter}
-                />
-              </label>
-              <label className="text-xs text-muted-foreground">
-                更新结束
-                <input
-                  className="mt-1 h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
-                  onChange={(event) => setUpdatedBefore(event.target.value)}
-                  type="date"
-                  value={updatedBefore}
-                />
-              </label>
-              <Button onClick={clearDocumentFilters} variant="ghost">
-                <X className="size-4" />
-                清除筛选
-              </Button>
-            </div>
-          ) : null}
-          {collectionId &&
-          (query ||
-            folderFilter ||
-            tagFilters.length ||
-            statusFilter ||
-            fileType ||
-            updatedAfter ||
-            updatedBefore ||
-            sort !== "updated_desc") ? (
-            <div
-              className="mt-3 flex flex-wrap gap-2"
-              aria-label="当前筛选条件"
-            >
-              {query ? (
-                <FilterChip
-                  label={`关键词：${query}`}
-                  onClear={() => setQuery("")}
-                />
-              ) : null}
-              {folderFilter ? (
-                <FilterChip
-                  label={`文件夹：${folderFilter === "root" ? "根目录" : (folders.find((item) => item.id === folderFilter)?.name ?? folderFilter)}`}
-                  onClear={() => setFolderFilter("")}
-                />
-              ) : null}
-              {tagFilters.map((id) => (
-                <FilterChip
-                  key={id}
-                  label={`标签：${tags.find((item) => item.id === id)?.name ?? id}`}
-                  onClear={() =>
-                    setTagFilters((current) =>
-                      current.filter((item) => item !== id),
-                    )
-                  }
-                />
-              ))}
-              {statusFilter ? (
-                <FilterChip
-                  label={`状态：${statusFilter}`}
-                  onClear={() => setStatusFilter("")}
-                />
-              ) : null}
-              {fileType ? (
-                <FilterChip
-                  label={`格式：${fileType.toUpperCase()}`}
-                  onClear={() => setFileType("")}
-                />
-              ) : null}
-              {updatedAfter ? (
-                <FilterChip
-                  label={`开始：${updatedAfter}`}
-                  onClear={() => setUpdatedAfter("")}
-                />
-              ) : null}
-              {updatedBefore ? (
-                <FilterChip
-                  label={`结束：${updatedBefore}`}
-                  onClear={() => setUpdatedBefore("")}
-                />
-              ) : null}
-              {sort !== "updated_desc" ? (
-                <FilterChip
-                  label={`排序：${sort}`}
-                  onClear={() => setSort("updated_desc")}
-                />
-              ) : null}
-            </div>
+            <FilterChipStrip
+              fileType={fileType}
+              folderFilter={folderFilter}
+              folders={folders}
+              onClearFilters={clearDocumentFilters}
+              query={query}
+              setFileType={setFileType}
+              setFolderFilter={setFolderFilter}
+              setQuery={setQuery}
+              setSort={setSort}
+              setStatusFilter={setStatusFilter}
+              setTagFilters={setTagFilters}
+              setUpdatedAfter={setUpdatedAfter}
+              setUpdatedBefore={setUpdatedBefore}
+              sort={sort}
+              statusFilter={statusFilter}
+              tagFilters={tagFilters}
+              tags={tags}
+              updatedAfter={updatedAfter}
+              updatedBefore={updatedBefore}
+            />
           ) : null}
           {collectionId && selectedIds.size ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-              <strong className="mr-2 text-sm">
-                已选 {selectedIds.size} 项
-              </strong>
-              <select
-                aria-label="批量标签操作"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                disabled={batchPending}
-                onChange={(event) =>
-                  setBatchTagAction(event.target.value as typeof batchTagAction)
-                }
-                value={batchTagAction}
-              >
-                <option value="add">添加标签</option>
-                <option value="remove">移除标签</option>
-                <option value="replace">替换为标签</option>
-              </select>
-              <select
-                aria-label="选择批量标签"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                defaultValue=""
-                disabled={batchPending}
-                onChange={(event) => {
-                  if (event.target.value)
-                    void runBatch("tag", event.target.value);
-                  event.target.value = "";
-                }}
-              >
-                <option value="">添加标签…</option>
-                {tags.map((tag) => (
-                  <option key={tag.id} value={tag.id}>
-                    {tag.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="批量移动文件夹"
-                className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-                defaultValue=""
-                disabled={batchPending}
-                onChange={(event) => {
-                  void runBatch("move", event.target.value);
-                  event.target.value = "";
-                }}
-              >
-                <option value="">移动到根目录</option>
-                {folders.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.name}
-                  </option>
-                ))}
-              </select>
-              <Button
-                disabled={batchPending || selectedIds.size > 20}
-                onClick={() => {
-                  if (window.confirm(`重新解析 ${selectedIds.size} 份文档？`))
-                    void runBatch("reprocess");
-                }}
-                variant="secondary"
-              >
-                重新解析
-              </Button>
-              <Button
-                disabled={batchPending}
-                onClick={() => {
-                  if (window.confirm(`永久删除 ${selectedIds.size} 份文档？`))
-                    void runBatch("delete");
-                }}
-                variant="secondary"
-              >
-                批量删除
-              </Button>
-            </div>
+            <BatchToolbar
+              folders={folders}
+              pending={batchPending}
+              selectedCount={selectedIds.size}
+              tagAction={batchTagAction}
+              tags={tags}
+              onApplyTag={(tagId) => void runBatch("tag", tagId)}
+              onClearSelection={() => setSelectedIds(new Set())}
+              onDelete={() => void runBatch("delete")}
+              onMove={(folderId) => void runBatch("move", folderId ?? "")}
+              onReprocess={() => void runBatch("reprocess")}
+              onTagActionChange={setBatchTagAction}
+            />
           ) : null}
-          {batchResult ? <BatchResultPanel result={batchResult} /> : null}
+          {batchResult ? (
+            <BatchResultPanel
+              onDismiss={() => setBatchResult(undefined)}
+              result={batchResult}
+            />
+          ) : null}
           <div className="mt-5">
             {filtered.length ? (
               <DocumentTable
@@ -964,6 +767,337 @@ export function DocumentsView({
   );
 }
 
+type FilterBarProps = {
+  collectionId?: string;
+  fileType: string;
+  folderFilter: string;
+  folders: DocumentFolder[];
+  query: string;
+  sort: DocumentListFilters["sort"];
+  statusFilter: string;
+  tagFilters: string[];
+  tags: DocumentTag[];
+  updatedAfter: string;
+  updatedBefore: string;
+  placeholder: string;
+  onClearFilters: () => void;
+  onQueryChange: (value: string) => void;
+  onResetSelection: () => void;
+  onTagFiltersChange: (next: string[]) => void;
+  resetSelection: () => void;
+  setFileType: (value: string) => void;
+  setFolderFilter: (value: string) => void;
+  setSort: (value: DocumentListFilters["sort"]) => void;
+  setStatusFilter: (value: string) => void;
+  setUpdatedAfter: (value: string) => void;
+  setUpdatedBefore: (value: string) => void;
+};
+
+function FilterBar(props: FilterBarProps) {
+  const {
+    collectionId,
+    fileType,
+    folderFilter,
+    folders,
+    onClearFilters,
+    onQueryChange,
+    onResetSelection,
+    onTagFiltersChange,
+    placeholder,
+    query,
+    resetSelection,
+    setFileType,
+    setFolderFilter,
+    setSort,
+    setStatusFilter,
+    setUpdatedAfter,
+    setUpdatedBefore,
+    sort,
+    statusFilter,
+    tagFilters,
+    tags,
+    updatedAfter,
+    updatedBefore,
+  } = props;
+  return (
+    <div className="space-y-3">
+      <label className="relative block">
+        <span className="sr-only">搜索文档</span>
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm outline-none focus:border-primary"
+          onChange={(event) => {
+            onQueryChange(event.target.value);
+            onResetSelection();
+          }}
+          placeholder={placeholder}
+          value={query}
+        />
+      </label>
+      {collectionId ? (
+        <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+          <select
+            aria-label="按文件夹筛选"
+            className="h-9 min-w-32 rounded-md border border-border bg-surface px-2 text-sm"
+            onChange={(event) => {
+              setFolderFilter(event.target.value);
+              resetSelection();
+            }}
+            value={folderFilter}
+          >
+            <option value="">全部文件夹</option>
+            <option value="root">根目录</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {folder.name}
+              </option>
+            ))}
+          </select>
+          <details className="relative lg:order-2">
+            <summary className="flex h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-border bg-surface px-2 text-sm">
+              <span>
+                {tagFilters.length
+                  ? `已选 ${tagFilters.length} 个标签（同时满足）`
+                  : "全部标签"}
+              </span>
+              <ChevronDown aria-hidden="true" className="size-4" />
+            </summary>
+            <div className="absolute z-20 mt-1 max-h-64 w-72 overflow-auto rounded-md border border-border bg-surface-raised p-2 shadow-lg">
+              {tags.length ? (
+                tags.map((tag) => (
+                  <label
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
+                    key={tag.id}
+                  >
+                    <input
+                      checked={tagFilters.includes(tag.id)}
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          onTagFiltersChange([...tagFilters, tag.id]);
+                        } else {
+                          onTagFiltersChange(
+                            tagFilters.filter((id) => id !== tag.id),
+                          );
+                        }
+                        resetSelection();
+                      }}
+                      type="checkbox"
+                    />
+                    {tag.name}
+                  </label>
+                ))
+              ) : (
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  暂无标签
+                </p>
+              )}
+            </div>
+          </details>
+          <select
+            aria-label="按状态筛选"
+            className="h-9 min-w-28 rounded-md border border-border bg-surface px-2 text-sm"
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+              resetSelection();
+            }}
+            value={statusFilter}
+          >
+            <option value="">全部状态</option>
+            <option value="ready">已就绪</option>
+            <option value="failed">失败</option>
+          </select>
+          <select
+            aria-label="文档排序"
+            className="h-9 min-w-28 rounded-md border border-border bg-surface px-2 text-sm"
+            onChange={(event) => {
+              setSort(event.target.value as DocumentListFilters["sort"]);
+              resetSelection();
+            }}
+            value={sort}
+          >
+            <option value="updated_desc">最近更新</option>
+            <option value="updated_asc">最早更新</option>
+            <option value="name_asc">名称 A–Z</option>
+            <option value="name_desc">名称 Z–A</option>
+            <option value="size_desc">文件最大优先</option>
+          </select>
+          <details className="relative lg:order-3">
+            <summary className="flex h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-border bg-surface px-2 text-sm">
+              <span>更多筛选</span>
+              <ChevronDown aria-hidden="true" className="size-4" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-72 space-y-3 rounded-md border border-border bg-surface-raised p-3 shadow-lg">
+              <label className="block text-xs text-muted-foreground">
+                格式
+                <select
+                  aria-label="按文件格式筛选"
+                  className="mt-1 h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                  onChange={(event) => {
+                    setFileType(event.target.value);
+                    resetSelection();
+                  }}
+                  value={fileType}
+                >
+                  <option value="">全部格式</option>
+                  <option value="pdf">PDF</option>
+                  <option value="md">Markdown</option>
+                  <option value="txt">TXT</option>
+                </select>
+              </label>
+              <label className="block text-xs text-muted-foreground">
+                更新开始
+                <input
+                  aria-label="更新开始日期"
+                  className="mt-1 h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                  onChange={(event) => setUpdatedAfter(event.target.value)}
+                  type="date"
+                  value={updatedAfter}
+                />
+              </label>
+              <label className="block text-xs text-muted-foreground">
+                更新结束
+                <input
+                  aria-label="更新结束日期"
+                  className="mt-1 h-9 w-full rounded-md border border-border bg-surface px-2 text-sm"
+                  onChange={(event) => setUpdatedBefore(event.target.value)}
+                  type="date"
+                  value={updatedBefore}
+                />
+              </label>
+            </div>
+          </details>
+          <Button
+            className="lg:ml-auto"
+            onClick={onClearFilters}
+            variant="ghost"
+          >
+            <X className="size-4" />
+            清除筛选
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type FilterChipStripProps = {
+  fileType: string;
+  folderFilter: string;
+  folders: DocumentFolder[];
+  query: string;
+  sort: DocumentListFilters["sort"];
+  statusFilter: string;
+  tagFilters: string[];
+  tags: DocumentTag[];
+  updatedAfter: string;
+  updatedBefore: string;
+  onClearFilters: () => void;
+  setFileType: (value: string) => void;
+  setFolderFilter: (value: string) => void;
+  setQuery: (value: string) => void;
+  setSort: (value: DocumentListFilters["sort"]) => void;
+  setStatusFilter: (value: string) => void;
+  setTagFilters: (next: string[]) => void;
+  setUpdatedAfter: (value: string) => void;
+  setUpdatedBefore: (value: string) => void;
+};
+
+function FilterChipStrip(props: FilterChipStripProps) {
+  const {
+    fileType,
+    folderFilter,
+    folders,
+    onClearFilters,
+    query,
+    setFileType,
+    setFolderFilter,
+    setQuery,
+    setSort,
+    setStatusFilter,
+    setTagFilters,
+    setUpdatedAfter,
+    setUpdatedBefore,
+    sort,
+    statusFilter,
+    tagFilters,
+    tags,
+    updatedAfter,
+    updatedBefore,
+  } = props;
+  const hasActiveFilter =
+    Boolean(query) ||
+    Boolean(folderFilter) ||
+    tagFilters.length > 0 ||
+    Boolean(statusFilter) ||
+    Boolean(fileType) ||
+    Boolean(updatedAfter) ||
+    Boolean(updatedBefore) ||
+    sort !== "updated_desc";
+  if (!hasActiveFilter) return null;
+  return (
+    <div
+      aria-label="当前筛选条件"
+      className="mt-3 flex flex-wrap gap-2"
+    >
+      {query ? (
+        <FilterChip label={`关键词：${query}`} onClear={() => setQuery("")} />
+      ) : null}
+      {folderFilter ? (
+        <FilterChip
+          label={`文件夹：${folderFilter === "root" ? "根目录" : (folders.find((item) => item.id === folderFilter)?.name ?? folderFilter)}`}
+          onClear={() => setFolderFilter("")}
+        />
+      ) : null}
+      {tagFilters.map((id) => (
+        <FilterChip
+          key={id}
+          label={`标签：${tags.find((item) => item.id === id)?.name ?? id}`}
+          onClear={() => setTagFilters(tagFilters.filter((item) => item !== id))}
+        />
+      ))}
+      {statusFilter ? (
+        <FilterChip
+          label={`状态：${statusFilter}`}
+          onClear={() => setStatusFilter("")}
+        />
+      ) : null}
+      {fileType ? (
+        <FilterChip
+          label={`格式：${fileType.toUpperCase()}`}
+          onClear={() => setFileType("")}
+        />
+      ) : null}
+      {updatedAfter ? (
+        <FilterChip
+          label={`开始：${updatedAfter}`}
+          onClear={() => setUpdatedAfter("")}
+        />
+      ) : null}
+      {updatedBefore ? (
+        <FilterChip
+          label={`结束：${updatedBefore}`}
+          onClear={() => setUpdatedBefore("")}
+        />
+      ) : null}
+      {sort !== "updated_desc" ? (
+        <FilterChip
+          label={`排序：${sort}`}
+          onClear={() => setSort("updated_desc")}
+        />
+      ) : null}
+      {hasActiveFilter ? (
+        <button
+          className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          onClick={onClearFilters}
+          type="button"
+        >
+          全部清除
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Metric({
   icon: Icon,
   label,
@@ -1005,45 +1139,15 @@ function FilterChip({
 }) {
   return (
     <button
+      aria-label={`清除${label}`}
       className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs text-primary"
       onClick={onClear}
       title={`清除${label}`}
       type="button"
     >
       <span className="truncate">{label}</span>
-      <X className="size-3" />
+      <X aria-hidden="true" className="size-3" />
     </button>
-  );
-}
-
-function BatchResultPanel({ result }: { result: BatchDocumentResponse }) {
-  const failed = result.items.filter((item) => item.status === "error");
-  const succeeded = result.items.length - failed.length;
-  return (
-    <section
-      aria-live="polite"
-      className="mt-3 rounded-lg border border-border bg-surface-muted/40 p-3 text-sm"
-    >
-      <p className="font-medium">
-        批量操作完成：成功 {succeeded} 项，失败 {failed.length} 项
-      </p>
-      {failed.length ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-xs font-semibold text-danger">
-            查看失败明细
-          </summary>
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-            {failed.map((item) => (
-              <li className="break-words" key={item.document_id}>
-                <span className="font-mono">{item.document_id}</span>：
-                {item.error?.message ?? "操作失败"}
-                {item.error?.code ? `（${item.error.code}）` : ""}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-    </section>
   );
 }
 
@@ -1452,8 +1556,6 @@ function UploadDialog({
         ),
       );
       try {
-        // One multipart request per file makes completion observable and
-        // prevents one slow request from holding the whole batch open.
         const timed = await apiClient.uploadDocumentsWithTiming(collectionId, [
           target.file,
         ]);
@@ -1516,8 +1618,6 @@ function UploadDialog({
     }
 
     try {
-      // Four upload lanes keep the UI moving without flooding the API or
-      // the browser connection pool when the user selects all 50 files.
       let next = 0;
       async function worker() {
         while (next < targets.length) {
@@ -1647,7 +1747,7 @@ function UploadDialog({
                     className="flex items-center gap-3 px-4 py-3"
                     key={`${item.file.name}-${item.file.size}-${item.file.lastModified}`}
                   >
-                    <FileText className="size-4 shrink-0 text-primary" />
+                    <FileCheck2 className="size-4 shrink-0 text-primary" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {item.file.name}

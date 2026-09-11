@@ -1,12 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState } from "react";
-import { Folder, FolderPlus, Pencil, Tags, Trash2 } from "lucide-react";
+import { ChevronRight, Folder, FolderPlus, Pencil, Plus, Tag as TagIcon, Trash2 } from "lucide-react";
+
 import { apiClient } from "@/api";
 import { useApiResource } from "@/api/use-api-resource";
 import { Button, ErrorState, LoadingState } from "@/components";
-
-const COLORS = ["blue", "green", "amber", "red", "purple", "gray"];
+import type { DocumentFolder, DocumentTag } from "@/types";
+import { tagDotClass, tagPillClass } from "./tag-color";
+import {
+  FolderCreateDialog,
+  FolderDeleteDialog,
+  FolderRenameDialog,
+  TagDialog,
+} from "./org-dialogs";
 
 export function KnowledgeOrganizationPanel({
   collectionId,
@@ -24,294 +32,318 @@ export function KnowledgeOrganizationPanel({
     [collectionId],
   );
   const { data, error, loading, retry } = useApiResource(load);
-  const [folderName, setFolderName] = useState("");
-  const [tagName, setTagName] = useState("");
-  const [tagColor, setTagColor] = useState("blue");
-  const [parentId, setParentId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [folderDialog, setFolderDialog] = useState<
+    | { kind: "create" }
+    | { kind: "rename"; folder: DocumentFolder }
+    | { kind: "delete"; folder: DocumentFolder }
+    | null
+  >(null);
+  const [tagDialog, setTagDialog] = useState<
+    | { kind: "create" }
+    | { kind: "edit"; tag: DocumentTag }
+    | null
+  >(null);
 
-  async function createFolder() {
-    if (!folderName.trim()) return;
-    setBusy(true);
-    try {
-      await apiClient.createDocumentFolder(collectionId, {
-        name: folderName.trim(),
-        parent_id: parentId,
-      });
-      setFolderName("");
-      retry();
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function createTag() {
-    if (!tagName.trim()) return;
-    setBusy(true);
-    try {
-      await apiClient.createDocumentTag(collectionId, {
-        name: tagName.trim(),
-        color: tagColor,
-      });
-      setTagName("");
-      retry();
-    } finally {
-      setBusy(false);
-    }
-  }
+  const renameFolder =
+    folderDialog?.kind === "rename" ? folderDialog.folder : null;
+  const deleteFolder =
+    folderDialog?.kind === "delete" ? folderDialog.folder : null;
+  const editTag = tagDialog?.kind === "edit" ? tagDialog.tag : null;
 
   return (
     <section className="grid gap-4 lg:grid-cols-2">
-      <div className="glass-surface rounded-xl p-5">
+      <FoldersCard
+        collectionId={collectionId}
+        {...(data ? { data } : {})}
+        error={error}
+        loading={loading}
+        onCreate={() => setFolderDialog({ kind: "create" })}
+        onDelete={(folder) => setFolderDialog({ kind: "delete", folder })}
+        onRename={(folder) => setFolderDialog({ kind: "rename", folder })}
+        retry={retry}
+      />
+      <TagsCard
+        collectionId={collectionId}
+        {...(data ? { data } : {})}
+        error={error}
+        loading={loading}
+        onCreate={() => setTagDialog({ kind: "create" })}
+        onEdit={(tag) => setTagDialog({ kind: "edit", tag })}
+        retry={retry}
+      />
+      <FolderCreateDialog
+        collectionId={collectionId}
+        folders={data?.folders ?? []}
+        onClose={() => setFolderDialog(null)}
+        onSaved={retry}
+        open={folderDialog?.kind === "create"}
+      />
+      {renameFolder ? (
+        <FolderRenameDialog
+          collectionId={collectionId}
+          folder={renameFolder}
+          folders={data?.folders ?? []}
+          onClose={() => setFolderDialog(null)}
+          onSaved={retry}
+          open={folderDialog?.kind === "rename"}
+        />
+      ) : null}
+      {deleteFolder ? (
+        <FolderDeleteDialog
+          collectionId={collectionId}
+          folder={deleteFolder}
+          onClose={() => setFolderDialog(null)}
+          onDeleted={retry}
+          open={folderDialog?.kind === "delete"}
+        />
+      ) : null}
+      <TagDialog
+        collectionId={collectionId}
+        mode={editTag ? "edit" : "create"}
+        onClose={() => setTagDialog(null)}
+        onSaved={retry}
+        open={tagDialog !== null}
+        {...(editTag ? { tag: editTag } : {})}
+        tags={data?.tags ?? []}
+      />
+    </section>
+  );
+}
+
+type OrgData = { folders: DocumentFolder[]; tags: DocumentTag[] };
+
+function FoldersCard({
+  collectionId,
+  data,
+  error,
+  loading,
+  onCreate,
+  onDelete,
+  onRename,
+  retry,
+}: {
+  collectionId: string;
+  data?: OrgData;
+  error?: unknown;
+  loading: boolean;
+  onCreate: () => void;
+  onDelete: (folder: DocumentFolder) => void;
+  onRename: (folder: DocumentFolder) => void;
+  retry: () => void;
+}) {
+  const folders = data?.folders ?? [];
+  return (
+    <article className="glass-surface rounded-xl p-5">
+      <header className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Folder className="size-4 text-primary" />
+          <Folder aria-hidden="true" className="size-4 text-primary" />
           <h2 className="font-semibold">文件夹</h2>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          按目录组织文档；删除仅允许空目录。
-        </p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
-          <input
-            aria-label="新文件夹名称"
-            className="h-9 min-w-0 rounded-md border border-border bg-surface px-3 text-sm"
-            onChange={(event) => setFolderName(event.target.value)}
-            placeholder="新文件夹"
-            value={folderName}
-          />
-          <select
-            aria-label="父文件夹"
-            className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-            onChange={(event) => setParentId(event.target.value || null)}
-            value={parentId ?? ""}
-          >
-            <option value="">根目录</option>
-            {data?.folders.map((folder) => (
-              <option key={folder.id} value={folder.id}>
-                {"　".repeat(folder.depth)}
-                {folder.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            disabled={busy || !folderName.trim()}
-            onClick={() => void createFolder()}
-            variant="secondary"
-          >
-            <FolderPlus className="size-4" />
-            新建
-          </Button>
+        <Button onClick={onCreate} size="sm" variant="secondary">
+          <FolderPlus aria-hidden="true" className="size-4" />
+          新建文件夹
+        </Button>
+      </header>
+      <p className="mt-1 text-xs text-muted-foreground">
+        按目录组织文档；删除仅允许空目录。
+      </p>
+      {loading ? (
+        <div className="mt-4">
+          <LoadingState label="加载文件夹" rows={2} />
         </div>
-        {loading ? (
-          <div className="mt-4">
-            <LoadingState label="加载文件夹" rows={2} />
-          </div>
-        ) : error ? (
-          <div className="mt-4">
-            <ErrorState onRetry={retry} title="无法加载文件夹" />
-          </div>
-        ) : (
-          <div className="mt-4 space-y-1">
-            <a
-              className="block rounded-md px-3 py-2 text-sm hover:bg-primary/5"
-              href={`?folder_id=root`}
+      ) : error ? (
+        <div className="mt-4">
+          <ErrorState onRetry={retry} title="无法加载文件夹" />
+        </div>
+      ) : (
+        <ul aria-label="文件夹列表" className="mt-4 space-y-1">
+          <li>
+            <Link
+              aria-label="查看根目录下的全部文档"
+              className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-primary/5"
+              href={`/collections/${collectionId}?folder_id=root`}
             >
-              全部根目录文档
-            </a>
-            {data?.folders.length ? (
-              data.folders.map((item) => (
-                <div
-                  className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm"
-                  key={item.id}
-                  style={{ marginLeft: `${item.depth * 12}px` }}
-                >
-                  <a
-                    className="min-w-0 flex-1 truncate hover:text-primary"
-                    href={`?folder_id=${encodeURIComponent(item.id)}`}
-                    title={item.name}
-                  >
-                    {item.name}
-                  </a>
-                  <span className="text-xs text-muted-foreground">
-                    {item.document_count}
-                  </span>
-                  <select
-                    aria-label={`移动文件夹 ${item.name}`}
-                    className="h-7 max-w-28 rounded border border-border bg-surface px-1 text-xs"
-                    onChange={async (event) => {
-                      const target = event.target.value || null;
-                      await apiClient.moveDocumentFolder(
-                        collectionId,
-                        item.id,
-                        target,
-                      );
-                      retry();
-                    }}
-                    title="移动到目标文件夹"
-                    value={item.parent_id ?? ""}
-                  >
-                    <option value="">根目录</option>
-                    {data.folders
-                      .filter((folder) => folder.id !== item.id)
-                      .map((folder) => (
-                        <option key={folder.id} value={folder.id}>
-                          {"　".repeat(folder.depth)}
-                          {folder.name}
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    aria-label={`重命名文件夹 ${item.name}`}
-                    className="text-muted-foreground hover:text-primary"
-                    onClick={async () => {
-                      const name = window.prompt("新文件夹名称", item.name);
-                      if (name?.trim()) {
-                        await apiClient.updateDocumentFolder(
-                          collectionId,
-                          item.id,
-                          { name: name.trim() },
-                        );
-                        retry();
-                      }
-                    }}
-                    title="重命名"
-                    type="button"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    aria-label={`删除文件夹 ${item.name}`}
-                    className="text-muted-foreground hover:text-danger"
-                    onClick={async () => {
-                      await apiClient.deleteDocumentFolder(
-                        collectionId,
-                        item.id,
-                      );
-                      retry();
-                    }}
-                    title="删除空文件夹"
-                    type="button"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">暂无文件夹</p>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="glass-surface rounded-xl p-5">
-        <div className="flex items-center gap-2">
-          <Tags className="size-4 text-accent" />
-          <h2 className="font-semibold">标签</h2>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          创建知识库内复用的分类标签。
-        </p>
-        <div className="mt-4 flex gap-2">
-          <input
-            aria-label="新标签名称"
-            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface px-3 text-sm"
-            onChange={(event) => setTagName(event.target.value)}
-            placeholder="新标签"
-            value={tagName}
-          />
-          <select
-            aria-label="标签颜色"
-            className="h-9 rounded-md border border-border bg-surface px-2 text-sm"
-            onChange={(event) => setTagColor(event.target.value)}
-            value={tagColor}
-          >
-            {COLORS.map((color) => (
-              <option key={color} value={color}>
-                {color}
-              </option>
-            ))}
-          </select>
-          <Button
-            disabled={busy || !tagName.trim()}
-            onClick={() => void createTag()}
-            variant="secondary"
-          >
-            新建
-          </Button>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {data?.tags.length ? (
-            data.tags.map((item) => (
-              <span
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-sm"
-                key={item.id}
-              >
-                <a
-                  className="max-w-40 truncate hover:text-primary"
-                  href={`?tag_id=${encodeURIComponent(item.id)}`}
-                  title={item.name}
-                >
-                  {item.name}
-                </a>
-                <span className="text-xs text-muted-foreground">
-                  {item.document_count ?? 0}
-                </span>
-                <select
-                  aria-label={`修改标签 ${item.name} 的颜色`}
-                  className="h-7 rounded border border-border bg-surface px-1 text-xs"
-                  onChange={async (event) => {
-                    await apiClient.updateDocumentTag(collectionId, item.id, {
-                      color: event.target.value,
-                    });
-                    retry();
-                  }}
-                  value={item.color}
-                >
-                  {COLORS.map((color) => (
-                    <option key={color} value={color}>
-                      {color}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  aria-label={`编辑标签 ${item.name}`}
-                  className="text-muted-foreground hover:text-primary"
-                  onClick={async () => {
-                    const name = window.prompt("新标签名称", item.name);
-                    if (name?.trim()) {
-                      await apiClient.updateDocumentTag(collectionId, item.id, {
-                        name: name.trim(),
-                      });
-                      retry();
-                    }
-                  }}
-                  title="重命名"
-                  type="button"
-                >
-                  <Pencil className="size-3.5" />
-                </button>
-                <button
-                  aria-label={`删除标签 ${item.name}`}
-                  className="text-muted-foreground hover:text-danger"
-                  onClick={async () => {
-                    if (
-                      window.confirm(
-                        `删除标签“${item.name}”？当前关联 ${item.document_count ?? 0} 份文档。`,
-                      )
-                    ) {
-                      await apiClient.deleteDocumentTag(collectionId, item.id);
-                      retry();
-                    }
-                  }}
-                  title="删除标签"
-                  type="button"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
+              <ChevronRight
+                aria-hidden="true"
+                className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+              />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                全部根目录文档
               </span>
+              <span className="text-xs text-muted-foreground">
+                {folders.reduce((sum, item) => sum + item.document_count, 0)}
+              </span>
+            </Link>
+          </li>
+          {folders.length ? (
+            folders.map((folder) => (
+              <FolderRow
+                collectionId={collectionId}
+                folder={folder}
+                key={folder.id}
+                onDelete={onDelete}
+                onRename={onRename}
+              />
             ))
           ) : (
-            <p className="text-sm text-muted-foreground">暂无标签</p>
+            <li>
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                暂无文件夹
+              </p>
+            </li>
           )}
-        </div>
+        </ul>
+      )}
+    </article>
+  );
+}
+
+function FolderRow({
+  collectionId,
+  folder,
+  onDelete,
+  onRename,
+}: {
+  collectionId: string;
+  folder: DocumentFolder;
+  onDelete: (folder: DocumentFolder) => void;
+  onRename: (folder: DocumentFolder) => void;
+}) {
+  return (
+    <li>
+      <div
+        className="group flex items-center gap-2 rounded-md border border-transparent px-3 py-2 text-sm hover:border-border hover:bg-surface"
+        style={{ paddingLeft: `${12 + folder.depth * 16}px` }}
+        title={folder.name}
+      >
+        <Folder aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+        <Link
+          aria-label={`查看文件夹 ${folder.name} 下的内容`}
+          className="min-w-0 flex-1 truncate hover:text-primary"
+          href={`/collections/${collectionId}?folder_id=${encodeURIComponent(folder.id)}`}
+        >
+          {folder.name}
+        </Link>
+        <span className="text-xs text-muted-foreground">{folder.document_count}</span>
+        <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <button
+            aria-label={`重命名文件夹 ${folder.name}`}
+            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
+            onClick={() => onRename(folder)}
+            title="重命名"
+            type="button"
+          >
+            <Pencil aria-hidden="true" className="size-3.5" />
+          </button>
+          <button
+            aria-label={`删除文件夹 ${folder.name}`}
+            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-danger/10 hover:text-danger"
+            onClick={() => onDelete(folder)}
+            type="button"
+          >
+            <Trash2 aria-hidden="true" className="size-3.5" />
+          </button>
+        </span>
       </div>
-    </section>
+    </li>
+  );
+}
+
+function TagsCard({
+  collectionId,
+  data,
+  error,
+  loading,
+  onCreate,
+  onEdit,
+  retry,
+}: {
+  collectionId: string;
+  data?: OrgData;
+  error?: unknown;
+  loading: boolean;
+  onCreate: () => void;
+  onEdit: (tag: DocumentTag) => void;
+  retry: () => void;
+}) {
+  const tags = data?.tags ?? [];
+  return (
+    <article className="glass-surface rounded-xl p-5">
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <TagIcon aria-hidden="true" className="size-4 text-accent" />
+          <h2 className="font-semibold">标签</h2>
+        </div>
+        <Button onClick={onCreate} size="sm" variant="secondary">
+          <Plus aria-hidden="true" className="size-4" />
+          新建标签
+        </Button>
+      </header>
+      <p className="mt-1 text-xs text-muted-foreground">
+        创建知识库内复用的分类标签。
+      </p>
+      {loading ? (
+        <div className="mt-4">
+          <LoadingState label="加载标签" rows={2} />
+        </div>
+      ) : error ? (
+        <div className="mt-4">
+          <ErrorState onRetry={retry} title="无法加载标签" />
+        </div>
+      ) : tags.length ? (
+        <ul
+          aria-label="标签列表"
+          className="mt-4 flex flex-wrap gap-2"
+          data-collection-id={collectionId}
+        >
+          {tags.map((tag) => (
+            <TagChip key={tag.id} onEdit={onEdit} tag={tag} />
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 px-3 py-2 text-sm text-muted-foreground">暂无标签</p>
+      )}
+    </article>
+  );
+}
+
+function TagChip({
+  tag,
+  onEdit,
+}: {
+  tag: DocumentTag;
+  onEdit: (tag: DocumentTag) => void;
+}) {
+  return (
+    <li className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-surface pl-3 pr-1.5 py-1.5 text-sm">
+      <span
+        aria-hidden="true"
+        className={`size-2.5 shrink-0 rounded-full ${tagDotClass(tag.color)}`}
+      />
+      <Link
+        className="max-w-32 truncate hover:text-primary"
+        href={`?tag_id=${encodeURIComponent(tag.id)}`}
+        title={tag.name}
+      >
+        {tag.name}
+      </Link>
+      <span
+        className={`inline-flex h-5 items-center rounded-full px-1.5 text-[0.6875rem] font-semibold ${tagPillClass(tag.color)}`}
+        title="关联文档数"
+      >
+        {tag.document_count ?? 0}
+      </span>
+      <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <button
+          aria-label={`编辑标签 ${tag.name}`}
+          className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
+          onClick={() => onEdit(tag)}
+          title="编辑标签"
+          type="button"
+        >
+          <Pencil aria-hidden="true" className="size-3.5" />
+        </button>
+      </span>
+    </li>
   );
 }

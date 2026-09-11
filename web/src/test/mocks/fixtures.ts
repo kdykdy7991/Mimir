@@ -26,6 +26,43 @@ export const overview = {
 };
 
 export const document = { id: ids.document, collection_id: ids.collection, filename: "rag-guide.pdf", size_bytes: 1024, status: "ready", chunk_count: 12, image_count: 1, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:01.000Z" };
+
+export const tag = {
+  id: "tag-1",
+  collection_id: ids.collection,
+  name: "重要",
+  color: "blue",
+  document_count: 1,
+};
+
+export const folderRoot = {
+  id: "folder-root",
+  collection_id: ids.collection,
+  parent_id: null,
+  name: "产品文档",
+  depth: 0,
+  document_count: 4,
+};
+
+export const folderChild = {
+  id: "folder-child",
+  collection_id: ids.collection,
+  parent_id: folderRoot.id,
+  name: "需求",
+  depth: 1,
+  document_count: 2,
+};
+
+export const folderSibling = {
+  id: "folder-sibling",
+  collection_id: ids.collection,
+  parent_id: null,
+  name: "运营",
+  depth: 0,
+  document_count: 0,
+};
+
+export const folderTree = [folderRoot, folderChild, folderSibling];
 export const queryResponse = { query_id: ids.query, answer: null, citations: [{ index: 1, chunk_id: "chunk-001", document_id: ids.document, document_name: "rag-guide.pdf", page: 2, text: "混合检索会结合语义召回与关键词召回。", scores: { dense: 0.81, sparse: 8.2, fusion: 0.031 }, images: [{ id: "img-001", url: "/api/v1/images/img-001", caption: "检索流程图" }] }], diagnostics: { duration_ms: 128, trace_id: ids.query, dense_count: 10, sparse_count: 10, fused_count: 5, reranked_count: null, degraded: false, degraded_reasons: [] } };
 export const queryTrace = { id: ids.query, trace_type: "query", started_at: "2026-08-03T00:00:00.000Z", finished_at: "2026-08-03T00:00:00.128Z", total_latency_ms: 128, stages: [{ name: "dense_retrieval", method: "cosine", provider: "fixture-embedding", started_at: "2026-08-03T00:00:00.000Z", duration_ms: 60, details: { returned: 10 } }] };
 export const task = { id: ids.task, document_id: ids.document, collection_id: ids.collection, status: "succeeded", progress: { stage: "upsert", percent: 100, current: 12, total: 12 }, attempt: 0, created_at: "2026-08-03T00:00:00.000Z", updated_at: "2026-08-03T00:00:01.000Z", finished_at: "2026-08-03T00:00:01.000Z" };

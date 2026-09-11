@@ -7,6 +7,7 @@ import {
   overview,
   queryResponse,
   queryTrace,
+  tag,
   task,
 } from "./fixtures";
 
@@ -73,34 +74,53 @@ export const handlers = [
   http.get(`${api}/collections/:id/documents`, () =>
     HttpResponse.json(page([document])),
   ),
-  http.get(`${api}/collections/:id/tags`, () =>
-    HttpResponse.json({
-      items: [
-        {
-          id: "tag-1",
-          collection_id: ids.collection,
-          name: "重要",
-          color: "blue",
-          document_count: 1,
-        },
-      ],
-    }),
+  http.put(`${api}/documents/:id/folder`, () =>
+    new HttpResponse(null, { status: 204 }),
   ),
-  http.put(`${api}/documents/:id/tags`, async ({ request }) =>
-    HttpResponse.json({
-      items: ((await request.json()) as { tag_ids: string[] }).tag_ids.map(
-        (id) => ({
-          id,
-          collection_id: ids.collection,
-          name: "重要",
-          color: "blue",
-        }),
-      ),
-    }),
-  ),
-  http.get(`${api}/collections/:id/folders`, () =>
-    HttpResponse.json({ items: [] }),
-  ),
+  http.post(`${api}/collections/:id/documents/batch/tags`, async ({ request }) => {
+    const body = (await request.json()) as { document_ids: string[] };
+    return HttpResponse.json({
+      items: body.document_ids.map((id) => ({
+        document_id: id,
+        status: "success",
+        task_id: null,
+        error: null,
+      })),
+    });
+  }),
+  http.post(`${api}/collections/:id/documents/batch/move`, async ({ request }) => {
+    const body = (await request.json()) as { document_ids: string[] };
+    return HttpResponse.json({
+      items: body.document_ids.map((id) => ({
+        document_id: id,
+        status: "success",
+        task_id: null,
+        error: null,
+      })),
+    });
+  }),
+  http.post(`${api}/collections/:id/documents/batch/reprocess`, async ({ request }) => {
+    const body = (await request.json()) as { document_ids: string[] };
+    return HttpResponse.json({
+      items: body.document_ids.map((id) => ({
+        document_id: id,
+        status: "success",
+        task_id: `task-${id}`,
+        error: null,
+      })),
+    });
+  }),
+  http.post(`${api}/collections/:id/documents/batch/delete`, async ({ request }) => {
+    const body = (await request.json()) as { document_ids: string[] };
+    return HttpResponse.json({
+      items: body.document_ids.map((id) => ({
+        document_id: id,
+        status: "success",
+        task_id: null,
+        error: null,
+      })),
+    });
+  }),
   http.post(`${api}/collections/:id/documents`, () =>
     HttpResponse.json(
       {
@@ -123,6 +143,81 @@ export const handlers = [
       },
       { status: 202 },
     ),
+  ),
+  http.get(`${api}/collections/:id/tags`, () => HttpResponse.json({ items: [tag] })),
+  http.post(`${api}/collections/:id/tags`, async ({ request }) => {
+    const body = (await request.json()) as { name: string; color: string };
+    return HttpResponse.json(
+      { ...tag, id: "tag-new", name: body.name, color: body.color },
+      { status: 201 },
+    );
+  }),
+  http.patch(`${api}/collections/:id/tags/:tagId`, async ({ request, params }) => {
+    const body = (await request.json()) as { name?: string; color?: string };
+    return HttpResponse.json({ ...tag, id: String(params.tagId), ...body });
+  }),
+  http.delete(
+    `${api}/collections/:id/tags/:tagId`,
+    () => new HttpResponse(null, { status: 204 }),
+  ),
+  http.put(`${api}/documents/:id/tags`, async ({ request }) =>
+    HttpResponse.json({
+      items: ((await request.json()) as { tag_ids: string[] }).tag_ids.map(
+        (id) => ({
+          ...tag,
+          id,
+        }),
+      ),
+    }),
+  ),
+  http.get(`${api}/collections/:id/folders`, () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.post(`${api}/collections/:id/folders`, async ({ request }) => {
+    const body = (await request.json()) as { name: string; parent_id: string | null };
+    return HttpResponse.json(
+      {
+        id: "folder-new",
+        collection_id: ids.collection,
+        name: body.name,
+        parent_id: body.parent_id,
+        depth: body.parent_id ? 1 : 0,
+        document_count: 0,
+      },
+      { status: 201 },
+    );
+  }),
+  http.patch(
+    `${api}/collections/:id/folders/:folderId`,
+    async ({ request, params }) => {
+      const body = (await request.json()) as { name?: string };
+      return HttpResponse.json({
+        id: String(params.folderId),
+        collection_id: ids.collection,
+        parent_id: null,
+        name: body.name ?? "重命名后",
+        depth: 0,
+        document_count: 0,
+      });
+    },
+  ),
+  http.post(
+    `${api}/collections/:id/folders/:folderId/move`,
+    async ({ request, params }) => {
+      const body = (await request.json()) as { parent_id: string | null };
+      return HttpResponse.json({
+        id: String(params.folderId),
+        collection_id: ids.collection,
+        parent_id: body.parent_id,
+        name: "已移动",
+        depth: body.parent_id ? 1 : 0,
+        document_count: 0,
+      });
+    },
+  ),
+  http.delete(
+    `${api}/collections/:id/folders/:folderId`,
+    () => new HttpResponse(null, { status: 204 }),
   ),
   http.get(`${api}/documents/:id`, () =>
     HttpResponse.json({
