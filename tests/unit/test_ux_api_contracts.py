@@ -325,6 +325,24 @@ PLANNED_ENDPOINTS: dict[str, set[str]] = {
 }
 
 
+def test_b22_tags_contract() -> None:
+    """Tag CRUD + document binding endpoints are contracted (B2.2)."""
+    openapi = _live_openapi()
+    paths = openapi.get("paths", {})
+    for p in ("/api/v1/collections/{collection_id}/tags",
+              "/api/v1/documents/{document_id}/tags"):
+        assert p in paths, f"missing tags path {p}"
+    tag_props = assert_schema_fields(
+        openapi, "Tag",
+        required={"id", "collection_id", "name", "created_at", "updated_at"},
+        properties={"color"},
+    )
+    assert tag_props["name"]["maxLength"] == 64
+    assert_schema_fields(
+        openapi, "DocumentTagsUpdateRequest", required={"tag_ids"}, properties=set(),
+    )
+
+
 def test_planned_endpoints_registry_is_declared() -> None:
     """The planned-endpoint registry is explicit (used by later tasks)."""
     assert PLANNED_ENDPOINTS

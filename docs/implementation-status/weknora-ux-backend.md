@@ -52,6 +52,47 @@
 
 ---
 
+## B2.2 标签 CRUD 与文档绑定接口 — ✔ 完成
+
+**状态**：通过。
+
+**实际修改文件**：
+
+- 新增 `src/web_api/schemas/tags.py`（`Tag`/`TagCreateRequest`/`TagUpdateRequest`/
+  `TagListResponse`/`DocumentTagsUpdateRequest`/`DocumentTagsResponse`）。
+- 新增 `src/web_api/routers/tags.py` — `GET/POST /collections/{id}/tags`、
+  `PATCH/DELETE /collections/{id}/tags/{tag_id}`、`PUT /documents/{id}/tags`。
+- `src/web_api/app.py` — 注册 tags 路由（/api/v1 前缀）。
+- `src/web_api/errors.py` — 新增 `TagNotFoundError`（404）、`FolderNotFoundError`（为 B2.3-24 预留）。
+- 新增 `tests/integration/test_web_api_tags.py`；`tests/unit/test_ux_api_contracts.py` 新增
+  `test_b22_tags_contract`；`docs/openapi/openapi.v0.2.json`（重新生成）。
+
+**数据库/API/兼容性决策**：
+
+- 所有标签访问 collection 作用域：不在指定 collection 的 tag → 404 `TAG_NOT_FOUND`（防枚举，不泄露跨库存在性）。
+- 文档标签绑定为全量替换、事务性；跨 collection/未知 tag → 400，且不做部分写入；重复 id 去重。
+- 文档不存在 → 404 `DOCUMENT_NOT_FOUND`；重复规范化名 → 409 `CONFLICT`；非法颜色/名长 → 400。
+- `Tag.name` 1–64；`color` 受控 token。
+
+**新增测试**（`tests/integration/test_web_api_tags.py`，9 项）：CRUD 全流程、重复名 409、非法颜色 400、
+不存在 collection 404、跨 collection patch/delete 404（防枚举）、全量替换、重复 id 去重、
+跨 collection 绑定 400（无部分写入）、未知文档 404。
+
+**执行命令与结果**：
+
+- `python -m scripts.export_openapi` → 30 paths, 60 schemas
+- `python -m pytest tests/unit/test_ux_api_contracts.py tests/contract/test_openapi_snapshot.py tests/integration/test_web_api_tags.py tests/unit/application/test_tags_store.py tests/integration/test_web_api_endpoints.py -q` → 62 passed
+
+**git diff --check**：通过。
+
+**提交哈希**：B2.2 提交见当前小节末尾。
+
+**遗留问题**：无新遗留。
+
+**下一任务**：B2.3 文件夹数据模型和迁移。
+
+---
+
 ## B2.1 标签数据模型和迁移 — ✔ 完成
 
 **状态**：通过。

@@ -75,6 +75,25 @@ class ChunkNotFoundError(NotFoundError):
     code = "CHUNK_NOT_FOUND"
 
 
+class TagNotFoundError(NotFoundError):
+    """``404`` — specific code for a missing tag.
+
+    A tag that exists in another collection resolves to this same error to
+    avoid leaking cross-collection resource existence.
+    """
+
+    code = "TAG_NOT_FOUND"
+
+
+class FolderNotFoundError(NotFoundError):
+    """``404`` — specific code for a missing logical folder.
+
+    A folder that exists in another collection resolves to this same error.
+    """
+
+    code = "FOLDER_NOT_FOUND"
+
+
 class DocumentDeleteError(APIError):
     """``500`` — coordinated document deletion was only partially completed."""
 
@@ -176,6 +195,8 @@ __all__ = [
     "CollectionNotFoundError",
     "DocumentNotFoundError",
     "ChunkNotFoundError",
+    "TagNotFoundError",
+    "FolderNotFoundError",
     "DocumentDeleteError",
     "TaskNotFoundError",
     "QueryNotFoundError",
