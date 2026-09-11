@@ -29,6 +29,10 @@ const statusDefinitions: Record<string, StatusDefinition> = {
     pulse: true,
     tone: "info",
   },
+  success: { icon: Check, label: "已完成", tone: "success" },
+  warning: { icon: TriangleAlert, label: "已完成但有警告", tone: "warning" },
+  skipped: { icon: CircleDashed, label: "已跳过", tone: "neutral" },
+  canceled: { icon: Ban, label: "已取消", tone: "neutral" },
   running: {
     icon: LoaderCircle,
     label: "运行中",
@@ -79,7 +83,7 @@ export function StatusBadge({
     >
       <Icon
         aria-hidden="true"
-        className={cn("size-3", definition.pulse && "animate-spin")}
+        className={cn("size-3", definition.pulse && "animate-spin motion-reduce:animate-none")}
       />
       {label ?? definition.label}
     </span>

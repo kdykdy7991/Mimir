@@ -106,10 +106,10 @@ async def test_empty_base_url_is_misconfigured():
         await probe_mcp_health("")
 
 
-async def test_upstream_in_process_always_online():
+async def test_upstream_in_process_has_no_separate_probe():
     assert await probe_upstream(
         backend="in_process", upstream_base_url="", internal_key="",
-    ) == "online"
+    ) == "unknown"
 
 
 async def test_upstream_http_online():

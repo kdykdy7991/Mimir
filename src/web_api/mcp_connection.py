@@ -151,7 +151,10 @@ async def probe_upstream(
     Returns one of ``online|degraded|offline|unknown``.
     """
     if backend == "in_process":
-        return "online"
+        # There is no distinct HTTP upstream to probe in this mode. Process
+        # reachability does not prove embedding/vector/LLM dependencies are
+        # healthy, so avoid presenting a false green state.
+        return "unknown"
     upstream = (upstream_base_url or "").strip()
     if not upstream:
         return "unknown"

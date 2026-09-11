@@ -487,3 +487,9 @@ Chunk 摘要契约、Trace 契约、MCP Key 契约、Task 契约、错误信封�
   非本次实现造成，已记录并复现。
 
 **下一任务**：B1.1 单 Chunk 详情读取。
+## 二次复审并发与部署修复（2026-09-11）
+
+- 文件夹创建、重命名和移动使用 SQLite `BEGIN IMMEDIATE` 将同级名称检查与写入串行化，根目录 `NULL` 场景在并发下也只有一个写入者成功。
+- 批量重新解析切换为 FastAPI 同步 worker，并以进程内锁覆盖幂等缓存检查、任务创建和结果发布；相同 Key/Body 的并发请求复用完全相同的结果。
+- Compose 为 API 注入 `MCP_SERVER_PUBLIC_BASE_URL`，host-network 默认值为 `http://127.0.0.1:8765`，反向代理部署可显式覆盖。
+- `in_process` 没有可独立验证的 HTTP 上游，不再无条件显示 online，返回 unknown，避免把进程存活误报为完整 RAG 依赖健康。

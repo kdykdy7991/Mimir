@@ -256,6 +256,14 @@ class TestLoadSettings:
         settings = load_settings(sample_config)
         assert settings.llm.api_key == "resolved-key"
 
+    def test_mcp_public_base_url_environment_override(
+        self, sample_config: Path, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Deployment can wire the public MCP target without editing YAML."""
+        monkeypatch.setenv("MCP_SERVER_PUBLIC_BASE_URL", "http://127.0.0.1:8765")
+        settings = load_settings(sample_config)
+        assert settings.mcp_server.public_base_url == "http://127.0.0.1:8765"
+
     def test_load_full_config(self, full_config: Path):
         """Test loading a full configuration file."""
         settings = load_settings(full_config)

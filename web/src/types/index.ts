@@ -45,3 +45,22 @@ export type MCPKeyCollectionsUpdateRequest = { allowed_collections: string[] };
 export type MCPKeyMetadata = { key_id: string; name: string; allowed_collections: string[]; enabled: boolean; created_at: string; revoked_at: string | null; last_used_at: string | null };
 export type MCPKeySecretResponse = MCPKeyMetadata & { api_key: string };
 export type MCPKeyListResponse = { items: MCPKeyMetadata[] };
+
+// Transitional aliases for the frozen WeKnora UX contract. Move these into
+// generated api.ts once the matching backend OpenAPI document lands.
+export type {
+  BatchDocumentAction,
+  ActionableTraceResponse,
+  BatchDocumentResult,
+  BatchDocumentResponse,
+  DocumentChunkDetail,
+  DocumentChunkListParams,
+  DocumentChunkListResponse,
+  DocumentFolder,
+  DocumentListFilters,
+  DocumentTag,
+  MCPConnectionTestResponse,
+  MCPServerStatus,
+  TraceListParams,
+  TraceListResponse,
+} from "./ux-contracts";

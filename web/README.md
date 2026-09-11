@@ -29,6 +29,8 @@ npm run dev
 
 `NEXT_PUBLIC_API_BASE_URL` 是 FastAPI 的 Origin，默认值为
 `http://127.0.0.1:8766`；路径中的 `/api/v1` 由统一 API Client 管理。
+`NEXT_PUBLIC_MCP_SERVER_URL` 用于 API Key 管理页展示并生成客户端配置；生产环境
+应设置为 MCP 的公开 HTTPS 地址，例如 `https://rag.example.com/mcp`。
 
 ## 脚本
 

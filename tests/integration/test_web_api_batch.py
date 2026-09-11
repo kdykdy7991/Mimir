@@ -332,6 +332,27 @@ def test_batch_reprocess_same_key_different_body_is_409(tmp_path):
     assert r2.json()["error"]["code"] == "CONFLICT"
 
 
+def test_batch_reprocess_same_key_is_atomic_under_concurrency(tmp_path):
+    """Concurrent identical retries share one result and enqueue only once."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, _1, _2, ingestion = _client(tmp_path, with_reprocess=True)
+    headers = {"Idempotency-Key": "repro-concurrent"}
+    body = {"document_ids": [DOC_A, DOC_B]}
+
+    def send():
+        return client.post(
+            f"/api/v1/collections/{COLLECTION_ID}/documents/batch/reprocess",
+            json=body, headers=headers,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _index: send(), range(2)))
+    assert [response.status_code for response in responses] == [200, 200]
+    assert responses[0].json() == responses[1].json()
+    assert len(ingestion.reprocess_calls) == 2
+
+
 def test_batch_reprocess_max_20(tmp_path):
     client, _1, _2, _3 = _client(tmp_path)
     ids = [str(uuid4()) for _ in range(21)]

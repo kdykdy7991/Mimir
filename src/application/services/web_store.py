@@ -318,22 +318,14 @@ class WebApiDB:
         now = time.time()
         conn = self._connect()
         try:
-            # Defensive sibling check (the expression unique index also
-            # enforces this at the DB level; this catches in-memory fakes).
-            duplicate = conn.execute(
-                """
-                SELECT 1 FROM document_folders
-                 WHERE collection_id = ? AND normalized_name = ?
-                   AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
-                 LIMIT 1
-                """,
-                (collection_id, normalize_folder_name(cleaned),
-                 parent_id, parent_id),
-            ).fetchone()
-            if duplicate is not None:
-                raise sqlite3.IntegrityError(
-                    f"folder {cleaned!r} already exists under this parent",
-                )
+            # Serialize the availability check with the insert. SQLite's
+            # ordinary UNIQUE index cannot consider two NULL parent_ids equal,
+            # so a check outside this write transaction would race.
+            conn.execute("BEGIN IMMEDIATE")
+            self._assert_folder_name_available(
+                conn, collection_id=collection_id, parent_id=parent_id,
+                normalized_name=normalize_folder_name(cleaned),
+            )
             conn.execute(
                 """
                 INSERT INTO document_folders
@@ -368,11 +360,19 @@ class WebApiDB:
     def rename_folder(self, folder_id: str, name: str) -> dict[str, Any] | None:
         import time
 
-        if self.get_folder(folder_id) is None:
+        existing = self.get_folder(folder_id)
+        if existing is None:
             return None
         cleaned = self._validate_folder_name(name)
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._assert_folder_name_available(
+                conn, collection_id=existing["collection_id"],
+                parent_id=existing["parent_id"],
+                normalized_name=normalize_folder_name(cleaned),
+                exclude_folder_id=folder_id,
+            )
             conn.execute(
                 """
                 UPDATE document_folders
@@ -385,6 +385,28 @@ class WebApiDB:
         finally:
             conn.close()
         return self.get_folder(folder_id)
+
+    @staticmethod
+    def _assert_folder_name_available(
+        conn, *, collection_id: str, parent_id: str | None,
+        normalized_name: str, exclude_folder_id: str | None = None,
+    ) -> None:
+        """Enforce sibling uniqueness, including the NULL/root parent."""
+        row = conn.execute(
+            """
+            SELECT 1 FROM document_folders
+             WHERE collection_id = ? AND normalized_name = ?
+               AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+               AND (? IS NULL OR folder_id != ?)
+             LIMIT 1
+            """,
+            (collection_id, normalized_name, parent_id, parent_id,
+             exclude_folder_id, exclude_folder_id),
+        ).fetchone()
+        if row is not None:
+            raise sqlite3.IntegrityError(
+                "a folder with this name already exists under this parent",
+            )
 
     def _descendant_folder_ids(self, conn, folder_id: str) -> set[str]:
         """All folder ids strictly below ``folder_id`` (cycle check helper)."""
@@ -438,6 +460,7 @@ class WebApiDB:
             return None
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             if new_parent_id is not None:
                 parent = self.get_folder(new_parent_id)
                 if parent is None or parent["collection_id"] != folder["collection_id"]:
@@ -460,6 +483,12 @@ class WebApiDB:
                 raise ValueError(
                     f"moving this folder would exceed the maximum depth {MAX_FOLDER_DEPTH}",
                 )
+            self._assert_folder_name_available(
+                conn, collection_id=folder["collection_id"],
+                parent_id=new_parent_id,
+                normalized_name=folder["normalized_name"],
+                exclude_folder_id=folder_id,
+            )
             conn.execute(
                 """
                 UPDATE document_folders SET parent_id = ?, updated_at = ? WHERE folder_id = ?

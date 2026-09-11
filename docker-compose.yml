@@ -67,13 +67,33 @@ services:
         condition: service_healthy
     environment:
       MCP_INTERNAL_API_KEY: "${MCP_INTERNAL_API_KEY:-}"
+      # Address reachable from the API container and returned by the MCP
+      # status endpoint. Override with the externally published base URL
+      # when deploying behind a reverse proxy.
+      MCP_SERVER_PUBLIC_BASE_URL: "${MCP_SERVER_PUBLIC_BASE_URL:-http://127.0.0.1:8765}"
     volumes:
       - ./data:/app/data
+    healthcheck:
+      # Python is guaranteed to exist in the image; avoid depending on curl.
+      # /system/info exercises FastAPI startup and lazy service composition
+      # without requiring the external embedding/LLM endpoints to be healthy.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/api/v1/system/info', timeout=5)",
+        ]
+      interval: 10s
+      timeout: 8s
+      start_period: 20s
+      retries: 6
     restart: unless-stopped
 
   # Standalone read-only MCP runtime (plan Phase 4 §P4.4).
-  # - No heavy RAG deps (see deploy/mcp/Dockerfile) and NO data mount:
-  #   it only calls the main service's internal read-only HTTP API.
+  # - No heavy RAG deps and no RAG data mount: it only calls the main
+  #   service's internal read-only HTTP API. The dedicated data/mcp mount
+  #   contains only the external MCP client's Bearer-key database.
   # - `rag_client_backend: http` is the explicit, non-fallback backend.
   # - HEALTHCHECK fails until the main API is reachable, so MCP never
   #   serves from a down upstream.
@@ -89,6 +109,8 @@ services:
         condition: service_healthy
     environment:
       MCP_INTERNAL_API_KEY: "${MCP_INTERNAL_API_KEY:-}"
+    volumes:
+      - ./data/mcp:/srv/mcp/data
     healthcheck:
       test: ["CMD", "./health_check.sh", "--base-url", "http://127.0.0.1:8766"]
       interval: 30s

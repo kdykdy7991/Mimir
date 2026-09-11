@@ -16,7 +16,7 @@ describe("DocumentDetailView", () => {
     );
     expect(screen.getByText("表格识别")).toBeInTheDocument();
     expect(screen.getByText("PDF · 3 页")).toBeInTheDocument();
-    expect(screen.getByText("RAG 指南")).toBeInTheDocument();
+    expect((await screen.findAllByText("RAG 指南")).length).toBeGreaterThan(0);
     expect(screen.getByText("第 3 页存在低置信度文本")).toBeInTheDocument();
     expect(screen.queryByText("后端暂未提供")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /查看完整 Trace/ })).toHaveAttribute(

@@ -18,7 +18,19 @@ import type {
   SystemHealth,
   SystemInfo,
   TaskStatusResponse,
-  TraceResponse,
+  BatchDocumentAction,
+  ActionableTraceResponse,
+  BatchDocumentResponse,
+  DocumentChunkDetail,
+  DocumentChunkListParams,
+  DocumentChunkListResponse,
+  DocumentFolder,
+  DocumentListFilters,
+  DocumentTag,
+  MCPConnectionTestResponse,
+  MCPServerStatus,
+  TraceListParams,
+  TraceListResponse,
 } from "@/types";
 
 // Keep browser requests on the Web UI origin. Next.js proxies /api/* to the
@@ -61,6 +73,21 @@ function appendCursorParams(path: string, params?: CursorParams) {
   const search = new URLSearchParams();
   if (params.cursor) search.set("cursor", params.cursor);
   if (params.limit !== undefined) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+function appendQuery(path: string, params?: Record<string, unknown>) {
+  if (!params) return path;
+  const search = new URLSearchParams();
+  for (const [key, raw] of Object.entries(params)) {
+    if (raw === undefined || raw === null || raw === "") continue;
+    if (Array.isArray(raw)) {
+      for (const value of raw) search.append(key, String(value));
+    } else {
+      search.set(key, String(raw));
+    }
+  }
   const query = search.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -200,6 +227,11 @@ export class ApiClient {
     return this.request<DocumentListResponse>(appendCursorParams(path, params), { signal });
   }
 
+  listFilteredDocuments(collectionId: string, params?: DocumentListFilters, signal?: AbortSignal) {
+    const path = `/api/v1/collections/${encodeURIComponent(collectionId)}/documents`;
+    return this.request<DocumentListResponse>(appendQuery(path, params), { signal });
+  }
+
   listAllDocuments(params?: CursorParams, signal?: AbortSignal) {
     // Server-side paged listing across every collection (new in the perf
     // pass) — replaces the old client that fetched every document.
@@ -245,6 +277,79 @@ export class ApiClient {
     return this.request<DocumentDetail>(`/api/v1/documents/${encodeURIComponent(documentId)}`, { signal });
   }
 
+
+  listDocumentChunks(documentId: string, params?: DocumentChunkListParams, signal?: AbortSignal) {
+    const path = `/api/v1/documents/${encodeURIComponent(documentId)}/chunks`;
+    return this.request<DocumentChunkListResponse>(appendQuery(path, params), { signal }).then((response) => ({
+      ...response,
+      items: response.items.map((item) => ({ ...item, preview: item.text_preview ?? item.preview ?? "" })),
+    }));
+  }
+
+  getDocumentChunk(documentId: string, chunkId: string, signal?: AbortSignal) {
+    return this.request<DocumentChunkDetail>(`/api/v1/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, { signal });
+  }
+
+  listDocumentTags(collectionId: string, signal?: AbortSignal) {
+    return this.request<{ items: DocumentTag[] }>(`/api/v1/collections/${encodeURIComponent(collectionId)}/tags`, { signal }).then((value) => value.items);
+  }
+
+  createDocumentTag(collectionId: string, body: { name: string; color: string }, signal?: AbortSignal) {
+    return this.request<DocumentTag>(`/api/v1/collections/${encodeURIComponent(collectionId)}/tags`, { method: "POST", body, signal });
+  }
+
+  updateDocumentTag(collectionId: string, tagId: string, body: { name?: string; color?: string }, signal?: AbortSignal) {
+    return this.request<DocumentTag>(`/api/v1/collections/${encodeURIComponent(collectionId)}/tags/${encodeURIComponent(tagId)}`, { method: "PATCH", body, signal });
+  }
+
+  deleteDocumentTag(collectionId: string, tagId: string, signal?: AbortSignal) {
+    return this.request<void>(`/api/v1/collections/${encodeURIComponent(collectionId)}/tags/${encodeURIComponent(tagId)}`, { method: "DELETE", signal });
+  }
+
+  replaceDocumentTags(documentId: string, tagIds: string[], signal?: AbortSignal) {
+    return this.request<{ items: DocumentTag[] }>(`/api/v1/documents/${encodeURIComponent(documentId)}/tags`, { method: "PUT", body: { tag_ids: tagIds }, signal }).then((value) => value.items);
+  }
+
+  listDocumentFolders(collectionId: string, signal?: AbortSignal) {
+    return this.request<{ items: DocumentFolder[] }>(`/api/v1/collections/${encodeURIComponent(collectionId)}/folders`, { signal }).then((value) => value.items);
+  }
+
+  createDocumentFolder(collectionId: string, body: { name: string; parent_id: string | null }, signal?: AbortSignal) {
+    return this.request<DocumentFolder>(`/api/v1/collections/${encodeURIComponent(collectionId)}/folders`, { method: "POST", body, signal });
+  }
+
+  updateDocumentFolder(collectionId: string, folderId: string, body: { name?: string; parent_id?: string | null }, signal?: AbortSignal) {
+    return this.request<DocumentFolder>(`/api/v1/collections/${encodeURIComponent(collectionId)}/folders/${encodeURIComponent(folderId)}`, { method: "PATCH", body, signal });
+  }
+
+  moveDocumentFolder(collectionId: string, folderId: string, parentId: string | null, signal?: AbortSignal) {
+    return this.request<DocumentFolder>(`/api/v1/collections/${encodeURIComponent(collectionId)}/folders/${encodeURIComponent(folderId)}/move`, { method: "POST", body: { parent_id: parentId }, signal });
+  }
+
+  deleteDocumentFolder(collectionId: string, folderId: string, signal?: AbortSignal) {
+    return this.request<void>(`/api/v1/collections/${encodeURIComponent(collectionId)}/folders/${encodeURIComponent(folderId)}`, { method: "DELETE", signal });
+  }
+
+  moveDocument(documentId: string, folderId: string | null, signal?: AbortSignal) {
+    return this.request<void>(`/api/v1/documents/${encodeURIComponent(documentId)}/folder`, { method: "PUT", body: { folder_id: folderId }, signal });
+  }
+
+  batchTagDocuments(collectionId: string, documentIds: string[], action: BatchDocumentAction, tagIds: string[], signal?: AbortSignal) {
+    return this.request<BatchDocumentResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents/batch/tags`, { method: "POST", body: { document_ids: documentIds, action, tag_ids: tagIds }, signal });
+  }
+
+  batchMoveDocuments(collectionId: string, documentIds: string[], folderId: string | null, signal?: AbortSignal) {
+    return this.request<BatchDocumentResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents/batch/move`, { method: "POST", body: { document_ids: documentIds, folder_id: folderId }, signal });
+  }
+
+  batchReprocessDocuments(collectionId: string, documentIds: string[], signal?: AbortSignal) {
+    return this.request<BatchDocumentResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents/batch/reprocess`, { method: "POST", body: { document_ids: documentIds }, signal });
+  }
+
+  batchDeleteDocuments(collectionId: string, documentIds: string[], signal?: AbortSignal) {
+    return this.request<BatchDocumentResponse>(`/api/v1/collections/${encodeURIComponent(collectionId)}/documents/batch/delete`, { method: "POST", body: { document_ids: documentIds }, signal });
+  }
+
   documentPreviewUrl(documentId: string) {
     return `${this.baseUrl}/api/v1/documents/${encodeURIComponent(documentId)}/preview`;
   }
@@ -262,11 +367,31 @@ export class ApiClient {
   }
 
   getQueryTrace(queryId: string, signal?: AbortSignal) {
-    return this.request<TraceResponse>(`/api/v1/queries/${encodeURIComponent(queryId)}/trace`, { signal });
+    return this.request<ActionableTraceResponse>(`/api/v1/queries/${encodeURIComponent(queryId)}/trace`, { signal });
   }
 
   getIngestionTrace(ingestionId: string, signal?: AbortSignal) {
-    return this.request<TraceResponse>(`/api/v1/ingestions/${encodeURIComponent(ingestionId)}/trace`, { signal });
+    return this.request<ActionableTraceResponse>(`/api/v1/ingestions/${encodeURIComponent(ingestionId)}/trace`, { signal });
+  }
+
+  listTraces(params?: TraceListParams, signal?: AbortSignal) {
+    return this.request<TraceListResponse>(appendQuery("/api/v1/traces", params), { signal });
+  }
+
+  retryTask(taskId: string, signal?: AbortSignal) {
+    return this.request<TaskStatusResponse>(`/api/v1/tasks/${encodeURIComponent(taskId)}/retry`, { method: "POST", signal });
+  }
+
+  cancelTask(taskId: string, signal?: AbortSignal) {
+    return this.request<TaskStatusResponse>(`/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST", signal });
+  }
+
+  getMCPServerStatus(signal?: AbortSignal) {
+    return this.request<MCPServerStatus>("/api/v1/mcp-server/status", { signal });
+  }
+
+  testMCPConnection(apiKey: string, signal?: AbortSignal) {
+    return this.request<MCPConnectionTestResponse>("/api/v1/mcp-server/test-connection", { method: "POST", body: { api_key: apiKey }, signal });
   }
 
   imageUrl(relativePathOrId: string) {

@@ -22,9 +22,11 @@ router only orchestrates the per-item results.
 
 from __future__ import annotations
 
-from pathlib import Path as FilePath
-from hashlib import sha256
 from collections import OrderedDict
+from functools import wraps
+from hashlib import sha256
+from pathlib import Path as FilePath
+from threading import RLock
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Path, Request
@@ -70,6 +72,21 @@ _IDEM_TTL_SECONDS = 3600.0
 _IDEM_MAX_ENTRIES = 1024
 # (collection_id, idempotency_key, canonical_hash) -> (expires_at, results)
 _REPROCESS_BY_KEY: "OrderedDict[tuple[str, str, str], tuple[float, list[BatchItemResult]]]" = OrderedDict()
+_REPROCESS_IDEMPOTENCY_LOCK = RLock()
+
+
+def _serialize_reprocess(func):
+    """Make cache lookup, task creation and cache publication atomic.
+
+    The endpoint contains no awaits and is registered as a synchronous
+    FastAPI handler, so the lock runs in the worker pool rather than blocking
+    the event loop. ``wraps`` preserves the signature FastAPI inspects.
+    """
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _REPROCESS_IDEMPOTENCY_LOCK:
+            return func(*args, **kwargs)
+    return wrapped
 
 
 def _canonical_request_hash(document_ids: list[UUID]) -> str:
@@ -280,7 +297,8 @@ async def batch_move(
     response_model=BatchResponse,
     summary="Re-run ingestion on many documents, one task each",
 )
-async def batch_reprocess(
+@_serialize_reprocess
+def batch_reprocess(
     request: Request,
     body: BatchReprocessRequest,
     collection_id: UUID = Path(...),

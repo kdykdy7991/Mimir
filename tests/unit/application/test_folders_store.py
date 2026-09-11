@@ -7,6 +7,7 @@ move, re-parent on delete, and document placement.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 
 import pytest
@@ -157,6 +158,21 @@ def test_root_sibling_duplicate_normalized_name_rejected(db: WebApiDB) -> None:
         db.create_folder(collection_id="c1", name=" 研究 ")
     # a different collection is fine
     db.create_folder(collection_id="c2", name="研究")
+
+
+def test_concurrent_root_sibling_creation_has_one_winner(db: WebApiDB) -> None:
+    """BEGIN IMMEDIATE makes the NULL-root uniqueness guard race-safe."""
+    def create():
+        try:
+            db.create_folder(collection_id="c1", name="Concurrent")
+            return "created"
+        except sqlite3.IntegrityError:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _index: create(), range(2)))
+    assert sorted(outcomes) == ["conflict", "created"]
+    assert [row["name"] for row in db.list_folders("c1")] == ["Concurrent"]
 
 
 def test_move_subtree_that_exceeds_max_depth_rejected(db: WebApiDB) -> None:

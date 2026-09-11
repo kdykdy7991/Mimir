@@ -272,7 +272,7 @@ python main.py --check
 
 **HTTP 客户端接入**（远程 agent / 容器化部署 / Web demo）：
 
-HTTP MCP 默认启用 API Key 认证。先使用 `python scripts/mcp_keys.py create --name <agent> --collections <collection,...>` 签发凭证；完整 Key 只显示一次。客户端必须在每个请求携带 `Authorization: Bearer <key>`。撤销或轮换命令及完整联调流程见 [`docs/mcp-integration.md`](docs/mcp-integration.md#22-访问控制api-key-认证)。
+HTTP MCP 默认启用 API Key 认证。独立容器的服务器地址、密钥签发、客户端配置模板和最小验收步骤见 [`docs/mcp-server-connection.md`](docs/mcp-server-connection.md)；完整联调流程见 [`docs/mcp-integration.md`](docs/mcp-integration.md#22-访问控制api-key-认证)。
 
 ```python
 import asyncio

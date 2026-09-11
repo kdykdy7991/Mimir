@@ -310,7 +310,7 @@ async def test_mcp_status_endpoint_reports_online(tmp_path):
             body = resp.json()
             assert body["status"] == "online"
             assert body["mcp_url"] == f"{base_url}/mcp"
-            assert body["upstream_status"] == "online"
+            assert body["upstream_status"] == "unknown"
             assert body["latency_ms"] is not None
     finally:
         monkey.undo()

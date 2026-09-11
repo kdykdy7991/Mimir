@@ -1,5 +1,8 @@
 # MCP 联调指南（stdio + streamable-http）
 
+> 只需要服务器地址、认证方式和客户端配置模板？请直接查看
+> [MCP Server 客户端接入信息](mcp-server-connection.md)。
+
 > 目标读者：MCP 客户端开发者 / 前端联调。本文提供**两套可重复**的真实联调
 > 命令：stdio（桌面客户端路径）与 streamable-http（远程 / HTTP 路径），
 > 以及自动化的集成测试入口。

@@ -210,7 +210,9 @@ document_parser:
 # /health 保持匿名。生产环境必须开启；本地开发可显式 enabled: false。
 mcp_access:
   enabled: true
-  database_path: ./data/db/mcp_access.db
+  # 独立 MCP 容器仅挂载 ./data/mcp；Web 页面、管理 CLI 与 MCP Server
+  # 必须读写同一份客户端 Bearer-Key 数据库。
+  database_path: ./data/mcp/db/mcp_access.db
   session_ttl_seconds: 86400
   max_sessions: 10000
 

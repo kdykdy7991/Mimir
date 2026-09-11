@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TraceResponse } from "@/types";
-import { isSkippedTrace, traceStageDescription, traceStageLabel } from "./trace-presentation";
+import { isSkippedTrace, normalizeTraceStatus, TRACE_STATUS_PRESENTATION, traceStageDescription, traceStageLabel } from "./trace-presentation";
 
 const stage = (name: string, method?: string, details: Record<string, unknown> = {}) => ({
   name, method: method ?? null, provider: null,
@@ -12,6 +12,18 @@ describe("trace presentation", () => {
     expect(traceStageLabel(stage("load"))).toBe("文档解析");
     expect(traceStageLabel(stage("transform", "image_captioner"))).toBe("图片理解");
     expect(traceStageLabel(stage("future_stage"))).toBe("其他处理步骤");
+  });
+
+  it("normalizes legacy statuses into the seven-state visual contract", () => {
+    expect(normalizeTraceStatus("processing")).toBe("running");
+    expect(normalizeTraceStatus("succeeded")).toBe("success");
+    expect(normalizeTraceStatus("cancelled")).toBe("canceled");
+    expect(normalizeTraceStatus("future-status")).toBe("pending");
+    expect(Object.keys(TRACE_STATUS_PRESENTATION)).toEqual(["pending", "running", "success", "warning", "failed", "skipped", "canceled"]);
+  });
+
+  it("prefers an explicit skip reason", () => {
+    expect(traceStageDescription(stage("load", undefined, { event: "skipped", skip_reason: "无需重新解析" }))).toBe("无需重新解析");
   });
 
   it("describes a skipped ingestion without pretending it ran", () => {

@@ -110,6 +110,13 @@ export interface paths {
          *     No longer loads every document + chunk + image before paging: the
          *     current page is selected in SQLite (``LIMIT/OFFSET``), then only that
          *     page's chunk / image counts are queried.
+         *
+         *     B2.5: ``q`` / ``status`` / ``file_type`` / ``updated_after`` /
+         *     ``updated_before`` / ``sort`` and the folder / tag document-UUID sets
+         *     (mapped back to ``source_paths``) are pushed into the integrity SQL as
+         *     ``WHERE`` predicates — the store never returns the whole collection for
+         *     Python-side filtering. Every page item is enriched with ``tags`` and
+         *     ``folder_id`` from the ``WebApiDB``.
          */
         get: operations["list_collection_documents_api_v1_collections__collection_id__documents_get"];
         put?: never;
@@ -191,6 +198,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{document_id}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Paginate, search, and filter a document's chunks
+         * @description Server-side paginated chunk list with literal search + filters.
+         *
+         *     Ordering matches the MCP ``get_document_chunks`` tool (shared
+         *     ``stable_order_chunks`` helper). ``q`` strips whitespace and is a
+         *     case-insensitive literal substring match (no full-text engine). The
+         *     ``page_number`` filter is *source page*, distinct from the ``page``
+         *     pagination index. Rows are preview summaries — full text comes from
+         *     ``GET /documents/{id}/chunks/{chunk_id}``.
+         */
+        get: operations["list_document_chunks_api_v1_documents__document_id__chunks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{document_id}/chunks/{chunk_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an authorized chunk's full text and neighbors
+         * @description Return a single chunk's full body, source locator, and stable neighbors.
+         *
+         *     Ownership is resolved by document first; a chunk id that does not belong
+         *     to this document returns ``404`` without leaking why. Ordering (and hence
+         *     ``previous_chunk_id`` / ``next_chunk_id``) reuses the MCP
+         *     ``get_document_chunks`` stable order — the same helper, not a second rule.
+         */
+        get: operations["get_document_chunk_api_v1_documents__document_id__chunks__chunk_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{document_id}/preview": {
         parameters: {
             query?: never;
@@ -230,6 +289,63 @@ export interface paths {
         get: operations["get_task_api_v1_tasks__task_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry a failed or cancelled ingestion task
+         * @description Create a NEW ingestion task + trace retrying ``task_id``.
+         *
+         *     Only ``failed`` / ``cancelled`` tasks may be retried — any other state
+         *     returns a stable ``409``. The original task + trace are left intact; a
+         *     fresh task with ``attempt == parent.attempt + 1`` and a
+         *     ``parent_trace_id`` pointing at the original is created, reusing the
+         *     original document source + parsing config. Retries are idempotent: a
+         *     duplicate/concurrent retry of the same task returns the already-created
+         *     child instead of spawning another. Returns ``202`` with the child task's
+         *     status (usually ``pending``, ready to poll).
+         */
+        post: operations["retry_task_api_v1_tasks__task_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cooperatively cancel an ingestion task
+         * @description Request cooperative cancellation of an ingestion task.
+         *
+         *     Only ``pending`` / ``running`` tasks may be cancelled; any other
+         *     terminal state returns a stable ``409``. The worker stops at the next
+         *     safe stage boundary, marks the task ``cancelled`` and records a terminal
+         *     ``canceled`` trace — completed atomic writes are never rolled back and
+         *     existing documents / old indexes are kept. Repeated cancels are
+         *     idempotent while the task is still in flight. Returns ``202`` with the
+         *     resulting task status.
+         */
+        post: operations["cancel_task_api_v1_tasks__task_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -304,6 +420,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/traces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List traces
+         * @description Bounded, newest-first trace listing backed by the SQLite index.
+         *
+         *     Filtering + pagination happen in the store's index, so this never scans
+         *     the unbounded JSONL. The cursor is a stable ``(started_at, trace_id)``
+         *     keyset — pages do not shift when new traces are recorded in between.
+         */
+        get: operations["list_traces_api_v1_traces_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/queries/{query_id}/result": {
         parameters: {
             query?: never;
@@ -363,9 +503,12 @@ export interface paths {
          * @description Return the per-stage trace for a previously run ingestion.
          *
          *     Ingestion traces are recorded with ``trace_id == task_id``. When the
-         *     trace is missing but the task still exists (e.g. recorded before this
-         *     feature, or trace persistence failed), return 200 with empty stages —
-         *     the ingestion *record* is real even if its timeline is gone.
+         *     task is mid-flight its live snapshot (completed stages + current stage)
+         *     is merged with any recorded trace; when the trace is missing but the
+         *     task still exists (e.g. recorded before this feature, or trace
+         *     persistence failed), return 200 with empty stages — the ingestion
+         *     *record* is real even if its timeline is gone. Terminal/final state
+         *     wins and never regresses.
          */
         get: operations["get_ingestion_trace_api_v1_ingestions__ingestion_id__trace_get"];
         put?: never;
@@ -483,6 +626,344 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/collections/{collection_id}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a collection's tags */
+        get: operations["list_tags_api_v1_collections__collection_id__tags_get"];
+        put?: never;
+        /** Create a tag in a collection */
+        post: operations["create_tag_api_v1_collections__collection_id__tags_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a tag (links are cascaded, documents are kept) */
+        delete: operations["delete_tag_api_v1_collections__collection_id__tags__tag_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename or recolour a tag */
+        patch: operations["update_tag_api_v1_collections__collection_id__tags__tag_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/documents/{document_id}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Full-replace the tags assigned to a document
+         * @description Bind a document to exactly the given tags (transactional replace).
+         *
+         *     Only tags belonging to the document's own collection may be assigned;
+         *     any unknown or cross-collection tag id makes the whole request fail
+         *     (400) without partial writes. Duplicate ids are deduplicated.
+         */
+        put: operations["set_document_tags_api_v1_documents__document_id__tags_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a collection's folders */
+        get: operations["list_folders_api_v1_collections__collection_id__folders_get"];
+        put?: never;
+        /** Create a folder */
+        post: operations["create_folder_api_v1_collections__collection_id__folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an empty folder (non-empty folders are rejected with 409) */
+        delete: operations["delete_folder_api_v1_collections__collection_id__folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a folder */
+        patch: operations["rename_folder_api_v1_collections__collection_id__folders__folder_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move (re-parent) a folder */
+        post: operations["move_folder_api_v1_collections__collection_id__folders__folder_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{document_id}/folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set or clear a document's folder placement */
+        put: operations["set_document_folder_api_v1_documents__document_id__folder_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/documents/batch/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add, remove, or replace tags across many documents
+         * @description Apply a tag action to up to 100 documents in one collection.
+         *
+         *     ``add`` assigns the given tags, ``remove`` unlinks them, and ``replace``
+         *     sets each document's tags to exactly the given set. Every ``tag_id``
+         *     must belong to the collection and every ``document_id`` must resolve to
+         *     that same collection; foreign/unknown items are reported per item and do
+         *     not block the valid ones. No partial writes ever occur for the items
+         *     that do succeed.
+         */
+        post: operations["batch_tags_api_v1_collections__collection_id__documents_batch_tags_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/documents/batch/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move many documents into a folder (or to root)
+         * @description Place up to 100 documents into ``folder_id`` (or root when ``null``).
+         *
+         *     The target folder must belong to the collection (else every item gets a
+         *     per-item ``FOLDER_NOT_FOUND``); documents from another collection or
+         *     unknown are reported per item without blocking the valid ones.
+         */
+        post: operations["batch_move_api_v1_collections__collection_id__documents_batch_move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/documents/batch/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-run ingestion on many documents, one task each
+         * @description Enqueue an independent reprocess task for up to 20 documents.
+         *
+         *     - Each successful item carries its own ``task_id``.
+         *     - A document that already has a ``pending``/``running`` reprocess task
+         *       is reported as a per-item ``DUPLICATE_REPROCESS`` conflict — it is
+         *       never double-enqueued.
+         *     - Idempotency: a request re-sent with the same ``Idempotency-Key``
+         *       header returns the original per-item results (same task ids) instead
+         *       of creating new tasks.
+         */
+        post: operations["batch_reprocess_api_v1_collections__collection_id__documents_batch_reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{collection_id}/documents/batch/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete many documents (explicit POST action)
+         * @description Coordinated delete of up to 100 documents.
+         *
+         *     Uses an explicit POST action (no DELETE request body, which is
+         *     unreliable through some proxies/guards). Each document reuses the same
+         *     service call as the single-document delete — clearing the original
+         *     file, vector chunks, BM25, and image storage — without copying the
+         *     deletion business logic into the router. A failed item never blocks the
+         *     rest of the batch.
+         */
+        post: operations["batch_delete_api_v1_collections__collection_id__documents_batch_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp-server/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** MCP server status snapshot */
+        get: operations["get_mcp_server_status_api_v1_mcp_server_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp-server/test-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run an ephemeral protocol-level MCP connection test */
+        post: operations["test_mcp_connection_api_v1_mcp_server_test_connection_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/mcp/v1/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collections */
+        get: operations["list_collections_internal_mcp_v1_collections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/mcp/v1/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Knowledge */
+        post: operations["query_knowledge_internal_mcp_v1_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/mcp/v1/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document */
+        get: operations["get_document_internal_mcp_v1_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/mcp/v1/documents/{document_id}/chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document Chunks */
+        get: operations["get_document_chunks_internal_mcp_v1_documents__document_id__chunks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -552,6 +1033,17 @@ export interface components {
             error?: components["schemas"]["TaskError"] | null;
         };
         /**
+         * BatchDeleteRequest
+         * @description Body for ``POST .../documents/batch/delete`` (explicit POST action).
+         */
+        BatchDeleteRequest: {
+            /**
+             * Document Ids
+             * @description Target documents (up to 100).
+             */
+            document_ids: string[];
+        };
+        /**
          * BatchFileResult
          * @description One file's result inside a ``BatchUploadResponse`` (M5).
          * @example {
@@ -591,6 +1083,117 @@ export interface components {
             size_bytes: number;
             /** @description Structured error for ``rejected`` files. Same shape as the HTTP error envelope — branch on ``error.code`` (``UNSUPPORTED_FILE_TYPE`` / ``UNSUPPORTED_MEDIA_TYPE`` / ``FILE_TOO_LARGE`` / ``DUPLICATE_FILENAME``). */
             error?: components["schemas"]["TaskError"] | null;
+        };
+        /**
+         * BatchItemError
+         * @description Structured per-item error — same shape as the top-level envelope.
+         *
+         *     ``code`` is the stable machine-readable token a client branches on;
+         *     ``message`` is human-only. See ``src/web_api/errors.py``.
+         */
+        BatchItemError: {
+            /**
+             * Code
+             * @description Stable machine-readable error code.
+             */
+            code: string;
+            /**
+             * Message
+             * @description Human-readable error description.
+             */
+            message: string;
+            /**
+             * Details
+             * @description Optional structured context (e.g. the foreign tag id).
+             */
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * BatchItemResult
+         * @description One per-document outcome within a batch response.
+         */
+        BatchItemResult: {
+            /**
+             * Document Id
+             * Format: uuid
+             * @description The requested document id.
+             */
+            document_id: string;
+            /**
+             * Status
+             * @description ``success`` when the item was applied, else ``error``.
+             * @enum {string}
+             */
+            status: "success" | "error";
+            /** @description Present only when ``status`` is ``error``. */
+            error?: components["schemas"]["BatchItemError"] | null;
+            /**
+             * Task Id
+             * @description Task id created for this item (reprocess only).
+             */
+            task_id?: string | null;
+        };
+        /**
+         * BatchMoveRequest
+         * @description Body for ``POST .../documents/batch/move``.
+         */
+        BatchMoveRequest: {
+            /**
+             * Folder Id
+             * @description Target folder id; ``null`` moves documents to the collection root.
+             */
+            folder_id?: string | null;
+            /**
+             * Document Ids
+             * @description Target documents (up to 100).
+             */
+            document_ids: string[];
+        };
+        /**
+         * BatchReprocessRequest
+         * @description Body for ``POST .../documents/batch/reprocess``.
+         */
+        BatchReprocessRequest: {
+            /**
+             * Document Ids
+             * @description Target documents (up to 20).
+             */
+            document_ids: string[];
+        };
+        /**
+         * BatchResponse
+         * @description Top-level envelope for all batch document operations.
+         */
+        BatchResponse: {
+            /**
+             * Items
+             * @description One result per requested document.
+             */
+            items: components["schemas"]["BatchItemResult"][];
+        };
+        /**
+         * BatchTagsRequest
+         * @description Body for ``POST .../documents/batch/tags``.
+         */
+        BatchTagsRequest: {
+            /**
+             * Action
+             * @description ``add`` | ``remove`` | ``replace``.
+             * @enum {string}
+             */
+            action: "add" | "remove" | "replace";
+            /**
+             * Tag Ids
+             * @description Tag ids to apply; every id must belong to the collection.
+             */
+            tag_ids: string[];
+            /**
+             * Document Ids
+             * @description Target documents (up to 100).
+             */
+            document_ids: string[];
         };
         /**
          * BatchUploadResponse
@@ -686,6 +1289,44 @@ export interface components {
              * @description Batch of documents; all go to this collection.
              */
             files?: string[] | null;
+        };
+        /**
+         * ChunkListItem
+         * @description Preview row for the server-paged chunk list (B1.2).
+         *
+         *     Full text is intentionally not included — the client requests a single
+         *     chunk via ``GET /documents/{id}/chunks/{id}`` for the drawer.
+         * @example {
+         *       "character_count": 864,
+         *       "chunk_id": "stable-id",
+         *       "content_type": "text",
+         *       "heading": "3.2 服务部署",
+         *       "index": 17,
+         *       "page": 12,
+         *       "text_preview": "3.2 服务部署 ……"
+         *     }
+         */
+        ChunkListItem: {
+            /** Index */
+            index: number;
+            /** Chunk Id */
+            chunk_id: string;
+            /** Heading */
+            heading?: string | null;
+            /** Page */
+            page?: number | null;
+            /**
+             * Content Type
+             * @default text
+             */
+            content_type: string;
+            /** Character Count */
+            character_count: number;
+            /**
+             * Text Preview
+             * @description Whitespace-normalized snippet.
+             */
+            text_preview: string;
         };
         /**
          * Citation
@@ -1001,6 +1642,124 @@ export interface components {
             detail?: string | null;
         };
         /**
+         * DocumentChunkDetail
+         * @description ``GET /documents/{document_id}/chunks/{chunk_id}`` response (B1.1).
+         *
+         *     Full chunk text plus stable navigation. Missing page/heading/neighbors
+         *     serialise as ``null`` rather than erroring, so old or sparse data stays
+         *     renderable.
+         * @example {
+         *       "character_count": 864,
+         *       "chunk_id": "stable-id",
+         *       "content_type": "text",
+         *       "document_id": "7d4a1c3e-2b0a-4d2c-8e9f-1a2b3c4d5e6f",
+         *       "heading": "3.2 服务部署",
+         *       "index": 17,
+         *       "next_chunk_id": "...",
+         *       "page": 12,
+         *       "previous_chunk_id": "...",
+         *       "source_locator": {
+         *         "kind": "pdf_page",
+         *         "page": 12
+         *       },
+         *       "text": "3.2 服务部署 ……"
+         *     }
+         */
+        DocumentChunkDetail: {
+            /**
+             * Chunk Id
+             * @description Stable chunk identifier.
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             * @description Owning stable document ID.
+             */
+            document_id: string;
+            /**
+             * Index
+             * @description Zero-based position in the document's stable chunk order.
+             */
+            index: number;
+            /**
+             * Text
+             * @description Full chunk body text.
+             */
+            text: string;
+            /**
+             * Heading
+             * @description Section heading if derivable.
+             */
+            heading?: string | null;
+            /**
+             * Page
+             * @description Source page if derivable.
+             */
+            page?: number | null;
+            /**
+             * Content Type
+             * @description Chunk type ('text'|'table'|...).
+             * @default text
+             */
+            content_type: string;
+            /**
+             * Character Count
+             * @description ``len(text)``.
+             */
+            character_count: number;
+            /**
+             * Previous Chunk Id
+             * @description Previous chunk in the stable order, or null.
+             */
+            previous_chunk_id?: string | null;
+            /**
+             * Next Chunk Id
+             * @description Next chunk in the stable order, or null.
+             */
+            next_chunk_id?: string | null;
+            /** @description Normalized position in the original file. */
+            source_locator: components["schemas"]["SourceLocator"];
+        };
+        /**
+         * DocumentChunkListResponse
+         * @description ``GET /documents/{id}/chunks`` response (B1.2).
+         * @example {
+         *       "has_next": false,
+         *       "items": [],
+         *       "page": 1,
+         *       "page_size": 50,
+         *       "total": 0
+         *     }
+         */
+        DocumentChunkListResponse: {
+            /**
+             * Items
+             * @description Current page rows.
+             */
+            items: components["schemas"]["ChunkListItem"][];
+            /**
+             * Page
+             * @description Requested 1-based page.
+             */
+            page: number;
+            /**
+             * Page Size
+             * @description Requested page size.
+             */
+            page_size: number;
+            /**
+             * Total
+             * @description Total rows after filtering.
+             */
+            total: number;
+            /**
+             * Has Next
+             * @description True when another page exists after this one.
+             */
+            has_next: boolean;
+        };
+        /**
          * DocumentChunkSummary
          * @description Lightweight structural row for the document-detail chunk table.
          */
@@ -1091,6 +1850,16 @@ export interface components {
              */
             updated_at: string;
             /**
+             * Tags
+             * @description Tags bound to this document (B2.5 enrichment).
+             */
+            tags?: components["schemas"]["DocumentTagRef"][];
+            /**
+             * Folder Id
+             * @description Folder this document is placed in, or null for the collection root (B2.5).
+             */
+            folder_id?: string | null;
+            /**
              * File Hash
              * @description SHA-256 of the raw file. Used to detect duplicate uploads.
              */
@@ -1143,6 +1912,19 @@ export interface components {
              * @description Ordered structural chunk rows without embedding vectors.
              */
             chunks?: components["schemas"]["DocumentChunkSummary"][];
+        };
+        /** DocumentFolderResponse */
+        DocumentFolderResponse: {
+            /** Folder Id */
+            folder_id: string | null;
+        };
+        /** DocumentFolderUpdateRequest */
+        DocumentFolderUpdateRequest: {
+            /**
+             * Folder Id
+             * @description Folder id to place the document in; null = move to root.
+             */
+            folder_id?: string | null;
         };
         /**
          * DocumentListResponse
@@ -1242,6 +2024,57 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /**
+             * Tags
+             * @description Tags bound to this document (B2.5 enrichment).
+             */
+            tags?: components["schemas"]["DocumentTagRef"][];
+            /**
+             * Folder Id
+             * @description Folder this document is placed in, or null for the collection root (B2.5).
+             */
+            folder_id?: string | null;
+        };
+        /**
+         * DocumentTagRef
+         * @description Tag summary embedded in a document list row (B2.5).
+         */
+        DocumentTagRef: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Stable tag id (UUID string).
+             */
+            id: string;
+            /**
+             * Name
+             * @description Tag display name.
+             */
+            name: string;
+            /**
+             * Color
+             * @description Controlled colour token.
+             */
+            color: string;
+        };
+        /**
+         * DocumentTagsResponse
+         * @description Effective tag set after a full-replace binding.
+         */
+        DocumentTagsResponse: {
+            /** Tag Ids */
+            tag_ids: string[];
+        };
+        /**
+         * DocumentTagsUpdateRequest
+         * @description Full-replace body for ``PUT /documents/{doc}/tags``.
+         */
+        DocumentTagsUpdateRequest: {
+            /**
+             * Tag Ids
+             * @description Complete tag id set for the document.
+             */
+            tag_ids: string[];
         };
         /**
          * DocumentUploadResponse
@@ -1273,6 +2106,88 @@ export interface components {
              * @description Ingestion task ID; poll ``GET /tasks/{id}`` for status.
              */
             task_id: string;
+        };
+        /**
+         * Folder
+         * @description A logical document folder (a pure directory; files never move).
+         * @example {
+         *       "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+         *       "created_at": "2026-09-11T08:00:00.000Z",
+         *       "depth": 0,
+         *       "document_count": 12,
+         *       "id": "9f1a2b3c-44aa-4b0c-8d1e-1a2b3c4d5e6f",
+         *       "name": "研发",
+         *       "updated_at": "2026-09-11T08:00:00.000Z"
+         *     }
+         */
+        Folder: {
+            /**
+             * Id
+             * @description Stable folder id (UUID string).
+             */
+            id: string;
+            /**
+             * Collection Id
+             * Format: uuid
+             * @description Owning collection id.
+             */
+            collection_id: string;
+            /**
+             * Parent Id
+             * @description Parent folder id; null = root.
+             */
+            parent_id?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Depth
+             * @description Distance from the collection root (0 = root).
+             */
+            depth: number;
+            /**
+             * Document Count
+             * @description Documents directly placed in this folder.
+             * @default 0
+             */
+            document_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** FolderCreateRequest */
+        FolderCreateRequest: {
+            /** Name */
+            name: string;
+            /**
+             * Parent Id
+             * @description Parent folder id; null = root.
+             */
+            parent_id?: string | null;
+        };
+        /** FolderListResponse */
+        FolderListResponse: {
+            /** Items */
+            items: components["schemas"]["Folder"][];
+        };
+        /** FolderMoveRequest */
+        FolderMoveRequest: {
+            /**
+             * Parent Id
+             * @description New parent folder id; null = move to collection root.
+             */
+            parent_id?: string | null;
+        };
+        /** FolderRenameRequest */
+        FolderRenameRequest: {
+            /** Name */
+            name: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1313,6 +2228,93 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "attention";
+        };
+        /**
+         * MCPConnectionError
+         * @description User-safe diagnostics for a failed test (B4.2).
+         *
+         *     ``message`` and ``suggested_action`` are always safe for end-users; the
+         *     raw ``code`` is the stable contract the frontend branches on.
+         */
+        MCPConnectionError: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Suggested Action */
+            suggested_action: string;
+            /**
+             * Request Id
+             * @description Server request id, useful when reporting an issue.
+             */
+            request_id?: string | null;
+        };
+        /**
+         * MCPConnectionTestRequest
+         * @description POST body for the ephemeral connection test (B4.3).
+         *
+         *     ``api_key`` is a one-time MCP Client Key. It exists only for the
+         *     request lifetime; nothing is persisted, logged, traced or echoed.
+         */
+        MCPConnectionTestRequest: {
+            /**
+             * Api Key
+             * Format: password
+             * @description The MCP Client Key returned at create/rotate time. It is send-only: never stored, logged or returned.
+             */
+            api_key: string;
+        };
+        /**
+         * MCPConnectionTestResponse
+         * @description Result of the full protocol test (B4.3).
+         *
+         *     ``ok`` is True only when every stage succeeded. ``error`` is null on
+         *     success and holds a user-safe diagnostics object otherwise. The raw
+         *     ``api_key`` is never a field here.
+         */
+        MCPConnectionTestResponse: {
+            /** Ok */
+            ok: boolean;
+            /** Stages */
+            stages: components["schemas"]["MCPConnectionTestStage"][];
+            /** @description User-safe diagnostics; null when ok is True. */
+            error?: components["schemas"]["MCPConnectionError"] | null;
+            /**
+             * Tested At
+             * Format: date-time
+             */
+            tested_at: string;
+        };
+        /**
+         * MCPConnectionTestStage
+         * @description One protocol-level stage of the connection test (B4.3).
+         */
+        MCPConnectionTestStage: {
+            /**
+             * Name
+             * @description connect|initialize|tools_list|list_collections
+             */
+            name: string;
+            /**
+             * Status
+             * @description success|failed|skipped
+             */
+            status: string;
+            /**
+             * Latency Ms
+             * @description Wall-clock time for the stage in milliseconds.
+             */
+            latency_ms?: number | null;
+            /**
+             * Tool Count
+             * @description Number of tools advertised by the server (tools_list only).
+             */
+            tool_count?: number | null;
+            /**
+             * Collection Count
+             * @description Number of authorized collections (list_collections only).
+             */
+            collection_count?: number | null;
         };
         /** MCPKeyCollectionsUpdateRequest */
         MCPKeyCollectionsUpdateRequest: {
@@ -1378,8 +2380,56 @@ export interface components {
             revoked_at: string | null;
             /** Last Used At */
             last_used_at: string | null;
-            /** Api Key */
+            /**
+             * Api Key
+             * Format: password
+             * @description The MCP Client Key. Returned exactly once at create/rotate time and never readable again; send-only for the connection test.
+             */
             api_key: string;
+        };
+        /**
+         * MCPServerStatus
+         * @description B4.1 aggregated status snapshot of the MCP server.
+         *
+         *     ``mcp_url`` is the *public* client URL (from server config) — never a
+         *     container-internal address or a caller-supplied URL. No collection or
+         *     key information is included.
+         */
+        MCPServerStatus: {
+            /**
+             * Status
+             * @description Enum: online|degraded|offline|misconfigured
+             */
+            status: string;
+            /** Mcp Url */
+            mcp_url: string;
+            /**
+             * Transport
+             * @description MCP transport as reported by the anonymous /health probe.
+             * @default streamable-http
+             */
+            transport: string;
+            /**
+             * Version
+             * @description Server-reported MCP version (if the server exposes one).
+             */
+            version?: string | null;
+            /**
+             * Upstream Status
+             * @description Enum: online|offline|unknown — main RAG API reachability.
+             * @default unknown
+             */
+            upstream_status: string;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /**
+             * Latency Ms
+             * @description Health-probe round-trip latency in milliseconds.
+             */
+            latency_ms?: number | null;
         };
         /** OverviewAttentionItem */
         OverviewAttentionItem: {
@@ -1758,6 +2808,31 @@ export interface components {
             rerank_success_rate?: number | null;
         };
         /**
+         * SourceLocator
+         * @description Where, in the original file, a chunk points to (task book B1.3).
+         *
+         *     ``pdf_page`` carries a 1-based ``page``; ``image``/``section``/``none``
+         *     have no page (``page`` is ``None``). The preview URL stays behind the
+         *     existing controlled preview endpoint — no filesystem path leaks here.
+         * @example {
+         *       "kind": "pdf_page",
+         *       "page": 12
+         *     }
+         */
+        SourceLocator: {
+            /**
+             * Kind
+             * @description Normalized locator kind; never guessed.
+             * @enum {string}
+             */
+            kind: "pdf_page" | "image" | "section" | "none";
+            /**
+             * Page
+             * @description 1-based page, set only when ``kind == 'pdf_page'``.
+             */
+            page?: number | null;
+        };
+        /**
          * SystemHealth
          * @description ``GET /system/health`` response.
          *
@@ -1874,6 +2949,75 @@ export interface components {
             features?: {
                 [key: string]: boolean;
             };
+        };
+        /**
+         * Tag
+         * @description A collection-scoped tag.
+         * @example {
+         *       "collection_id": "b2c1f0e8-1234-5678-9abc-def012345678",
+         *       "color": "blue",
+         *       "created_at": "2026-09-11T08:00:00.000Z",
+         *       "id": "3c2f1b0a-99aa-4422-8811-aabbccddeeff",
+         *       "name": "财务",
+         *       "updated_at": "2026-09-11T08:00:00.000Z"
+         *     }
+         */
+        Tag: {
+            /**
+             * Id
+             * @description Stable tag id (UUID string).
+             */
+            id: string;
+            /**
+             * Collection Id
+             * Format: uuid
+             * @description Owning collection id.
+             */
+            collection_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Color
+             * @description Controlled colour token.
+             * @default grey
+             */
+            color: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** TagCreateRequest */
+        TagCreateRequest: {
+            /** Name */
+            name: string;
+            /**
+             * Color
+             * @description One of the allowed colour tokens.
+             * @default grey
+             */
+            color: string;
+        };
+        /** TagListResponse */
+        TagListResponse: {
+            /** Items */
+            items: components["schemas"]["Tag"][];
+        };
+        /** TagUpdateRequest */
+        TagUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /**
+             * Color
+             * @description One of the allowed colour tokens.
+             */
+            color?: string | null;
         };
         /**
          * TaskError
@@ -2069,6 +3213,34 @@ export interface components {
             finished_at?: string | null;
         };
         /**
+         * TraceListResponse
+         * @description ``GET /traces`` response — cursor-paginated, newest-first.
+         * @example {
+         *       "items": [],
+         *       "page_info": {
+         *         "has_more": false
+         *       }
+         *     }
+         * @example {
+         *       "items": [
+         *         "<one element>"
+         *       ],
+         *       "page_info": {
+         *         "has_more": true,
+         *         "next_cursor": "eyJwYWdlIjoxfQ=="
+         *       }
+         *     }
+         */
+        TraceListResponse: {
+            /**
+             * Items
+             * @description Page elements.
+             */
+            items: components["schemas"]["TraceResponse"][];
+            /** @description Pagination cursor info. */
+            page_info: components["schemas"]["PageInfo"];
+        };
+        /**
          * TraceResponse
          * @description ``GET /queries/{id}/trace`` and ``GET /ingestions/{id}/trace`` response.
          * @example {
@@ -2154,6 +3326,33 @@ export interface components {
              * @description Top-level error message if any.
              */
             error?: string | null;
+            /**
+             * Status
+             * @description Lifecycle status. ``running``/``pending`` while in flight; ``success``/``failed``/``canceled``/``skipped`` once terminal.
+             */
+            status?: ("pending" | "running" | "success" | "warning" | "failed" | "skipped" | "canceled") | null;
+            /**
+             * Retryable
+             * @description True when this trace may be retried (status failed/canceled).
+             * @default false
+             */
+            retryable: boolean;
+            /**
+             * Cancelable
+             * @description True when this trace may be cancelled (status pending/running).
+             * @default false
+             */
+            cancelable: boolean;
+            /**
+             * Attempt
+             * @description Retry attempt (0 for the original run).
+             */
+            attempt?: number | null;
+            /**
+             * Parent Trace Id
+             * @description Trace id of the failed run this attempt retried (null for the root).
+             */
+            parent_trace_id?: string | null;
         };
         /**
          * TraceStage
@@ -2207,6 +3406,41 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+            /**
+             * Status
+             * @description Lifecycle status of this stage. Derived for old traces: ``success`` for a completed stage, ``failed``/``skipped``/``canceled`` from a terminal event tag, ``running`` when still in flight.
+             */
+            status?: ("pending" | "running" | "success" | "warning" | "failed" | "skipped" | "canceled") | null;
+            /**
+             * Input Count
+             * @description Items processed into this stage (``None`` when unknown).
+             */
+            input_count?: number | null;
+            /**
+             * Output Count
+             * @description Items produced by this stage (``None`` when unknown).
+             */
+            output_count?: number | null;
+            /**
+             * Attempt
+             * @description Retry attempt this stage belongs to (0 for first try).
+             */
+            attempt?: number | null;
+            /**
+             * Skip Reason
+             * @description Short reason when the stage was skipped.
+             */
+            skip_reason?: string | null;
+            /**
+             * Error Code
+             * @description Stable error code when the stage failed (branchable).
+             */
+            error_code?: string | null;
+            /**
+             * Error Summary
+             * @description Sanitised, human-readable error summary (never raw secrets).
+             */
+            error_summary?: string | null;
         };
         /**
          * TrafficMetrics
@@ -2259,6 +3493,26 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** _QueryBody */
+        _QueryBody: {
+            /** Query */
+            query: string;
+            /**
+             * Collection
+             * @default default
+             */
+            collection: string;
+            /**
+             * Top K
+             * @default 10
+             */
+            top_k: number;
+            /**
+             * Rerank
+             * @default true
+             */
+            rerank: boolean;
         };
     };
     responses: never;
@@ -2481,6 +3735,22 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Page size, 1-100. */
                 limit?: number;
+                /** @description Case-insensitive substring on filename/path. */
+                q?: string | null;
+                /** @description A folder UUID, or literal ``root`` = collection root. */
+                folder_id?: string | null;
+                /** @description Repeatable tag id; documents must carry ALL given tags. */
+                tag_id?: string[] | null;
+                /** @description 'ready' or 'failed'. */
+                status?: string | null;
+                /** @description File extension without a leading dot. */
+                file_type?: string | null;
+                /** @description RFC-3339 timestamp; documents updated at/after this. */
+                updated_after?: string | null;
+                /** @description RFC-3339 timestamp; documents updated at/before this. */
+                updated_before?: string | null;
+                /** @description updated_desc | updated_asc | name_asc | name_desc | size_desc. */
+                sort?: string | null;
             };
             header?: never;
             path: {
@@ -2643,6 +3913,83 @@ export interface operations {
             };
         };
     };
+    list_document_chunks_api_v1_documents__document_id__chunks_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page (min 1). */
+                page?: number;
+                /** @description Rows per page, 1-100. */
+                page_size?: number;
+                /** @description Case-insensitive literal text search. */
+                q?: string | null;
+                /** @description Chunk content-type filter. */
+                content_type?: ("text" | "table" | "image_ocr" | "image_caption") | null;
+                /** @description Filter by source page. */
+                page_number?: number | null;
+            };
+            header?: never;
+            path: {
+                /** @description Document ID (UUID). */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentChunkListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_chunk_api_v1_documents__document_id__chunks__chunk_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID (UUID). */
+                document_id: string;
+                /** @description Stable chunk identifier. */
+                chunk_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentChunkDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     preview_document_api_v1_documents__document_id__preview_get: {
         parameters: {
             query?: never;
@@ -2689,6 +4036,70 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_task_api_v1_tasks__task_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ingestion task ID (UUID). */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_task_api_v1_tasks__task_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ingestion task ID (UUID). */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2819,6 +4230,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_traces_api_v1_traces_get: {
+        parameters: {
+            query?: {
+                /** @description Filter by trace type ('query' | 'ingestion'). */
+                type?: string | null;
+                /** @description Filter by trace status (e.g. 'success', 'failed', 'canceled'). */
+                status?: string | null;
+                /** @description Filter ingestion traces for a collection. */
+                collection_id?: string | null;
+                /** @description Filter ingestion traces for a document. */
+                document_id?: string | null;
+                /** @description Full-text filter over trace id, collection/doc ids, stage names. */
+                q?: string | null;
+                /** @description Exclusive-ish lower bound on trace start (ISO-8601). */
+                from?: string | null;
+                /** @description Upper bound on trace start (ISO-8601). */
+                to?: string | null;
+                /** @description Opaque cursor from the previous page's ``next_cursor``. */
+                cursor?: string | null;
+                /** @description Page size. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraceListResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -3168,6 +4627,689 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MCPKeyMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tags_api_v1_collections__collection_id__tags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tag_api_v1_collections__collection_id__tags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tag_api_v1_collections__collection_id__tags__tag_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_tag_api_v1_collections__collection_id__tags__tag_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_document_tags_api_v1_documents__document_id__tags_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID (UUID). */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentTagsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTagsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_folders_api_v1_collections__collection_id__folders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_v1_collections__collection_id__folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Folder"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_folder_api_v1_collections__collection_id__folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_folder_api_v1_collections__collection_id__folders__folder_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Folder"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_folder_api_v1_collections__collection_id__folders__folder_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Folder"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_document_folder_api_v1_documents__document_id__folder_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID (UUID). */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentFolderUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentFolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_tags_api_v1_collections__collection_id__documents_batch_tags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchTagsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_move_api_v1_collections__collection_id__documents_batch_move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_reprocess_api_v1_collections__collection_id__documents_batch_reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchReprocessRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_delete_api_v1_collections__collection_id__documents_batch_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_mcp_server_status_api_v1_mcp_server_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerStatus"];
+                };
+            };
+        };
+    };
+    test_mcp_connection_api_v1_mcp_server_test_connection_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPConnectionTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPConnectionTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collections_internal_mcp_v1_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    query_knowledge_internal_mcp_v1_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_QueryBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_internal_mcp_v1_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_chunks_internal_mcp_v1_documents__document_id__chunks_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

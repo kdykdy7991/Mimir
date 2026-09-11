@@ -151,4 +151,34 @@ describe("ApiClient", () => {
 
     expect(fetcher.mock.calls[0]![0]).toBe("http://api.test/api/v1/ingestions/task-id/trace");
   });
+
+  it("encodes frozen chunk filters and path identifiers", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ items: [], page: 2, page_size: 20, total: 0, has_next: false }));
+    const client = new ApiClient({ baseUrl: "http://api.test", fetch: fetcher });
+
+    await client.listDocumentChunks("doc/id", { page: 2, page_size: 20, q: "休假 制度", content_type: "table", page_number: 3 });
+
+    expect(fetcher.mock.calls[0]![0]).toBe("http://api.test/api/v1/documents/doc%2Fid/chunks?page=2&page_size=20&q=%E4%BC%91%E5%81%87+%E5%88%B6%E5%BA%A6&content_type=table&page_number=3");
+  });
+
+  it("repeats collection document tag filters", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ items: [], page_info: { next_cursor: null, has_more: false } }));
+    const client = new ApiClient({ baseUrl: "http://api.test", fetch: fetcher });
+
+    await client.listFilteredDocuments("kb", { tag_id: ["policy", "approved"], sort: "name_asc", limit: 50 });
+
+    expect(fetcher.mock.calls[0]![0]).toBe("http://api.test/api/v1/collections/kb/documents?tag_id=policy&tag_id=approved&sort=name_asc&limit=50");
+  });
+
+  it("never puts the MCP client secret in the connection-test URL", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true, stages: [], error: null, tested_at: "2026-09-11T00:00:00Z" }));
+    const client = new ApiClient({ baseUrl: "http://api.test", fetch: fetcher });
+
+    await client.testMCPConnection("skdy_mcp_secret");
+
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(url).toBe("http://api.test/api/v1/mcp-server/test-connection");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ api_key: "skdy_mcp_secret" }));
+  });
 });

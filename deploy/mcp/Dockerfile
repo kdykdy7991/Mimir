@@ -20,7 +20,11 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 # The standalone runtime's config always points at the main API over HTTP.
 COPY deploy/mcp/mcp-settings.yaml ./config/settings.yaml
-RUN pip install --no-build-isolation --no-deps -e .
+# The container runs from /srv/mcp, so the copied ``src`` package is already
+# importable without installing the project distribution.  Avoid an editable
+# install here: with --no-build-isolation it requires setuptools/wheel in the
+# runtime image, while build isolation would perform another network download.
+# All runtime dependencies are installed explicitly above.
 
 COPY deploy/mcp/health_check.py ./health_check.py
 COPY deploy/mcp/health_check.sh ./health_check.sh
