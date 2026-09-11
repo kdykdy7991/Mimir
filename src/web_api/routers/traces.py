@@ -10,18 +10,92 @@ record exists; the trace was lost / never enabled) rather than 404.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 
 from src.application.composition import ApplicationServices
 from src.web_api.dependencies import get_application_services
 from src.web_api.errors import IngestionNotFoundError, QueryNotFoundError
-from src.web_api.mappers import to_query_response, to_trace_response
+from src.web_api.mappers import (
+    build_live_trace_response,
+    to_query_response,
+    to_trace_response,
+)
+from src.web_api.schemas.common import PageInfo
 from src.web_api.schemas.queries import AsyncQueryResult
-from src.web_api.schemas.traces import TraceResponse
+from src.web_api.schemas.traces import TraceListResponse, TraceResponse
 
 router = APIRouter(tags=["traces"])
+
+
+@router.get(
+    "/traces",
+    response_model=TraceListResponse,
+    summary="List traces",
+)
+def list_traces(
+    trace_type: str | None = Query(
+        None, alias="type", description="Filter by trace type ('query' | 'ingestion').",
+    ),
+    status: str | None = Query(
+        None, description="Filter by trace status (e.g. 'success', 'failed', 'canceled').",
+    ),
+    collection_id: UUID | None = Query(
+        None, description="Filter ingestion traces for a collection.",
+    ),
+    document_id: UUID | None = Query(
+        None, description="Filter ingestion traces for a document.",
+    ),
+    q: str | None = Query(
+        None, description="Full-text filter over trace id, collection/doc ids, stage names.",
+    ),
+    started_from: datetime | None = Query(
+        None, alias="from", description="Exclusive-ish lower bound on trace start (ISO-8601).",
+    ),
+    started_to: datetime | None = Query(
+        None, alias="to", description="Upper bound on trace start (ISO-8601).",
+    ),
+    cursor: str | None = Query(
+        None, description="Opaque cursor from the previous page's ``next_cursor``.",
+    ),
+    limit: int = Query(20, ge=1, le=200, description="Page size."),
+    services: ApplicationServices = Depends(get_application_services),
+) -> TraceListResponse:
+    """Bounded, newest-first trace listing backed by the SQLite index.
+
+    Filtering + pagination happen in the store's index, so this never scans
+    the unbounded JSONL. The cursor is a stable ``(started_at, trace_id)``
+    keyset — pages do not shift when new traces are recorded in between.
+    """
+    items, next_cursor = services.trace.list(
+        trace_type=trace_type,
+        status=status,
+        collection_id=str(collection_id) if collection_id else None,
+        document_id=str(document_id) if document_id else None,
+        q=q,
+        started_from=_to_epoch(started_from),
+        started_to=_to_epoch(started_to),
+        cursor=cursor,
+        limit=limit,
+    )
+    traces = [to_trace_response(raw) for raw in items]
+    return TraceListResponse(
+        items=traces,
+        page_info=PageInfo(
+            next_cursor=next_cursor,
+            has_more=next_cursor is not None,
+        ),
+    )
+
+
+def _to_epoch(value: datetime | None) -> float | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
 
 
 @router.get(
@@ -91,42 +165,31 @@ def get_ingestion_trace(
     """Return the per-stage trace for a previously run ingestion.
 
     Ingestion traces are recorded with ``trace_id == task_id``. When the
-    trace is missing but the task still exists (e.g. recorded before this
-    feature, or trace persistence failed), return 200 with empty stages —
-    the ingestion *record* is real even if its timeline is gone.
+    task is mid-flight its live snapshot (completed stages + current stage)
+    is merged with any recorded trace; when the trace is missing but the
+    task still exists (e.g. recorded before this feature, or trace
+    persistence failed), return 200 with empty stages — the ingestion
+    *record* is real even if its timeline is gone. Terminal/final state
+    wins and never regresses.
     """
     raw = services.trace.get(ingestion_id)
-    if raw is not None:
-        return to_trace_response(raw)
-
     try:
         task_id = UUID(ingestion_id)
     except ValueError:
         task_id = None
-
     task = services.ingestion.get_task(task_id) if task_id is not None else None
+
+    # A real (persisted/live) trace + the task is the merge baseline.
+    if raw is not None and task is not None:
+        return build_live_trace_response(task, raw)
+    if raw is not None:
+        return to_trace_response(raw)
     if task is None:
         raise IngestionNotFoundError(
             f"ingestion {ingestion_id!r} does not exist",
             details={"ingestion_id": ingestion_id},
         )
-    return _empty_task_trace(task)
-
-
-def _empty_task_trace(task) -> TraceResponse:
-    """Build a 200 TraceResponse from a task record that has no trace."""
-    started_at = task.created_at
-    end = task.finished_at or task.updated_at or task.created_at
-    total_ms = max(0.0, (end - started_at).total_seconds() * 1000.0)
-    return TraceResponse(
-        id=task.id,
-        trace_type="ingestion",
-        started_at=started_at,
-        finished_at=end,
-        total_latency_ms=total_ms,
-        stages=[],
-        error=task.error.message if task.error is not None else None,
-    )
+    return build_live_trace_response(task, None)
 
 
 __all__ = ["router"]

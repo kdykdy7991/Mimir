@@ -35,9 +35,9 @@ import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
-from src.application.identifiers import document_uuid
+from src.application.identifiers import collection_uuid, document_uuid
 from src.application.services.task_tracker import TaskRecord, TaskTracker
 from src.application.services.task_types import TaskError, TaskStage
 from src.application.services.upload_types import (
@@ -55,6 +55,26 @@ if TYPE_CHECKING:
     from src.ingestion.pipeline import IngestionPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
+
+
+class TaskCancelledError(Exception):
+    """Raised inside the worker when a cooperative-cancel request is seen.
+
+    Signal-only; the worker catches it, marks the task ``cancelled`` and
+    records a terminal ``canceled`` trace without rolling back any already
+    completed atomic writes (existing documents / old indexes are kept).
+    """
+
+
+class RetrySourceMissingError(LookupError):
+    """Raised by :meth:`IngestionService.retry` when the original source
+    file is no longer present on disk — surfaced as an actionable 404."""
+
+
+# A retry child's id is a deterministic uuid5(parent-task-id, attempt-tag),
+# so duplicate or concurrent retries of the same task collide to the SAME
+# child id, which ``TaskTracker.create_if_absent`` turns into a no-op.
+_RETRY_TAG = "skdy-retry"
 
 
 # Stage names the pipeline emits (it currently emits "load", "split",
@@ -289,6 +309,9 @@ class IngestionService:
         source_path: Path | str | None = None,
         on_complete: Callable[[TaskRecord], None] | None = None,
         defer_worker: bool = False,
+        task_id: UUID | None = None,
+        attempt: int = 0,
+        parent_task_id: UUID | None = None,
     ) -> TaskRecord:
         """Stage the upload bytes, create a task and spawn the worker.
 
@@ -304,6 +327,12 @@ class IngestionService:
         from the temp file, labels everything with the stable canonical
         ``source_path`` (document identity unchanged), then atomically promotes
         the successful upload to that canonical path for original-file preview.
+
+        Retry (B3.3): when ``task_id`` is provided (a deterministic retry
+        child id), the task is created idempotently via
+        :meth:`TaskTracker.create_if_absent` so a concurrent / duplicate
+        retry of the same parent never double-creates a child. ``attempt``
+        and ``parent_task_id`` are stamped onto the record.
         """
         # ---- 1. Resolve the canonical source path --------------------
         # ``source_path`` is the document identity (uuid5 input); it is
@@ -314,20 +343,31 @@ class IngestionService:
         canonical = Path(source_path)
 
         # ---- 2. Stage the bytes at a unique temp path ---------------
-        task_id = uuid4()
+        task_id = task_id or uuid4()
         temp_dir = self._upload_dir / (collection or "default") / ".tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         ingest_path = temp_dir / f"{task_id}-{self._sanitise_filename(filename)}"
         ingest_path.write_bytes(bytes_payload)
 
         # ---- 3. Seed the task record (source_path = canonical) ------
-        record = self._tracker.create(
-            task_id=task_id,
-            document_id=document_id,
-            collection_id=collection_id,
-            source_path=str(canonical),
-            filename=filename,
-        )
+        if parent_task_id is not None:
+            record = self._tracker.create_if_absent(
+                task_id=task_id,
+                document_id=document_id,
+                collection_id=collection_id,
+                source_path=str(canonical),
+                filename=filename,
+                attempt=attempt,
+                parent_task_id=parent_task_id,
+            )
+        else:
+            record = self._tracker.create(
+                task_id=task_id,
+                document_id=document_id,
+                collection_id=collection_id,
+                source_path=str(canonical),
+                filename=filename,
+            )
         if on_complete is not None:
             self._pending_hooks[task_id] = on_complete
 
@@ -537,6 +577,115 @@ class IngestionService:
         return self._batches.get(batch_id)
 
     # ------------------------------------------------------------------
+    # M6 / task book B2.8 — reprocess an existing document
+    # ------------------------------------------------------------------
+    def reprocess(
+        self,
+        *,
+        collection: str,
+        collection_id: UUID,
+        document_id: UUID,
+        source_path: str | Path,
+        filename: str,
+    ) -> TaskRecord:
+        """Re-run ingestion on an existing document's canonical file.
+
+        Reuses the upload staging machinery so a reprocess task walks the
+        exact same ``pending → running → succeeded/failed/skipped`` path as
+        an upload: the existing file is read, staged to a per-task temp
+        path, ingested, and atomically promoted back to the stable
+        canonical path. Each invocation returns a fresh, independent
+        :class:`TaskRecord`.
+
+        Duplicate-enqueue protection lives in the caller (the batch router
+        checks task state before enqueueing) so this method assumes it is
+        safe to start a new task here. If the on-disk file is missing we
+        let :class:`FileNotFoundError` propagate — the HTTP layer maps it
+        to a per-item error rather than uploading nothing.
+        """
+        canonical = Path(source_path)
+        payload = canonical.read_bytes()
+        return self._submit_file(
+            bytes_payload=payload,
+            filename=filename,
+            collection=collection,
+            collection_id=collection_id,
+            document_id=document_id,
+            source_path=canonical,
+        )
+
+    # ------------------------------------------------------------------
+    # B3.3 — retry a failed / cancelled ingestion
+    # ------------------------------------------------------------------
+    def retry(self, task_id: UUID) -> TaskRecord | None:
+        """Re-create a failed/cancelled ingestion as a fresh task + trace.
+
+        Only ``failed`` / ``cancelled`` sources may be retried (the router
+        rejects everything else with a stable 409). The original task and
+        its trace are left intact; a NEW task and trace are created with
+        ``attempt == parent.attempt + 1`` and ``parent_task_id`` pointing
+        back at the original, re-using the original document source file
+        and parsing config (same collection / collection_id / document_id,
+        same canonical path / filename).
+
+        Idempotency: the child task's id is a deterministic
+        ``uuid5(parent_task_id, attempt)``, so a repeated identical retry
+        of the same parent returns the already-created child instead of
+        spawning another task.
+
+        If the original source file is gone from disk, raises
+        :class:`RetrySourceMissingError` — the HTTP layer maps it to an
+        actionable 404.
+        """
+        original = self._tracker.get(task_id)
+        if original is None or original.status not in ("failed", "cancelled"):
+            return None
+        attempt = original.attempt + 1
+        child_id = uuid5(UUID(str(task_id)), f"{_RETRY_TAG}:{attempt}")
+        existing = self._tracker.get(child_id)
+        if existing is not None:
+            return existing  # duplicate / concurrent retry — already created
+        canonical = Path(original.source_path)
+        if not canonical.is_file():
+            raise RetrySourceMissingError(str(canonical))
+        # The canonical layout is ``upload_dir/<collection>/<filename>``
+        # (see :meth:`compute_source_path`), so the parent directory names
+        # the collection we route the retry to.
+        parent = canonical.parent.name
+        collection = parent if parent and parent not in {"", "."} else "default"
+        payload = canonical.read_bytes()
+        return self._submit_file(
+            bytes_payload=payload,
+            filename=original.filename,
+            collection=collection,
+            collection_id=original.collection_id,
+            document_id=original.document_id,
+            source_path=canonical,
+            task_id=child_id,
+            attempt=attempt,
+            parent_task_id=task_id,
+        )
+
+    # ------------------------------------------------------------------
+    # B3.4 — cooperative cancel of a pending / running ingestion
+    # ------------------------------------------------------------------
+    def cancel(self, task_id: UUID) -> TaskRecord | None:
+        """Record a cooperative-cancel request and return the snapshot.
+
+        Idempotent: repeated cancels are no-ops. A ``pending`` task is
+        cancelled immediately; a ``running`` task keeps running so the
+        worker can stop at the next safe stage boundary and mark it
+        ``cancelled``. Terminal tasks are left untouched — the router maps
+        that to a stable 409.
+        """
+        try:
+            return self._tracker.request_cancel(task_id)
+        except KeyError:
+            # Task isn't in the in-memory registry (e.g. after a restart);
+            # return whatever snapshot exists (the router handles 404).
+            return self._tracker.get(task_id)
+
+    # ------------------------------------------------------------------
     # Public task lookup
     # ------------------------------------------------------------------
     def get_task(self, task_id: UUID) -> TaskRecord | None:
@@ -591,6 +740,15 @@ class IngestionService:
             lambda rec: rec.mark_running("load"),
         )
 
+        # Guard against a cancel that queued while this task waited for a
+        # worker slot: the task is already terminal ``cancelled`` → clean up
+        # and bail before running any pipeline work.
+        if self._tracker.cancel_requested(task_id):
+            self._tracker.update(task_id, lambda rec: rec.mark_cancelled())
+            self._cleanup_temp(ingest_path)
+            self._invoke_on_complete(task_id)
+            return
+
         # M2 batch 3: when a trace store is wired (Web API boot), the
         # ingestion run records a trace whose id == task id, so
         # ``GET /ingestions/{id}/trace`` works. CLI / MCP keep their
@@ -602,13 +760,34 @@ class IngestionService:
                 TraceContext,
             )
 
+            rec = self._tracker.get(task_id)
             trace = TraceContext(
                 trace_id=str(task_id),
                 trace_type=TRACE_TYPE_INGESTION,
+                metadata={
+                    "collection_id": str(rec.collection_id) if rec else None,
+                    "document_id": str(rec.document_id) if rec and rec.document_id else None,
+                    "collection": collection,
+                    "source_path": canonical_source,
+                    "filename": Path(canonical_source).name,
+                },
             )
+            if rec is not None:
+                trace.attempt = rec.attempt
+                trace.parent_trace_id = (
+                    str(rec.parent_task_id) if rec.parent_task_id else None
+                )
 
         def on_progress(stage: str, current: int, total: int) -> None:
-            """Bridge pipeline progress → TaskProgress snapshot."""
+            """Bridge pipeline progress → TaskProgress + live trace.
+
+            Also the cooperative-cancel checkpoint: if a cancel request has
+            landed, raise so the pipeline aborts *after* its currently
+            running stage's atomic write completes — we never roll back
+            already-committed work, we just stop the remaining stages.
+            """
+            if self._tracker.cancel_requested(task_id):
+                raise TaskCancelledError(task_id)
             public_stage = _canonical_stage(stage)
             percent = _percent_from_counts(current, total)
             self._tracker.update(
@@ -617,6 +796,10 @@ class IngestionService:
                     public_stage, current, total, percent,
                 ),
             )
+            # Keep the in-memory trace fresh so ``GET /ingestions/{id}/trace``
+            # can report completed stages + the current stage mid-flight.
+            if self._trace_store is not None and trace is not None:
+                self._trace_store.upsert_live(trace)
 
         # The whole write sequence — pipeline run (which rewrites the
         # collection's on-disk BM25 index) + cache invalidation — runs
@@ -655,26 +838,39 @@ class IngestionService:
                     canonical = Path(canonical_source)
                     canonical.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(ingest_path, canonical)
+            except TaskCancelledError:
+                # Cooperative cancel: stop here, do not roll back completed
+                # writes, mark the task terminal ``cancelled`` and record a
+                # terminal ``canceled`` trace.
+                self._tracker.update(task_id, lambda rec: rec.mark_cancelled())
+                if trace is not None:
+                    trace.record_stage(
+                        "ingestion_pipeline", event="cancelled",
+                    )
+                    trace.status = "canceled"
+                    trace.finish()
+                    self._trace_store.record(trace)  # type: ignore[union-attr]
             except Exception as exc:  # noqa: BLE001 — any failure → task failed
                 self._record_failure(task_id, exc)
                 if trace is not None:
+                    trace.status = "failed"
                     trace.finish()
                     self._trace_store.record(trace)  # type: ignore[union-attr]
             else:
-                if trace is not None:
-                    trace.finish()
-                    self._trace_store.record(trace)  # type: ignore[union-attr]
-
                 # M5: a pipeline run that short-circuited because the
                 # file's hash is already marked success for this
                 # collection is a *skip*, not a success. ``getattr``
                 # guards fakes that return ``None`` from ``run()``.
                 if getattr(result, "skipped", False):
+                    if trace is not None:
+                        trace.status = "skipped"
                     self._tracker.update(
                         task_id,
                         lambda rec: rec.mark_skipped(),
                     )
                 else:
+                    if trace is not None:
+                        trace.status = "success"
                     self._tracker.update(
                         task_id,
                         lambda rec: rec.mark_succeeded(),
@@ -683,6 +879,9 @@ class IngestionService:
                     # Invalidate caches now so it is immediately resolvable.
                     if self._on_ingested is not None:
                         self._on_ingested()
+                if trace is not None:
+                    trace.finish()
+                    self._trace_store.record(trace)  # type: ignore[union-attr]
             finally:
                 # Drop the cached engines while still holding the write
                 # lock so the SparseRetriever reloads the fresh index on

@@ -40,6 +40,84 @@ VALID_TRACE_TYPES = (TRACE_TYPE_INGESTION, TRACE_TYPE_QUERY)
 
 logger = logging.getLogger(__name__)
 
+# Stage status vocabulary (B3.1 contract). ``canceled`` is the US-spelling
+# used by the wire contract; task statuses use the ``cancelled`` variant and
+# are mapped here (see ``derive_trace_status``).
+VALID_STAGE_STATUSES = (
+    "pending", "running", "success", "warning", "failed", "skipped", "canceled",
+)
+
+# Map a stage ``event`` tag to a terminal stage status. Used to derive a
+# status for old JSONL lines that predate explicit per-stage ``status``.
+_STAGE_STATUS_BY_EVENT: dict[str, str] = {
+    "error": "failed",
+    "skipped": "skipped",
+    "cancelled": "canceled",
+    "canceled": "canceled",
+}
+
+
+def derive_stage_status(stage: dict[str, Any]) -> str:
+    """Derive a stage's :data:`VALID_STAGE_STATUSES` value.
+
+    Explicit ``status`` wins (new traces). Old JSONL lines fall back to:
+
+    - a terminal ``event`` tag (``error``/``skipped``/``canceled``);
+    - ``success`` for a completed bracketing stage (has ``elapsed_ms``);
+    - ``running`` for anything still in flight / un-tagged.
+
+    Never raises on a missing or unknown value — the contract says old
+    records must keep deserialising.
+    """
+    explicit = stage.get("status")
+    if explicit in VALID_STAGE_STATUSES:
+        return explicit
+    event = stage.get("event")
+    derived = _STAGE_STATUS_BY_EVENT.get(event)
+    if derived is not None:
+        return derived
+    if stage.get("elapsed_ms") is not None:
+        return "success"
+    return "running"
+
+
+# Task lifecycle status → wire trace status. Task states are per
+# ``TaskStatus`` literal; the trace uses ``success``/``canceled``.
+_TASK_STATUS_TO_TRACE_STATUS = {
+    "pending": "pending",
+    "running": "running",
+    "succeeded": "success",
+    "failed": "failed",
+    "cancelled": "canceled",
+    "skipped": "skipped",
+}
+
+
+def derive_trace_status(payload: dict[str, Any]) -> str:
+    """Derive the top-level trace ``status`` from a stored payload.
+
+    An explicit stored ``status`` wins (normalised). Otherwise we infer
+    a terminal status from stage ``event`` tags, defaulting to ``running``
+    for in-flight traces and ``success`` for finished ones. Old JSONL with
+    neither always deserialises.
+    """
+    explicit = payload.get("status")
+    if explicit is not None:
+        mapped = _TASK_STATUS_TO_TRACE_STATUS.get(str(explicit), str(explicit))
+        return mapped if mapped in VALID_STAGE_STATUSES else "running"
+    for stage in payload.get("stages") or []:
+        event = stage.get("event")
+        if event in _STAGE_STATUS_BY_EVENT:
+            return _STAGE_STATUS_BY_EVENT[event]
+    if payload.get("finished_at") is not None:
+        return "success"
+    return "running"
+
+
+def is_stage_status_terminal(status: str | None) -> bool:
+    """A stage status that should never regress during a live merge."""
+    return status in ("success", "warning", "failed", "skipped", "canceled")
+
 
 # ---------------------------------------------------------------------------
 # TraceContext
@@ -67,6 +145,13 @@ class TraceContext:
     metadata: dict[str, Any] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    # B3.1 — actionable top-level state. Retryable / cancelable are derived
+    # from ``status`` by readers; ``attempt`` / ``parent_trace_id`` are set
+    # by callers (ingestion retry) and default to ``None`` so old JSONL
+    # keeps deserialising.
+    status: str | None = None
+    attempt: int | None = None
+    parent_trace_id: str | None = None
 
     # ------------------------------------------------------------------
     # Construction helpers
@@ -143,6 +228,9 @@ class TraceContext:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "total_elapsed_ms": total_ms,
+            "status": self.status,
+            "attempt": self.attempt,
+            "parent_trace_id": self.parent_trace_id,
         }
         return out
 
@@ -224,5 +312,9 @@ __all__ = [
     "TraceCollector",
     "TraceContext",
     "VALID_TRACE_TYPES",
+    "VALID_STAGE_STATUSES",
+    "derive_stage_status",
+    "derive_trace_status",
+    "is_stage_status_terminal",
     "new_trace",
 ]

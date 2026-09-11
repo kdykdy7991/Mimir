@@ -113,3 +113,90 @@ class TestIngestionTrace:
         resp = client.get(f"/api/v1/ingestions/{uuid.uuid4()}/trace")
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "INGESTION_NOT_FOUND"
+
+
+class TestTraceList:
+    """B3.5 — GET /traces list (newest-first cursor pagination + filters)."""
+
+    # Trace ids equal ingestion task ids → valid UUIDs.
+    T100 = "10000000-0000-4000-8000-000000000000"
+    T200 = "20000000-0000-4000-8000-000000000000"
+    T300 = "30000000-0000-4000-8000-000000000000"
+
+    def _seed(self, services: ApplicationServices) -> None:
+        from src.core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
+
+        base = 1_789_030_798.0
+
+        def make(tid: str, i: float, *, status: str | None = None,
+                 collection: str | None = None, document: str | None = None) -> None:
+            t = TraceContext(
+                trace_id=tid, trace_type=TRACE_TYPE_INGESTION,
+                started_at=base + i,
+                metadata={
+                    "collection_id": collection,
+                    "collection": "default" if collection else None,
+                    "document_id": document,
+                    "filename": f"{tid}.pdf",
+                },
+            )
+            t.record_stage("load", elapsed_ms=5.0)
+            if status is not None:
+                t.status = status
+            t.finish()
+            services.trace.record(t)
+
+        cid = str(collection_uuid("default"))
+        make(self.T100, 0.1, status="success", collection=cid, document=str(uuid.uuid4()))
+        make(self.T200, 0.2, status="failed", collection=cid, document=str(uuid.uuid4()))
+        make(self.T300, 0.3, status="success")
+
+    def test_list_newest_first_with_filters(self, tmp_path) -> None:
+        services = build_batch3_services(tmp_path)
+        self._seed(services)
+        client = TestClient(create_app(services=services))
+
+        resp = client.get("/api/v1/traces")
+        assert resp.status_code == 200
+        body = resp.json()
+        ids = [t["id"] for t in body["items"]]
+        assert ids == [self.T300, self.T200, self.T100]
+        assert body["page_info"]["has_more"] is False
+
+    def test_list_filter_status_and_type(self, tmp_path) -> None:
+        services = build_batch3_services(tmp_path)
+        self._seed(services)
+        client = TestClient(create_app(services=services))
+
+        body = client.get("/api/v1/traces?status=failed").json()
+        assert [t["id"] for t in body["items"]] == [self.T200]
+
+        body = client.get("/api/v1/traces?type=query").json()
+        assert body["items"] == []
+
+    def test_list_filter_collection(self, tmp_path) -> None:
+        services = build_batch3_services(tmp_path)
+        self._seed(services)
+        client = TestClient(create_app(services=services))
+        cid = str(collection_uuid("default"))
+        body = client.get(f"/api/v1/traces?collection_id={cid}").json()
+        assert {t["id"] for t in body["items"]} == {self.T200, self.T100}
+
+    def test_list_cursor_pagination(self, tmp_path) -> None:
+        services = build_batch3_services(tmp_path)
+        self._seed(services)
+        client = TestClient(create_app(services=services))
+
+        seen: list[str] = []
+        cursor = None
+        while True:
+            url = "/api/v1/traces?limit=2"
+            if cursor:
+                url += f"&cursor={cursor}"
+            body = client.get(url).json()
+            ids = [t["id"] for t in body["items"]]
+            seen.extend(ids)
+            cursor = body["page_info"]["next_cursor"]
+            if not body["page_info"]["has_more"]:
+                break
+        assert seen == [self.T300, self.T200, self.T100]

@@ -131,6 +131,24 @@ class ConflictError(APIError):
     code = "CONFLICT"
 
 
+class TaskNotRetryableError(ConflictError):
+    """``409`` — only ``failed``/``cancelled`` tasks may be retried."""
+
+    code = "TASK_NOT_RETRYABLE"
+
+
+class TaskNotCancelableError(ConflictError):
+    """``409`` — only ``pending``/``running`` tasks may be cancelled."""
+
+    code = "TASK_NOT_CANCELABLE"
+
+
+class SourceFileMissingError(NotFoundError):
+    """``404`` — the original source file needed for a retry is missing."""
+
+    code = "SOURCE_FILE_MISSING"
+
+
 class DuplicateCollectionError(ConflictError):
     """``409`` — collection name already exists."""
 
@@ -204,6 +222,9 @@ __all__ = [
     "ImageNotFoundError",
     "ConflictError",
     "DuplicateCollectionError",
+    "TaskNotRetryableError",
+    "TaskNotCancelableError",
+    "SourceFileMissingError",
     "UnsupportedFileTypeError",
     "FileTooLargeError",
     "UpstreamError",

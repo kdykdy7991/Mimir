@@ -65,6 +65,12 @@ class TaskRecord:
     progress: TaskProgress | None = None
     attempt: int = 0
     error: TaskError | None = None
+    # B3 retry/cancel. ``parent_task_id`` links a retry child to the task it
+    # restarted (deterministic child id makes retries idempotent).
+    # ``cancel_requested`` is the cooperative-cancel flag the worker polls
+    # at stage boundaries.
+    parent_task_id: UUID | None = None
+    cancel_requested: bool = False
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
     finished_at: datetime | None = None
@@ -132,6 +138,20 @@ class TaskRecord:
         self.finished_at = _utcnow()
         self.updated_at = self.finished_at
 
+    def mark_cancelled(self) -> None:
+        """Transition to the terminal ``cancelled`` state (cooperative cancel).
+
+        Completed atomic writes are never rolled back; this only records
+        that the worker stopped at the next safe boundary. Idempotent.
+        """
+        if self.status in ("cancelled", "succeeded", "failed", "skipped"):
+            return
+        self.status = "cancelled"
+        self.progress = None
+        self.cancel_requested = True
+        self.finished_at = _utcnow()
+        self.updated_at = self.finished_at
+
 
 class TaskTracker:
     """Process-local task registry.
@@ -163,6 +183,8 @@ class TaskTracker:
         filename: str,
         task_id: UUID | None = None,
         task_type: str = "ingestion",
+        attempt: int = 0,
+        parent_task_id: UUID | None = None,
     ) -> TaskRecord:
         """Allocate a new task in the ``pending`` state and seed the back-index.
 
@@ -175,6 +197,10 @@ class TaskTracker:
         ``task_type`` distinguishes ingestion tasks (the default) from
         async query tasks (M3 batch 2) — query tasks carry no document
         and are not indexed in the ``(collection, source_path)`` back-index.
+
+        ``attempt`` / ``parent_task_id`` (B3 retry) record how many times
+        this task is a retry of a previously failed/cancelled ingestion and
+        which task it restarted. ``parent_task_id`` is kept in-memory only.
         """
         with self._lock:
             record = TaskRecord(
@@ -184,6 +210,8 @@ class TaskTracker:
                 source_path=source_path,
                 filename=filename,
                 task_type=task_type,
+                attempt=attempt,
+                parent_task_id=parent_task_id,
             )
             self._tasks[record.id] = record
             # Track latest for the same (collection, source_path) — the
@@ -193,6 +221,40 @@ class TaskTracker:
                 self._latest_by_doc[(collection_id, source_path)] = record.id
             self._persist(record)
             return record
+
+    def create_if_absent(
+        self,
+        *,
+        task_id: UUID,
+        document_id: UUID | None,
+        collection_id: UUID,
+        source_path: str,
+        filename: str,
+        task_type: str = "ingestion",
+        attempt: int = 0,
+        parent_task_id: UUID | None = None,
+    ) -> TaskRecord:
+        """Idempotently create a task with a caller-chosen ``task_id``.
+
+        Used by retry so concurrent / duplicate retry requests never
+        double-create a child task: the child's id is deterministic
+        (parent id + attempt), so the second request returns the
+        already-created child instead of spawning another.
+        """
+        with self._lock:
+            existing = self._tasks.get(task_id)
+            if existing is not None:
+                return _snapshot(existing)
+        return self.create(
+            document_id=document_id,
+            collection_id=collection_id,
+            source_path=source_path,
+            filename=filename,
+            task_id=task_id,
+            task_type=task_type,
+            attempt=attempt,
+            parent_task_id=parent_task_id,
+        )
 
     def get(self, task_id: UUID) -> TaskRecord | None:
         """Snapshot read — returns the current record or ``None``.
@@ -231,6 +293,34 @@ class TaskTracker:
     # ------------------------------------------------------------------
     # Mutators — called only by the worker thread
     # ------------------------------------------------------------------
+
+    def request_cancel(self, task_id: UUID) -> TaskRecord:
+        """Record a cooperative-cancel request and return the snapshot.
+
+        Idempotent: repeated cancel requests are no-ops. A ``pending`` task
+        (queued for a worker slot) transitions straight to the terminal
+        ``cancelled`` state; a ``running`` task keeps running but sets
+        ``cancel_requested`` so the worker aborts at the next safe stage
+        boundary. Terminal tasks are untouched (the caller raises the
+        409 conflict).
+        """
+        with self._lock:
+            rec = self._tasks.get(task_id)
+            if rec is None:
+                raise KeyError(task_id)
+            if rec.status in ("succeeded", "failed", "cancelled", "skipped"):
+                return _snapshot(rec)
+            rec.cancel_requested = True
+            if rec.status == "pending":
+                rec.mark_cancelled()
+            self._persist(rec)
+            return _snapshot(rec)
+
+    def cancel_requested(self, task_id: UUID) -> bool:
+        """Whether the worker should stop at the next boundary."""
+        with self._lock:
+            rec = self._tasks.get(task_id)
+            return bool(rec and rec.cancel_requested)
 
     def update(self, task_id: UUID, mutator: "_TaskMutator") -> None:
         """Apply ``mutator(task)`` to the live record under the lock.
@@ -333,6 +423,8 @@ def _snapshot(rec: TaskRecord) -> TaskRecord:
         progress=rec.progress,
         attempt=rec.attempt,
         error=rec.error,
+        parent_task_id=rec.parent_task_id,
+        cancel_requested=rec.cancel_requested,
         created_at=rec.created_at,
         updated_at=rec.updated_at,
         finished_at=rec.finished_at,

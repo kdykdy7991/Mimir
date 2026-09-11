@@ -17,6 +17,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.web_api.schemas._types import UtcDatetime
+from src.web_api.schemas.common import Page
 
 
 TraceType = Literal["query", "ingestion"]
@@ -58,6 +59,38 @@ class TraceStage(BaseModel):
     details: dict = Field(
         default_factory=dict,
         description="Provider-specific or method-specific extra fields.",
+    )
+    # B3.1 — actionable stage state. All optional so old JSONL lines with
+    # fewer fields deserialise (missing fields derive to defaults/markings by
+    # the mapper; ``None`` is a valid absence).
+    status: Literal[
+        "pending", "running", "success", "warning", "failed", "skipped", "canceled",
+    ] | None = Field(
+        None,
+        description=(
+            "Lifecycle status of this stage. Derived for old traces: "
+            "``success`` for a completed stage, ``failed``/``skipped``/"
+            "``canceled`` from a terminal event tag, ``running`` when still "
+            "in flight."
+        ),
+    )
+    input_count: int | None = Field(
+        None, ge=0, description="Items processed into this stage (``None`` when unknown).",
+    )
+    output_count: int | None = Field(
+        None, ge=0, description="Items produced by this stage (``None`` when unknown).",
+    )
+    attempt: int | None = Field(
+        None, ge=0, description="Retry attempt this stage belongs to (0 for first try).",
+    )
+    skip_reason: str | None = Field(
+        None, description="Short reason when the stage was skipped.",
+    )
+    error_code: str | None = Field(
+        None, description="Stable error code when the stage failed (branchable).",
+    )
+    error_summary: str | None = Field(
+        None, description="Sanitised, human-readable error summary (never raw secrets).",
     )
 
 
@@ -118,6 +151,35 @@ class TraceResponse(BaseModel):
     total_latency_ms: float = Field(..., ge=0)
     stages: list[TraceStage] = Field(default_factory=list)
     error: str | None = Field(None, description="Top-level error message if any.")
+    # B3.1 — actionable top-level trace state. Missing on old JSONL and
+    # derived by the mapper; ``status`` derives from stages / task status.
+    status: Literal[
+        "pending", "running", "success", "warning", "failed", "skipped", "canceled",
+    ] | None = Field(
+        None,
+        description=(
+            "Lifecycle status. ``running``/``pending`` while in flight; "
+            "``success``/``failed``/``canceled``/``skipped`` once terminal."
+        ),
+    )
+    retryable: bool = Field(
+        False,
+        description="True when this trace may be retried (status failed/canceled).",
+    )
+    cancelable: bool = Field(
+        False,
+        description="True when this trace may be cancelled (status pending/running).",
+    )
+    attempt: int | None = Field(
+        None, ge=0, description="Retry attempt (0 for the original run).",
+    )
+    parent_trace_id: str | None = Field(
+        None, description="Trace id of the failed run this attempt retried (null for the root).",
+    )
 
 
-__all__ = ["TraceResponse", "TraceStage", "TraceType"]
+class TraceListResponse(Page[TraceResponse]):
+    """``GET /traces`` response — cursor-paginated, newest-first."""
+
+
+__all__ = ["TraceResponse", "TraceListResponse", "TraceStage", "TraceType"]
