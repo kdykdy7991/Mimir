@@ -33,6 +33,7 @@ from src.web_api.errors import (
     BadRequestError,
     CollectionNotFoundError,
     DuplicateCollectionError,
+    FolderNotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaTypeError,
 )
@@ -56,6 +57,7 @@ from src.web_api.schemas.documents import (
     BatchUploadResponse,
     DocumentDetail,
     DocumentListResponse,
+    DocumentTagRef,
     DocumentUploadResponse,
 )
 from src.web_api.settings import SETTINGS
@@ -221,6 +223,77 @@ async def delete_collection(
     return None
 
 
+_VALID_SORTS = frozenset({
+    "updated_desc", "updated_asc", "name_asc", "name_desc", "size_desc",
+})
+# Contract status → integrity storage status (success/failed ⇄ ready/failed).
+_INTEGRITY_STATUS = {"ready": "success", "failed": "failed"}
+
+
+def _parse_ts_query(value: str | None, *, field: str) -> float | None:
+    """RFC-3339 timestamp → epoch seconds; ``400`` on invalid input."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise BadRequestError(
+            f"invalid {field}: {value!r} (expected RFC-3339 timestamp)",
+            details={"field": field, "value": value},
+        ) from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _doc_ids_to_source_paths(
+    services, collection_name: str, document_ids: list[str],
+) -> list[str]:
+    """Map WebApiDB document-UUIDs → source_paths within ``collection_name``."""
+    if not document_ids:
+        return []
+    resolve = getattr(services.document, "resolve_document_id", None)
+    if not callable(resolve):
+        return []
+    out: list[str] = []
+    for did in document_ids:
+        try:
+            key = UUID(did)
+        except ValueError:
+            continue
+        resolved = resolve(key)
+        if resolved is not None and resolved[0] == collection_name:
+            out.append(resolved[1])
+    return out
+
+
+def _enrich_summaries(
+    services, infos, summaries, *, collection_id: str,
+) -> None:
+    """Fill each summary's ``tags`` / ``folder_id`` from the WebApiDB (B2.5)."""
+    db = getattr(services, "db", None)
+    if db is None or not infos or not summaries:
+        return
+    doc_ids = [
+        str(document_uuid(info.collection, info.source_path)) for info in infos
+    ]
+    tags_by_doc = db.document_tags_map(doc_ids)
+    folder_by_doc = db.document_folder_map(doc_ids, collection_id)
+    tag_lookup = {t["tag_id"]: t for t in db.list_tags(collection_id)}
+    for summary, did in zip(summaries, doc_ids):
+        tags: list[DocumentTagRef] = []
+        for tid in tags_by_doc.get(did, []):
+            row = tag_lookup.get(tid)
+            if row is not None:
+                tags.append(DocumentTagRef(
+                    id=UUID(row["tag_id"]),
+                    name=row["name"],
+                    color=row["color"],
+                ))
+        summary.tags = tags
+        summary.folder_id = folder_by_doc.get(did)
+
+
 @router.get(
     "/{collection_id}/documents",
     response_model=DocumentListResponse,
@@ -238,12 +311,44 @@ async def list_collection_documents(
         le=SETTINGS.page_limit_max,
         description=f"Page size, 1-{SETTINGS.page_limit_max}.",
     ),
+    q: str | None = Query(
+        None, description="Case-insensitive substring on filename/path.",
+    ),
+    folder_id: str | None = Query(
+        None, description="A folder UUID, or literal ``root`` = collection root.",
+    ),
+    tag_id: list[str] | None = Query(
+        None, description="Repeatable tag id; documents must carry ALL given tags.",
+    ),
+    status: str | None = Query(
+        None, description="'ready' or 'failed'.",
+    ),
+    file_type: str | None = Query(
+        None, description="File extension without a leading dot.",
+    ),
+    updated_after: str | None = Query(
+        None, description="RFC-3339 timestamp; documents updated at/after this.",
+    ),
+    updated_before: str | None = Query(
+        None, description="RFC-3339 timestamp; documents updated at/before this.",
+    ),
+    sort: str | None = Query(
+        "updated_desc",
+        description="updated_desc | updated_asc | name_asc | name_desc | size_desc.",
+    ),
 ) -> DocumentListResponse:
     """Cursor-paginated list of documents belonging to a collection.
 
     No longer loads every document + chunk + image before paging: the
     current page is selected in SQLite (``LIMIT/OFFSET``), then only that
     page's chunk / image counts are queried.
+
+    B2.5: ``q`` / ``status`` / ``file_type`` / ``updated_after`` /
+    ``updated_before`` / ``sort`` and the folder / tag document-UUID sets
+    (mapped back to ``source_paths``) are pushed into the integrity SQL as
+    ``WHERE`` predicates — the store never returns the whole collection for
+    Python-side filtering. Every page item is enriched with ``tags`` and
+    ``folder_id`` from the ``WebApiDB``.
     """
     name = resolve_collection_name(services, collection_id)
     if name is None:
@@ -251,11 +356,66 @@ async def list_collection_documents(
             f"collection {collection_id} does not exist",
             details={"collection_id": str(collection_id)},
         )
+    if sort not in _VALID_SORTS:
+        raise BadRequestError(
+            f"invalid sort: {sort!r}",
+            details={"field": "sort", "allowed": sorted(_VALID_SORTS)},
+        )
+    after = _parse_ts_query(updated_after, field="updated_after")
+    before = _parse_ts_query(updated_before, field="updated_before")
+
+    collection_scope = str(collection_id)
+    db = getattr(services, "db", None)
+    source_paths_include: list[str] | None = None
+
+    # Folder filter (a folder UUID, or literal "root").
+    if folder_id is not None:
+        if db is None:
+            source_paths_include = []
+        elif folder_id == "root":
+            source_paths_include = _doc_ids_to_source_paths(
+                services, name,
+                db.documents_by_folder(None, collection_scope),
+            )
+        else:
+            folder = db.get_folder(folder_id)
+            if folder is None or folder.get("collection_id") != collection_scope:
+                raise FolderNotFoundError(
+                    f"folder {folder_id} does not exist in this collection",
+                    details={"folder_id": folder_id},
+                )
+            source_paths_include = _doc_ids_to_source_paths(
+                services, name,
+                db.documents_by_folder(folder_id, collection_scope),
+            )
+
+    # Multi-tag AND filter: documents must hold every requested tag.
+    tag_ids = [t for t in (tag_id or []) if t]
+    if tag_ids and db is not None:
+        tagged_paths = _doc_ids_to_source_paths(
+            services, name, db.documents_with_all_tags(tag_ids),
+        )
+        if source_paths_include is None:
+            source_paths_include = tagged_paths
+        else:
+            # Intersect folder set ∩ tag set.
+            source_paths_include = [
+                p for p in source_paths_include if p in tagged_paths
+            ]
+
+    status_integrity = _INTEGRITY_STATUS.get(status) if status else None
+    ft = file_type.lstrip(".") if file_type else None
+
     offset = decode_offset_cursor(cursor)
     infos, total = services.document.list_documents_paged(
         collection=name, offset=offset, limit=limit,
+        status=status_integrity,
+        q=q or None, file_type=ft,
+        updated_after=after, updated_before=before,
+        sort=sort, source_paths_include=source_paths_include,
     )
     page = [to_document_summary(info) for info in infos]
+    _enrich_summaries(services, infos, page, collection_id=collection_scope)
     page_info = build_cursor_page_info(offset, len(page), total)
     return DocumentListResponse(items=page, page_info=page_info)
 

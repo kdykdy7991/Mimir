@@ -85,10 +85,23 @@ class DocumentService:
     def list_documents_paged(
         self, collection: str | None = None, offset: int = 0,
         limit: int = 20,
+        status: str | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> tuple[list["DocumentInfo"], int]:
-        """Server-side paged listing (see manager for the cheap path)."""
+        """Server-side paged listing (see manager for the cheap path).
+
+        B2.5 filter predicates are forwarded to the store and applied in
+        SQL (``status`` / ``q`` / ``file_type`` / date-range / ``sort`` /
+        ``source_paths_include``).
+        """
         return self._manager.list_documents_paged(
             collection=collection, offset=offset, limit=limit,
+            status=status, q=q, file_type=file_type,
+            updated_after=updated_after, updated_before=updated_before,
+            sort=sort, source_paths_include=source_paths_include,
         )
 
     def get_document_detail(

@@ -71,6 +71,14 @@ class SourceLocator(BaseModel):
     )
 
 
+class DocumentTagRef(BaseModel):
+    """Tag summary embedded in a document list row (B2.5)."""
+
+    id: UUID = Field(..., description="Stable tag id (UUID string).")
+    name: str = Field(..., description="Tag display name.")
+    color: str = Field(..., description="Controlled colour token.")
+
+
 class DocumentSummary(BaseModel):
     """Lightweight row for collection document list."""
 
@@ -103,6 +111,14 @@ class DocumentSummary(BaseModel):
     )
     created_at: UtcDatetime
     updated_at: UtcDatetime
+    tags: list[DocumentTagRef] = Field(
+        default_factory=list,
+        description="Tags bound to this document (B2.5 enrichment).",
+    )
+    folder_id: str | None = Field(
+        None,
+        description="Folder this document is placed in, or null for the collection root (B2.5).",
+    )
 
 
 class DocumentChunkSummary(BaseModel):
@@ -356,6 +372,7 @@ __all__ = [
     "SourceLocator",
     "SourceLocatorKind",
     "DocumentSummary",
+    "DocumentTagRef",
     "DocumentChunkSummary",
     "DocumentChunkDetail",
     "ChunkListItem",

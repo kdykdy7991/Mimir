@@ -18,11 +18,16 @@ timestamps.
 from __future__ import annotations
 
 import base64
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from src.application.services.query_service import QueryResult
+from src.core.trace.trace_context import (
+    derive_stage_status,
+    derive_trace_status,
+)
 from src.ingestion.document_manager import CollectionRef, CollectionStats, DocumentInfo
 from src.web_api.schemas.collections import CollectionSummary
 from src.web_api.schemas.common import PageInfo
@@ -127,7 +132,12 @@ def _document_status(storage_status: str) -> str:
     )
 
 
-def to_document_summary(info: DocumentInfo) -> DocumentSummary:
+def to_document_summary(
+    info: DocumentInfo,
+    *,
+    tags: list | None = None,
+    folder_id: str | None = None,
+) -> DocumentSummary:
     return DocumentSummary(
         id=document_uuid(info.collection, info.source_path),
         collection_id=collection_uuid(info.collection),
@@ -138,6 +148,8 @@ def to_document_summary(info: DocumentInfo) -> DocumentSummary:
         image_count=info.n_images,
         created_at=_ts(info.created_at or info.last_modified),
         updated_at=_ts(info.updated_at or info.last_modified),
+        tags=list(tags) if tags else [],
+        folder_id=folder_id,
     )
 
 
@@ -338,6 +350,49 @@ def to_query_response(result: QueryResult, collection: str) -> QueryResponse:
 # Traces (M2 batch 3)
 # ---------------------------------------------------------------------------
 
+_TERMINAL_TASK_STATUSES = {"succeeded", "failed", "cancelled", "skipped"}
+
+# Known secret-ish substrings to scrub from human-readable error strings
+# before they surface on the wire. The stage ``details`` dict never carries
+# the raw ``error``; only the sanitised ``error_summary`` is exposed.
+# Ordered so structured tokens (sk-… keys, bearer tokens, ``key=value``)
+# are removed before generic base64/long-hex material.
+_SENSITIVE_ERROR_PATTERNS = [
+    re.compile(r"(?i)\bsk-[A-Za-z0-9]{8,}"),          # OpenAI-style keys
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{6,}"),  # bearer tokens
+    re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|secret|password|token)\b"
+               r"[=: ]+'?[A-Za-z0-9_\-.]{4,}"),
+    re.compile(r"(?i)\bauthorization\b[:\s]+[^\s,]+"),
+    re.compile(r"[A-Za-z0-9+/]{48,}={0,3}"),          # long key/base64 material
+]
+_ERROR_SUMMARY_MAX = 500
+
+
+def _sanitize_error_summary(value: object | None) -> str | None:
+    """Redact secrets and truncate a raw error value into a safe summary."""
+    if value is None:
+        return None
+    text = str(value)
+    for pattern in _SENSITIVE_ERROR_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    text = " ".join(text.split())
+    if not text:
+        return None
+    if len(text) > _ERROR_SUMMARY_MAX:
+        text = text[:_ERROR_SUMMARY_MAX] + "…"
+    return text
+
+
+def _trace_attempt(raw: dict) -> int | None:
+    direct = raw.get("attempt")
+    if direct is not None:
+        return int(direct)
+    meta = raw.get("metadata") or {}
+    if meta.get("attempt") is not None:
+        return int(meta["attempt"])
+    return None
+
+
 def to_trace_response(raw: dict) -> TraceResponse:
     """Map a ``TraceContext.to_dict()`` (or TraceStore record) to a
     ``TraceResponse``.
@@ -369,8 +424,13 @@ def to_trace_response(raw: dict) -> TraceResponse:
             elapsed = 0.0
         details = {
             k: v for k, v in stage.items()
-            if k not in ("name", "ts", "elapsed_ms", "method", "provider")
+            if k not in (
+                "name", "ts", "elapsed_ms", "method", "provider",
+                "input_count", "output_count", "attempt",
+                "skip_reason", "error_code", "error_summary", "error",
+            )
         }
+        stage_status = derive_stage_status(stage)
         stages.append(TraceStage(
             name=stage["name"],
             method=stage.get("method"),
@@ -380,7 +440,24 @@ def to_trace_response(raw: dict) -> TraceResponse:
             ),
             duration_ms=float(elapsed),
             details=details,
+            status=stage_status,
+            input_count=(int(stage["input_count"])
+                         if stage.get("input_count") is not None
+                         else (int(stage["n_in"]) if stage.get("n_in") is not None else None)),
+            output_count=(int(stage["output_count"])
+                          if stage.get("output_count") is not None
+                          else (int(stage["n_out"]) if stage.get("n_out") is not None else None)),
+            attempt=(int(stage["attempt"])
+                     if stage.get("attempt") is not None
+                     else _trace_attempt(raw)),
+            skip_reason=stage.get("skip_reason"),
+            error_code=stage.get("error_code")
+            or ("STAGE_ERROR" if stage.get("event") == "error" else None),
+            error_summary=_sanitize_error_summary(
+                stage.get("error_summary") or stage.get("error"),
+            ),
         ))
+    status = derive_trace_status(raw)
     return TraceResponse(
         id=UUID(raw["trace_id"]),
         trace_type=raw.get("trace_type", "query"),
@@ -388,7 +465,103 @@ def to_trace_response(raw: dict) -> TraceResponse:
         finished_at=finished,
         total_latency_ms=float(raw.get("total_elapsed_ms") or 0.0),
         stages=stages,
-        error=raw.get("error"),
+        error=_sanitize_error_summary(raw.get("error")),
+        status=status,
+        retryable=status in {"failed", "canceled"},
+        cancelable=status in {"pending", "running"},
+        attempt=_trace_attempt(raw),
+        parent_trace_id=raw.get("parent_trace_id")
+        or (raw.get("metadata") or {}).get("parent_trace_id"),
+    )
+
+
+_TASK_TO_TRACE_STATUS = {
+    "pending": "pending",
+    "running": "running",
+    "succeeded": "success",
+    "failed": "failed",
+    "cancelled": "canceled",
+    "skipped": "skipped",
+}
+
+
+def build_live_trace_response(task, raw: dict | None) -> TraceResponse:
+    """Merge a live ingestion task with its stored/loaded trace.
+
+    Merge rule (B3.2):
+
+    - The DURABLE (JSONL/indexed) trace is the baseline for ``stages``.
+    - A TERMINAL task status OR a terminal status already persisted on the
+      trace wins — the timeline never regresses. Live ``running`` state is
+      only layered on top when the task is still in flight.
+    - While the task is running, the current in-progress stage (from
+      ``task.progress.stage``) is appended as a ``running`` stage so the
+      frontend sees completed stages + the one being worked on.
+    - When the task exists but no trace was ever recorded, a backward
+      compatible empty trace carrying the task status is returned.
+    """
+    resp = to_trace_response(raw) if raw is not None else _empty_trace_response(task)
+
+    task_terminal = task.status in _TERMINAL_TASK_STATUSES
+    stored_terminal = resp.status in {"success", "failed", "canceled", "skipped"}
+
+    # Final state wins: a terminal task or a terminal persisted status is
+    # authoritative and never regresses to a live ``running``/``pending``.
+    if task_terminal:
+        status = _TASK_TO_TRACE_STATUS.get(task.status, resp.status)
+    elif stored_terminal:
+        status = resp.status
+    elif task.status == "pending":
+        status = "pending"
+    else:
+        status = "running"
+    resp.status = status
+    resp.retryable = status in {"failed", "canceled"}
+    resp.cancelable = status in {"pending", "running"}
+
+    if task.attempt is not None:
+        resp.attempt = task.attempt
+    parent = getattr(task, "parent_task_id", None)
+    if parent is not None:
+        resp.parent_trace_id = str(parent)
+
+    # Live current stage: only when the task is genuinely in flight.
+    if not task_terminal and task.progress is not None and task.progress.stage:
+        current = task.progress.stage
+        if not (resp.stages
+                and resp.stages[-1].name == current
+                and resp.stages[-1].status == "running"):
+            resp.stages.append(TraceStage(
+                name=current,
+                started_at=task.updated_at,
+                duration_ms=0.0,
+                details={},
+                status="running",
+            ))
+    return resp
+
+
+def _empty_trace_response(task) -> TraceResponse:
+    """Build a 200 TraceResponse from a task record that has no trace."""
+    started = task.created_at
+    end = task.finished_at or task.updated_at or task.created_at
+    total_ms = max(0.0, (end - started).total_seconds() * 1000.0)
+    status = _TASK_TO_TRACE_STATUS.get(task.status, "running")
+    return TraceResponse(
+        id=task.id,
+        trace_type="ingestion",
+        started_at=started,
+        finished_at=end,
+        total_latency_ms=total_ms,
+        stages=[],
+        error=task.error.message if task.error is not None else None,
+        status=status,
+        retryable=status in {"failed", "canceled"},
+        cancelable=status in {"pending", "running"},
+        attempt=task.attempt if task.attempt else None,
+        parent_trace_id=(
+            str(task.parent_task_id) if getattr(task, "parent_task_id", None) else None
+        ),
     )
 
 
@@ -465,4 +638,5 @@ __all__ = [
     "to_document_summary",
     "to_query_response",
     "to_trace_response",
+    "build_live_trace_response",
 ]

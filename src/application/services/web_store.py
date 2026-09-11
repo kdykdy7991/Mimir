@@ -525,6 +525,35 @@ class WebApiDB:
             conn.close()
         return int(row["n"] if row else 0)
 
+    def document_folder_map(
+        self, document_ids: list[str], collection_id: str,
+    ) -> dict[str, str | None]:
+        """Batch ``{document_id: folder_id | None}`` for a set of ids.
+
+        Read-only helper for the B2.5 document-list enrichment: fills each
+        page item's ``folder_id`` (None when the document has no placement,
+        i.e. sits at the collection root). Scoped to ``collection_id``.
+        """
+        if not document_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in document_ids)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT document_id, folder_id
+                FROM document_placements
+                WHERE collection_id = ? AND document_id IN ({placeholders})
+                """,
+                (collection_id, *document_ids),
+            ).fetchall()
+        finally:
+            conn.close()
+        out: dict[str, str | None] = {did: None for did in document_ids}
+        for r in rows:
+            out[r["document_id"]] = r["folder_id"]
+        return out
+
     # ------------------------------------------------------------------
     # Tags (task book B2.1 / B2.2)
     # ------------------------------------------------------------------
@@ -667,6 +696,58 @@ class WebApiDB:
         finally:
             conn.close()
         return [r["tag_id"] for r in rows]
+
+    def documents_with_all_tags(self, tag_ids: list[str]) -> list[str]:
+        """Document ids that carry ALL given tag ids (AND semantics).
+
+        B2.5 multi-``tag_id`` filter: documents must hold every requested
+        tag. Done in SQL via ``GROUP BY document_id`` +
+        ``HAVING COUNT(DISTINCT tag_id) = n``.
+        """
+        ids = list(dict.fromkeys(tag_ids))
+        if not ids:
+            return []
+        placeholders = ", ".join("?" for _ in ids)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT document_id
+                FROM document_tag_links
+                WHERE tag_id IN ({placeholders})
+                GROUP BY document_id
+                HAVING COUNT(DISTINCT tag_id) = ?
+                """,
+                (*ids, len(ids)),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [r["document_id"] for r in rows]
+
+    def document_tags_map(
+        self, document_ids: list[str],
+    ) -> dict[str, list[str]]:
+        """Batch ``{document_id: [tag_id, ...]}`` for a set of ids (B2.5)."""
+        if not document_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in document_ids)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT document_id, tag_id
+                FROM document_tag_links
+                WHERE document_id IN ({placeholders})
+                ORDER BY created_at ASC, tag_id ASC
+                """,
+                tuple(document_ids),
+            ).fetchall()
+        finally:
+            conn.close()
+        out: dict[str, list[str]] = {did: [] for did in document_ids}
+        for r in rows:
+            out.setdefault(r["document_id"], []).append(r["tag_id"])
+        return out
 
     def count_tag_links(self, tag_id: str) -> int:
         conn = self._connect()

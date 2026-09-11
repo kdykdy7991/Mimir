@@ -188,6 +188,12 @@ class FileIntegrityChecker(ABC):
         collection: str | None = None,
         limit: int | None = None,
         offset: int | None = None,
+        q: str | None = None,
+        file_type: str | None = None,
+        updated_after: float | None = None,
+        updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> list[IngestionRecord]:
         """
         List ingestion history records, newest first.
@@ -198,6 +204,21 @@ class FileIntegrityChecker(ABC):
         no cap). ``offset`` skips that many rows (None / 0 = from the
         start) — used for real database-side pagination so the list
         never has to materialise every document in memory.
+
+        B2.5 (document combination filtering) adds storage-filtered
+        predicates so the request never loads the whole collection and
+        filters in Python:
+
+        - ``q`` — case-insensitive substring match on ``file_path``
+          (which includes the filename);
+        - ``file_type`` — extension (no leading dot), case-insensitive;
+        - ``updated_after`` / ``updated_before`` — epoch-second (float)
+          bounds on ``updated_at``;
+        - ``sort`` — one of ``updated_desc`` (default) / ``updated_asc`` /
+          ``name_asc`` / ``name_desc`` / ``size_desc``; a stable tie-break
+          on ``file_path`` is ALWAYS appended;
+        - ``source_paths_include`` — an IN-whitelist on ``file_path``
+          (used by the Web API to intersect folder / tag document sets).
 
         Used by :class:`DocumentManager.list_documents` to enumerate
         known source files. Backends that can't answer this should
@@ -210,12 +231,19 @@ class FileIntegrityChecker(ABC):
         *,
         status: str | None = None,
         collection: str | None = None,
+        q: str | None = None,
+        file_type: str | None = None,
+        updated_after: float | None = None,
+        updated_before: float | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> int:
         """
-        Count ingestion-history records matching ``status`` / ``collection``.
+        Count ingestion-history records matching the filters.
 
         A cheap aggregate used to render list pagination sizes without
-        materialising the rows. Backends that can't answer this should
+        materialising the rows. Suppors the B2.5 filter predicates (the
+        same ``q`` / ``file_type`` / date-range / ``source_paths_include``
+        as :meth:`list_processed`). Backends that can't answer this should
         raise ``NotImplementedError``.
         """
         raise NotImplementedError
@@ -678,6 +706,80 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
     # ------------------------------------------------------------------
     # List (used by DocumentManager / dashboard)
     # ------------------------------------------------------------------
+    # Allowed ``sort`` values for B2.5, mapped to the SQL ORDER BY
+    # primary term. A stable ``file_path ASC`` tie-breaker is ALWAYS
+    # appended by :meth:`_sorted_order_clause`.
+    _SORT_EXPRESSIONS = {
+        "updated_desc": "updated_at DESC",
+        "updated_asc": "updated_at ASC",
+        "name_asc": "file_path COLLATE NOCASE ASC",
+        "name_desc": "file_path COLLATE NOCASE DESC",
+        "size_desc": "file_size DESC",
+    }
+
+    @classmethod
+    def _filter_clause(
+        cls,
+        *,
+        status: str | None,
+        collection: str | None,
+        q: str | None,
+        file_type: str | None,
+        updated_after: float | None,
+        updated_before: float | None,
+        source_paths_include: list[str] | None,
+    ) -> tuple[list[str], tuple]:
+        """Build the B2.5 WHERE clauses + params (shared by list/count)."""
+        clauses: list[str] = []
+        params: tuple = ()
+        if status is not None:
+            clauses.append("status = ?")
+            params = params + (status,)
+        if collection is not None:
+            clauses.append("collection = ?")
+            params = params + (collection,)
+        if q:
+            # Case-insensitive substring over the path (includes filename).
+            # Escape LIKE wildcards so user text matches literally.
+            escaped = (
+                str(q).lower()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            clauses.append("LOWER(file_path) LIKE ? ESCAPE '\\'")
+            params = params + (f"%{escaped}%",)
+        if file_type:
+            # Extension (no leading dot), case-insensitive, anchored to the
+            # end of the path (``LIKE '%.pdf'``).
+            ext = str(file_type).lower().lstrip(".")
+            clauses.append("LOWER(file_path) LIKE ?")
+            params = params + ("%." + ext,)
+        if updated_after is not None:
+            clauses.append("updated_at >= ?")
+            params = params + (updated_after,)
+        if updated_before is not None:
+            clauses.append("updated_at <= ?")
+            params = params + (updated_before,)
+        if source_paths_include is not None:
+            if source_paths_include:
+                placeholders = ", ".join("?" for _ in source_paths_include)
+                clauses.append(f"file_path IN ({placeholders})")
+                params = params + tuple(source_paths_include)
+            else:
+                # An explicit empty whitelist must match NO documents (an
+                # empty folder / no tag match) — not "no filter".
+                clauses.append("0")
+        return clauses, params
+
+    @classmethod
+    def _sorted_order_clause(cls, sort: str | None) -> str:
+        """ORDER BY for a B2.5 ``sort``; always ends with a stable tie-break."""
+        order_by = cls._SORT_EXPRESSIONS.get(sort)
+        if order_by is None:
+            order_by = cls._SORT_EXPRESSIONS["updated_desc"]
+        return f"ORDER BY {order_by}, file_path ASC"
+
     def list_processed(
         self,
         *,
@@ -685,27 +787,30 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         collection: str | None = None,
         limit: int | None = None,
         offset: int | None = None,
+        q: str | None = None,
+        file_type: str | None = None,
+        updated_after: float | None = None,
+        updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> list[IngestionRecord]:
         """SQLite-backed list — see base class for the contract."""
         self._ensure_schema()
         conn = self._connect()
         try:
+            clauses, params = self._filter_clause(
+                status=status, collection=collection, q=q, file_type=file_type,
+                updated_after=updated_after, updated_before=updated_before,
+                source_paths_include=source_paths_include,
+            )
             sql = (
                 "SELECT file_hash, file_path, file_size, last_modified, "
                 "status, error_msg, created_at, updated_at, collection "
                 "FROM ingestion_history"
             )
-            clauses: list[str] = []
-            params: tuple = ()
-            if status is not None:
-                clauses.append("status = ?")
-                params = params + (status,)
-            if collection is not None:
-                clauses.append("collection = ?")
-                params = params + (collection,)
             if clauses:
                 sql += " WHERE " + " AND ".join(clauses)
-            sql += " ORDER BY updated_at DESC"
+            sql += " " + self._sorted_order_clause(sort)
             if limit is not None:
                 sql += " LIMIT ?"
                 params = params + (limit,)
@@ -722,20 +827,22 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
         *,
         status: str | None = None,
         collection: str | None = None,
+        q: str | None = None,
+        file_type: str | None = None,
+        updated_after: float | None = None,
+        updated_before: float | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> int:
         """SQLite-backed count — see base class for the contract."""
         self._ensure_schema()
         conn = self._connect()
         try:
+            clauses, params = self._filter_clause(
+                status=status, collection=collection, q=q, file_type=file_type,
+                updated_after=updated_after, updated_before=updated_before,
+                source_paths_include=source_paths_include,
+            )
             sql = "SELECT COUNT(*) AS n FROM ingestion_history"
-            clauses: list[str] = []
-            params: tuple = ()
-            if status is not None:
-                clauses.append("status = ?")
-                params = params + (status,)
-            if collection is not None:
-                clauses.append("collection = ?")
-                params = params + (collection,)
             if clauses:
                 sql += " WHERE " + " AND ".join(clauses)
             row = conn.execute(sql, params).fetchone()

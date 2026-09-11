@@ -105,9 +105,16 @@ class _FileIntegrityLike(Protocol):
     def list_processed(
         self, *, status: str | None = None, collection: str | None = None,
         limit: int | None = None, offset: int | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> list[Any]: ...
     def count(
         self, *, status: str | None = None, collection: str | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> int: ...
     def count_by_collection(
         self, *, collections: list[str] | None = None,
@@ -367,6 +374,11 @@ class DocumentManager:
     def list_documents_paged(
         self, *, collection: str | None = None, offset: int = 0,
         limit: int,
+        status: str | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> tuple[list[DocumentInfo], int]:
         """Server-side paginated document listing.
 
@@ -375,32 +387,75 @@ class DocumentManager:
         per page-record and image counts **in one grouped SQL statement**
         for the whole page — instead of loading every document's chunks
         and images just to render one page.
+
+        B2.5: the ``status``/``q``/``file_type``/date-range/``sort``/
+        ``source_paths_include`` predicates are forwarded to the store and
+        applied in SQL — never by filtering the full listing in Python.
         """
         records = self._list_records_paged(
             collection=collection, offset=offset, limit=limit,
+            status=status, q=q, file_type=file_type,
+            updated_after=updated_after, updated_before=updated_before,
+            sort=sort, source_paths_include=source_paths_include,
         )
-        total = self._integrity_count(collection=collection)
+        total = self._integrity_count(
+            collection=collection, status=status, q=q, file_type=file_type,
+            updated_after=updated_after, updated_before=updated_before,
+            source_paths_include=source_paths_include,
+        )
         return self._build_paged_infos(records, collection=collection), total
 
     def _list_records_paged(
         self, *, collection: str | None = None, offset: int = 0, limit: int,
+        status: str | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        sort: str | None = None,
+        source_paths_include: list[str] | None = None,
     ) -> list[Any]:
         list_method = self._integrity.list_processed
+        filler = dict(
+            status=status, q=q, file_type=file_type,
+            updated_after=updated_after, updated_before=updated_before,
+            sort=sort, source_paths_include=source_paths_include,
+        )
         try:
             return list_method(
-                collection=collection, limit=limit, offset=max(0, offset),
+                collection=collection, limit=limit,
+                offset=max(0, offset), **filler,
             )
         except TypeError:
-            # Collaborators (e.g. old fakes) that don't accept ``offset``
-            # fall back to filtering in memory — correct, just not paged
-            # at the store.
-            rows = list_method(collection=collection, limit=None)
-            start = max(0, offset)
-            return rows[start:start + limit]
+            # Collaborators (e.g. old fakes) that don't accept the B2.5
+            # filters / ``offset`` fall back to plain paging — correct,
+            # just without DB-side filtering (the SQLite store honours them).
+            try:
+                return list_method(
+                    collection=collection, limit=limit,
+                    offset=max(0, offset),
+                )
+            except TypeError:
+                rows = list_method(collection=collection, limit=None)
+                start = max(0, offset)
+                return rows[start:start + limit]
 
-    def _integrity_count(self, *, collection: str | None = None) -> int:
+    def _integrity_count(
+        self, *, collection: str | None = None,
+        status: str | None = None,
+        q: str | None = None, file_type: str | None = None,
+        updated_after: float | None = None, updated_before: float | None = None,
+        source_paths_include: list[str] | None = None,
+    ) -> int:
         count_method = getattr(self._integrity, "count", None)
+        filler = dict(
+            status=status, q=q, file_type=file_type,
+            updated_after=updated_after, updated_before=updated_before,
+            source_paths_include=source_paths_include,
+        )
         if callable(count_method):
+            try:
+                return int(count_method(collection=collection, **filler))
+            except TypeError:
+                pass
             try:
                 return int(count_method(collection=collection))
             except TypeError:
