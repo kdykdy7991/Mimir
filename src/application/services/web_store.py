@@ -39,6 +39,15 @@ from typing import Any
 DEFAULT_DB_PATH = "./data/db/web_api.db"
 """Default location under ``data_dir`` — composition passes the real path."""
 
+# Controlled tag colour tokens (B2.1). Real colours are mapped by the UI;
+# the server only accepts these, never arbitrary CSS.
+TAG_COLORS = frozenset({"grey", "blue", "green", "red", "purple", "amber"})
+
+
+def normalize_tag_name(name: str) -> str:
+    """Whitespace-stripped, case-folded uniqueness key for a tag name."""
+    return name.strip().casefold()
+
 
 class WebApiDB:
     """Thin SQLite persistence for tasks / traces / query results."""
@@ -126,6 +135,30 @@ class WebApiDB:
                     ON embedding_usage_events(operation, occurred_at);
                 CREATE INDEX IF NOT EXISTS idx_usage_col_occurred
                     ON embedding_usage_events(collection_id, occurred_at);
+
+                -- Knowledge-management logical tables (task book B2).
+                -- Tags are collection-scoped; the normalized name is unique
+                -- within a collection. Links are a pure join (tag→docs).
+                CREATE TABLE IF NOT EXISTS document_tags (
+                    tag_id          TEXT PRIMARY KEY,
+                    collection_id   TEXT NOT NULL,
+                    name            TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL,
+                    color           TEXT NOT NULL DEFAULT 'grey',
+                    created_at      REAL NOT NULL,
+                    updated_at      REAL NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_document_tags_col_name
+                    ON document_tags(collection_id, normalized_name);
+
+                CREATE TABLE IF NOT EXISTS document_tag_links (
+                    document_id TEXT NOT NULL,
+                    tag_id      TEXT NOT NULL,
+                    created_at  REAL NOT NULL,
+                    PRIMARY KEY (document_id, tag_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_tag_links_tag
+                    ON document_tag_links(tag_id);
                 """
             )
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(query_results)")}
@@ -192,6 +225,160 @@ class WebApiDB:
             return cursor.rowcount > 0
         finally:
             conn.close()
+
+    # ------------------------------------------------------------------
+    # Tags (task book B2.1 / B2.2)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _validate_tag_name(name: str) -> str:
+        stripped = name.strip()
+        if not 1 <= len(stripped) <= 64:
+            raise ValueError(f"tag name must be 1-64 characters after trimming, got {len(stripped)}")
+        return stripped
+
+    @staticmethod
+    def _validate_tag_color(color: str) -> str:
+        if color not in TAG_COLORS:
+            raise ValueError(f"tag color {color!r} is not an allowed token")
+        return color
+
+    def create_tag(
+        self, *, collection_id: str, name: str, color: str = "grey",
+    ) -> dict[str, Any]:
+        """Create a collection-scoped tag; unique normalized name per collection.
+
+        Raises ``ValueError`` on invalid name/colour and ``sqlite3.IntegrityError``
+        when ``normalized_name`` already exists in the collection.
+        """
+        import time
+        from uuid import uuid4
+
+        cleaned = self._validate_tag_name(name)
+        color = self._validate_tag_color(color)
+        tag_id = str(uuid4())
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO document_tags
+                    (tag_id, collection_id, name, normalized_name, color,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (tag_id, collection_id, cleaned, normalize_tag_name(cleaned),
+                 color, now, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_tag(tag_id)  # type: ignore[return-value]
+
+    def get_tag(self, tag_id: str) -> dict[str, Any] | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM document_tags WHERE tag_id = ?", (tag_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return dict(row) if row is not None else None
+
+    def list_tags(self, collection_id: str) -> list[dict[str, Any]]:
+        """Tags in a collection, stable order (name asc, then created)."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM document_tags
+                WHERE collection_id = ?
+                ORDER BY normalized_name ASC, created_at ASC, tag_id ASC
+                """,
+                (collection_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    def update_tag(
+        self, *, tag_id: str, name: str | None = None, color: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Rename and/or recolour a tag; recomputes the normalized name."""
+        import time
+
+        existing = self.get_tag(tag_id)
+        if existing is None:
+            return None
+        new_name = existing["name"] if name is None else self._validate_tag_name(name)
+        new_color = existing["color"] if color is None else self._validate_tag_color(color)
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                UPDATE document_tags
+                   SET name = ?, normalized_name = ?, color = ?, updated_at = ?
+                 WHERE tag_id = ?
+                """,
+                (new_name, normalize_tag_name(new_name), new_color, time.time(), tag_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_tag(tag_id)
+
+    def delete_tag(self, tag_id: str) -> bool:
+        """Delete a tag and its links (never the documents)."""
+        conn = self._connect()
+        try:
+            conn.execute("DELETE FROM document_tag_links WHERE tag_id = ?", (tag_id,))
+            cur = conn.execute("DELETE FROM document_tags WHERE tag_id = ?", (tag_id,))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def set_document_tags(self, document_id: str, tag_ids: list[str]) -> int:
+        """Transactionally replace a document's tags; returns link count."""
+        import time
+
+        ids = list(dict.fromkeys(tag_ids))
+        now = time.time()
+        conn = self._connect()
+        try:
+            conn.execute("DELETE FROM document_tag_links WHERE document_id = ?", (document_id,))
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO document_tag_links (document_id, tag_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                [(document_id, tid, now) for tid in ids],
+            )
+            conn.commit()
+            return len(ids)
+        finally:
+            conn.close()
+
+    def document_tag_ids(self, document_id: str) -> list[str]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT tag_id FROM document_tag_links WHERE document_id = ? ORDER BY created_at ASC",
+                (document_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [r["tag_id"] for r in rows]
+
+    def count_tag_links(self, tag_id: str) -> int:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM document_tag_links WHERE tag_id = ?",
+                (tag_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return int(row["n"] if row else 0)
 
     # ------------------------------------------------------------------
     # Tasks
@@ -506,4 +693,4 @@ class WebApiDB:
             conn.close()
 
 
-__all__ = ["DEFAULT_DB_PATH", "WebApiDB"]
+__all__ = ["DEFAULT_DB_PATH", "TAG_COLORS", "WebApiDB", "normalize_tag_name"]

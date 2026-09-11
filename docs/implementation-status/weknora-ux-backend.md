@@ -52,6 +52,46 @@
 
 ---
 
+## B2.1 标签数据模型和迁移 — ✔ 完成
+
+**状态**：通过。
+
+**实际修改文件**：
+
+- `src/application/services/web_store.py` — `document_tags` / `document_tag_links` 建表
+  （executescript + 唯一索引 `(collection_id, normalized_name)`）；新增 `TAG_COLORS`、
+  `normalize_tag_name`；新增标签存取方法（`create_tag`/`get_tag`/`list_tags`/`update_tag`/
+  `delete_tag`/`set_document_tags`/`document_tag_ids`/`count_tag_links`）。
+- 新增 `tests/unit/application/test_tags_store.py`。
+
+**数据库/API/兼容性决策**：
+
+- `document_tags(id, collection_id, name, normalized_name, color, created_at, updated_at)`；
+  `document_tag_links(document_id, tag_id, created_at)`，PK=(document_id, tag_id)。
+- collection 内规范化名唯一（strip + casefold），违者抛 `sqlite3.IntegrityError`（Router 层映射 409）。
+- 标签名去空白后 1–64；颜色受控 token（`grey|blue|green|red|purple|amber`），拒绝任意 CSS；否则 `ValueError`。
+- 删除标签仅级联删除关联（`document_tag_links`），不删除文档。
+- `WebApiDB.__init__` 幂等建表，既有库下次启动自动补建。
+
+**新增测试**：`tests/unit/application/test_tags_store.py`（12 项）：迁移建表、创建/读取、collection 内唯一、
+跨 collection 同名允许、名称长度校验、颜色 token 校验、Unicode 名称、list 顺序与作用域、
+绑定全量替换与级联删除、未知删除、链接计数、改名重算 normalized。
+
+**执行命令与结果**：
+
+- `python -m pytest tests/unit/application/test_tags_store.py -q` → 12 passed
+- `python -m pytest tests/unit/application/ -q` → 75 passed（既有 store/task/service 无回归）
+
+**git diff --check**：通过。
+
+**提交哈希**：B2.1 提交见当前小节末尾。
+
+**遗留问题**：无新遗留。`document_folders` 建表将在 B2.3 加入（本任务保持仅标签，未夹带）。
+
+**下一任务**：B2.2 标签 CRUD 与文档绑定接口。
+
+---
+
 ## B1.3 原文件定位契约 — ✔ 完成
 
 **状态**：通过（含 B1 项目门禁合集通过）。
