@@ -83,22 +83,26 @@ def test_move_folder_recomputes_depth_and_children(db: WebApiDB) -> None:
     assert db.get_folder(b["folder_id"])["parent_id"] is None
 
 
-def test_delete_folder_reparents_children_and_documents(db: WebApiDB) -> None:
+def test_delete_empty_folder(db: WebApiDB) -> None:
     root = db.create_folder(collection_id="c1", name="root")
-    parent = db.create_folder(collection_id="c1", name="parent", parent_id=root["folder_id"])
-    child = db.create_folder(collection_id="c1", name="child", parent_id=parent["folder_id"])
-    db.move_document(document_id="doc1", folder_id=parent["folder_id"], collection_id="c1")
-    db.move_document(document_id="doc2", folder_id=parent["folder_id"], collection_id="c1")
-    db.move_document(document_id="docX", folder_id=child["folder_id"], collection_id="c1")
+    result = db.delete_folder(root["folder_id"])
+    assert result == {"reparented_folders": 0, "reparented_documents": 0}
+    assert db.get_folder(root["folder_id"]) is None
 
-    result = db.delete_folder(parent["folder_id"])
-    assert result["reparented_folders"] == 1
-    assert result["reparented_documents"] == 2
-    # child was moved up to root; doc1/doc2 moved to root
-    assert db.get_folder(child["folder_id"])["parent_id"] == root["folder_id"]
-    assert db.document_placement("doc1")["folder_id"] == root["folder_id"]
-    # docX stays in child, which is now under root
-    assert db.document_placement("docX")["folder_id"] == child["folder_id"]
+
+def test_delete_non_empty_folder_rejected(db: WebApiDB) -> None:
+    from src.application.services.web_store import FolderNotEmptyError
+
+    parent = db.create_folder(collection_id="c1", name="parent")
+    # child present -> non-empty
+    db.create_folder(collection_id="c1", name="child", parent_id=parent["folder_id"])
+    with pytest.raises(FolderNotEmptyError):
+        db.delete_folder(parent["folder_id"])
+    # document present -> non-empty
+    other = db.create_folder(collection_id="c1", name="other")
+    db.move_document(document_id="doc1", folder_id=other["folder_id"], collection_id="c1")
+    with pytest.raises(FolderNotEmptyError):
+        db.delete_folder(other["folder_id"])
 
 
 def test_documents_by_folder_and_counts(db: WebApiDB) -> None:

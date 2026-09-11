@@ -68,9 +68,29 @@ def test_folder_crud_flow(tmp_path) -> None:
     )
     assert renamed.json()["name"] == "Design"
 
+    # delete the child (empty) then the root (now empty since no docs placed)
     deleted = client.delete(f"/api/v1/collections/{COLLECTION_ID}/folders/{child.json()['id']}")
     assert deleted.status_code == 204
     assert db.get_folder(child.json()["id"]) is None
+    deleted_root = client.delete(f"/api/v1/collections/{COLLECTION_ID}/folders/{fid}")
+    assert deleted_root.status_code == 204
+    assert db.get_folder(fid) is None
+
+
+def test_delete_non_empty_folder_409(tmp_path) -> None:
+    client, db, _ = _client(tmp_path)
+    parent = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders", json={"name": "parent"},
+    ).json()
+    client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders",
+        json={"name": "child", "parent_id": parent["id"]},
+    )
+    resp = client.delete(f"/api/v1/collections/{COLLECTION_ID}/folders/{parent['id']}")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "CONFLICT"
+    # still present after rejected delete
+    assert db.get_folder(parent["id"]) is not None
 
 
 def test_sibling_name_conflict_409(tmp_path) -> None:

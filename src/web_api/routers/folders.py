@@ -24,6 +24,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, status
 
 from src.application.composition import ApplicationServices
+from src.application.services.web_store import FolderNotEmptyError
 from src.web_api.dependencies import get_application_services
 from src.web_api.errors import (
     BadRequestError,
@@ -170,7 +171,7 @@ async def move_folder(
 @router.delete(
     "/collections/{collection_id}/folders/{folder_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a folder (children and documents move up to its parent)",
+    summary="Delete an empty folder (non-empty folders are rejected with 409)",
 )
 async def delete_folder(
     collection_id: UUID = Path(...),
@@ -180,7 +181,10 @@ async def delete_folder(
     _resolve_collection(services, collection_id)
     if _folder_in_collection(services.db, folder_id, collection_id) is None:
         raise FolderNotFoundError(f"folder {folder_id!r} does not exist", details={"folder_id": folder_id})
-    services.db.delete_folder(folder_id)
+    try:
+        services.db.delete_folder(folder_id)
+    except FolderNotEmptyError as exc:
+        raise ConflictError(str(exc)) from exc
     return None
 
 

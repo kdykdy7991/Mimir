@@ -1905,7 +1905,7 @@
         "tags": [
           "folders"
         ],
-        "summary": "Delete a folder (children and documents move up to its parent)",
+        "summary": "Delete an empty folder (non-empty folders are rejected with 409)",
         "operationId": "delete_folder_api_v1_collections__collection_id__folders__folder_id__delete",
         "parameters": [
           {

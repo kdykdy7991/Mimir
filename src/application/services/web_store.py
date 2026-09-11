@@ -47,6 +47,14 @@ TAG_COLORS = frozenset({"grey", "blue", "green", "red", "purple", "amber"})
 MAX_FOLDER_DEPTH = 5
 
 
+class FolderNotEmptyError(Exception):
+    """Raised when deleting a folder that still contains children/documents.
+
+    Task book B2.3: non-empty folders cannot be deleted in v1 (no recursive
+    force-delete); callers must move items out first.
+    """
+
+
 def normalize_tag_name(name: str) -> str:
     """Whitespace-stripped, case-folded uniqueness key for a tag name."""
     return name.strip().casefold()
@@ -425,47 +433,36 @@ class WebApiDB:
             self._recompute_depth(conn, row["folder_id"], depth + 1)
 
     def delete_folder(self, folder_id: str) -> dict[str, Any]:
-        """Delete a folder; children + documents move up to its parent.
+        """Delete an *empty* folder; ``FolderNotEmptyError`` when non-empty.
 
-        Returns ``{"reparented_folders": int, "reparented_documents": int}``.
-        The parents must not delete: documents keep their collection scope.
+        Task book B2.3: v1 does no recursive force-delete — a folder that
+        still contains children or documents is rejected so callers move
+        items out first.
         """
         import time
 
         folder = self.get_folder(folder_id)
         if folder is None:
             return {"reparented_folders": 0, "reparented_documents": 0}
-        parent_id = folder["parent_id"]
-        new_depth = (int(folder["depth"]) - 1) if parent_id else 0
         conn = self._connect()
         try:
-            children = [r["folder_id"] for r in conn.execute(
+            child_rows = conn.execute(
                 "SELECT folder_id FROM document_folders WHERE parent_id = ?", (folder_id,),
-            ).fetchall()]
-            # re-parent child folders to our parent and recompute their depth
-            for cid in children:
-                conn.execute(
-                    "UPDATE document_folders SET parent_id = ?, updated_at = ? WHERE folder_id = ?",
-                    (parent_id, time.time(), cid),
+            ).fetchall()
+            child_count = len(child_rows)
+            doc_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM document_placements WHERE folder_id = ?",
+                (folder_id,),
+            ).fetchone()
+            doc_count = int(doc_row["n"]) if doc_row else 0
+            if child_count > 0 or doc_count > 0:
+                raise FolderNotEmptyError(
+                    f"folder {folder_id!r} is not empty "
+                    f"({child_count} subfolders, {doc_count} documents)",
                 )
-                self._recompute_depth(conn, cid, max(new_depth, 0))
-            # documents in this folder move up to the parent (NULL = root)
-            cur_docs = conn.execute(
-                """
-                UPDATE document_placements SET folder_id = ?, updated_at = ? WHERE folder_id = ?
-                """,
-                (parent_id, time.time(), folder_id),
-            )
-            conn.execute(
-                "UPDATE document_folders SET updated_at = ? WHERE folder_id = ?",
-                (time.time(), folder_id),
-            )
             conn.execute("DELETE FROM document_folders WHERE folder_id = ?", (folder_id,))
             conn.commit()
-            return {
-                "reparented_folders": len(children),
-                "reparented_documents": cur_docs.rowcount,
-            }
+            return {"reparented_folders": 0, "reparented_documents": 0}
         finally:
             conn.close()
 
@@ -997,5 +994,5 @@ class WebApiDB:
 
 __all__ = [
     "DEFAULT_DB_PATH", "MAX_FOLDER_DEPTH", "TAG_COLORS", "WebApiDB",
-    "normalize_folder_name", "normalize_tag_name",
+    "FolderNotEmptyError", "normalize_folder_name", "normalize_tag_name",
 ]
