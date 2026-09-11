@@ -299,7 +299,7 @@
           "collections"
         ],
         "summary": "List documents in a collection",
-        "description": "Cursor-paginated list of documents belonging to a collection.\n\nNo longer loads every document + chunk + image before paging: the\ncurrent page is selected in SQLite (``LIMIT/OFFSET``), then only that\npage's chunk / image counts are queried.",
+        "description": "Cursor-paginated list of documents belonging to a collection.\n\nNo longer loads every document + chunk + image before paging: the\ncurrent page is selected in SQLite (``LIMIT/OFFSET``), then only that\npage's chunk / image counts are queried.\n\nB2.5: ``q`` / ``status`` / ``file_type`` / ``updated_after`` /\n``updated_before`` / ``sort`` and the folder / tag document-UUID sets\n(mapped back to ``source_paths``) are pushed into the integrity SQL as\n``WHERE`` predicates — the store never returns the whole collection for\nPython-side filtering. Every page item is enriched with ``tags`` and\n``folder_id`` from the ``WebApiDB``.",
         "operationId": "list_collection_documents_api_v1_collections__collection_id__documents_get",
         "parameters": [
           {
@@ -345,6 +345,154 @@
               "title": "Limit"
             },
             "description": "Page size, 1-100."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive substring on filename/path.",
+              "title": "Q"
+            },
+            "description": "Case-insensitive substring on filename/path."
+          },
+          {
+            "name": "folder_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A folder UUID, or literal ``root`` = collection root.",
+              "title": "Folder Id"
+            },
+            "description": "A folder UUID, or literal ``root`` = collection root."
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repeatable tag id; documents must carry ALL given tags.",
+              "title": "Tag Id"
+            },
+            "description": "Repeatable tag id; documents must carry ALL given tags."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'ready' or 'failed'.",
+              "title": "Status"
+            },
+            "description": "'ready' or 'failed'."
+          },
+          {
+            "name": "file_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "File extension without a leading dot.",
+              "title": "File Type"
+            },
+            "description": "File extension without a leading dot."
+          },
+          {
+            "name": "updated_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC-3339 timestamp; documents updated at/after this.",
+              "title": "Updated After"
+            },
+            "description": "RFC-3339 timestamp; documents updated at/after this."
+          },
+          {
+            "name": "updated_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "RFC-3339 timestamp; documents updated at/before this.",
+              "title": "Updated Before"
+            },
+            "description": "RFC-3339 timestamp; documents updated at/before this."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "updated_desc | updated_asc | name_asc | name_desc | size_desc.",
+              "default": "updated_desc",
+              "title": "Sort"
+            },
+            "description": "updated_desc | updated_asc | name_asc | name_desc | size_desc."
           }
         ],
         "responses": {
@@ -857,6 +1005,98 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Retry a failed or cancelled ingestion task",
+        "description": "Create a NEW ingestion task + trace retrying ``task_id``.\n\nOnly ``failed`` / ``cancelled`` tasks may be retried — any other state\nreturns a stable ``409``. The original task + trace are left intact; a\nfresh task with ``attempt == parent.attempt + 1`` and a\n``parent_trace_id`` pointing at the original is created, reusing the\noriginal document source + parsing config. Retries are idempotent: a\nduplicate/concurrent retry of the same task returns the already-created\nchild instead of spawning another. Returns ``202`` with the child task's\nstatus (usually ``pending``, ready to poll).",
+        "operationId": "retry_task_api_v1_tasks__task_id__retry_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Ingestion task ID (UUID).",
+              "title": "Task Id"
+            },
+            "description": "Ingestion task ID (UUID)."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Cooperatively cancel an ingestion task",
+        "description": "Request cooperative cancellation of an ingestion task.\n\nOnly ``pending`` / ``running`` tasks may be cancelled; any other\nterminal state returns a stable ``409``. The worker stops at the next\nsafe stage boundary, marks the task ``cancelled`` and records a terminal\n``canceled`` trace — completed atomic writes are never rolled back and\nexisting documents / old indexes are kept. Repeated cancels are\nidempotent while the task is still in flight. Returns ``202`` with the\nresulting task status.",
+        "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Ingestion task ID (UUID).",
+              "title": "Task Id"
+            },
+            "description": "Ingestion task ID (UUID)."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics/overview": {
       "get": {
         "tags": [
@@ -1027,6 +1267,202 @@
         }
       }
     },
+    "/api/v1/traces": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "List traces",
+        "description": "Bounded, newest-first trace listing backed by the SQLite index.\n\nFiltering + pagination happen in the store's index, so this never scans\nthe unbounded JSONL. The cursor is a stable ``(started_at, trace_id)``\nkeyset — pages do not shift when new traces are recorded in between.",
+        "operationId": "list_traces_api_v1_traces_get",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by trace type ('query' | 'ingestion').",
+              "title": "Type"
+            },
+            "description": "Filter by trace type ('query' | 'ingestion')."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by trace status (e.g. 'success', 'failed', 'canceled').",
+              "title": "Status"
+            },
+            "description": "Filter by trace status (e.g. 'success', 'failed', 'canceled')."
+          },
+          {
+            "name": "collection_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter ingestion traces for a collection.",
+              "title": "Collection Id"
+            },
+            "description": "Filter ingestion traces for a collection."
+          },
+          {
+            "name": "document_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter ingestion traces for a document.",
+              "title": "Document Id"
+            },
+            "description": "Filter ingestion traces for a document."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Full-text filter over trace id, collection/doc ids, stage names.",
+              "title": "Q"
+            },
+            "description": "Full-text filter over trace id, collection/doc ids, stage names."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive-ish lower bound on trace start (ISO-8601).",
+              "title": "From"
+            },
+            "description": "Exclusive-ish lower bound on trace start (ISO-8601)."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Upper bound on trace start (ISO-8601).",
+              "title": "To"
+            },
+            "description": "Upper bound on trace start (ISO-8601)."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from the previous page's ``next_cursor``.",
+              "title": "Cursor"
+            },
+            "description": "Opaque cursor from the previous page's ``next_cursor``."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Page size.",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Page size."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/queries/{query_id}/result": {
       "get": {
         "tags": [
@@ -1124,7 +1560,7 @@
           "traces"
         ],
         "summary": "Get an ingestion trace",
-        "description": "Return the per-stage trace for a previously run ingestion.\n\nIngestion traces are recorded with ``trace_id == task_id``. When the\ntrace is missing but the task still exists (e.g. recorded before this\nfeature, or trace persistence failed), return 200 with empty stages —\nthe ingestion *record* is real even if its timeline is gone.",
+        "description": "Return the per-stage trace for a previously run ingestion.\n\nIngestion traces are recorded with ``trace_id == task_id``. When the\ntask is mid-flight its live snapshot (completed stages + current stage)\nis merged with any recorded trace; when the trace is missing but the\ntask still exists (e.g. recorded before this feature, or trace\npersistence failed), return 200 with empty stages — the ingestion\n*record* is real even if its timeline is gone. Terminal/final state\nwins and never regresses.",
         "operationId": "get_ingestion_trace_api_v1_ingestions__ingestion_id__trace_get",
         "parameters": [
           {
@@ -2062,6 +2498,284 @@
         }
       }
     },
+    "/api/v1/collections/{collection_id}/documents/batch/tags": {
+      "post": {
+        "tags": [
+          "batch"
+        ],
+        "summary": "Add, remove, or replace tags across many documents",
+        "description": "Apply a tag action to up to 100 documents in one collection.\n\n``add`` assigns the given tags, ``remove`` unlinks them, and ``replace``\nsets each document's tags to exactly the given set. Every ``tag_id``\nmust belong to the collection and every ``document_id`` must resolve to\nthat same collection; foreign/unknown items are reported per item and do\nnot block the valid ones. No partial writes ever occur for the items\nthat do succeed.",
+        "operationId": "batch_tags_api_v1_collections__collection_id__documents_batch_tags_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchTagsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/documents/batch/move": {
+      "post": {
+        "tags": [
+          "batch"
+        ],
+        "summary": "Move many documents into a folder (or to root)",
+        "description": "Place up to 100 documents into ``folder_id`` (or root when ``null``).\n\nThe target folder must belong to the collection (else every item gets a\nper-item ``FOLDER_NOT_FOUND``); documents from another collection or\nunknown are reported per item without blocking the valid ones.",
+        "operationId": "batch_move_api_v1_collections__collection_id__documents_batch_move_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchMoveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/documents/batch/reprocess": {
+      "post": {
+        "tags": [
+          "batch"
+        ],
+        "summary": "Re-run ingestion on many documents, one task each",
+        "description": "Enqueue an independent reprocess task for up to 20 documents.\n\n- Each successful item carries its own ``task_id``.\n- A document that already has a ``pending``/``running`` reprocess task\n  is reported as a per-item ``DUPLICATE_REPROCESS`` conflict — it is\n  never double-enqueued.\n- Idempotency: a request re-sent with the same ``Idempotency-Key``\n  header returns the original per-item results (same task ids) instead\n  of creating new tasks.",
+        "operationId": "batch_reprocess_api_v1_collections__collection_id__documents_batch_reprocess_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchReprocessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/collections/{collection_id}/documents/batch/delete": {
+      "post": {
+        "tags": [
+          "batch"
+        ],
+        "summary": "Delete many documents (explicit POST action)",
+        "description": "Coordinated delete of up to 100 documents.\n\nUses an explicit POST action (no DELETE request body, which is\nunreliable through some proxies/guards). Each document reuses the same\nservice call as the single-document delete — clearing the original\nfile, vector chunks, BM25, and image storage — without copying the\ndeletion business logic into the router. A failed item never blocks the\nrest of the batch.",
+        "operationId": "batch_delete_api_v1_collections__collection_id__documents_batch_delete_post",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp-server/status": {
+      "get": {
+        "tags": [
+          "mcp-server"
+        ],
+        "summary": "MCP server status snapshot",
+        "operationId": "get_mcp_server_status_api_v1_mcp_server_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mcp-server/test-connection": {
+      "post": {
+        "tags": [
+          "mcp-server"
+        ],
+        "summary": "Run an ephemeral protocol-level MCP connection test",
+        "operationId": "test_mcp_connection_api_v1_mcp_server_test_connection_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPConnectionTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPConnectionTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/mcp/v1/collections": {
       "get": {
         "tags": [
@@ -2320,6 +3034,25 @@
           "status": "succeeded"
         }
       },
+      "BatchDeleteRequest": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Document Ids",
+            "description": "Target documents (up to 100)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_ids"
+        ],
+        "title": "BatchDeleteRequest",
+        "description": "Body for ``POST .../documents/batch/delete`` (explicit POST action)."
+      },
       "BatchFileResult": {
         "properties": {
           "filename": {
@@ -2394,6 +3127,190 @@
           "status": "accepted",
           "task_id": "1f2e3d4c-5b6a-4c8d-9e0f-1a2b3c4d5e6f"
         }
+      },
+      "BatchItemError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable machine-readable error code."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable error description."
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "description": "Optional structured context (e.g. the foreign tag id)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "BatchItemError",
+        "description": "Structured per-item error — same shape as the top-level envelope.\n\n``code`` is the stable machine-readable token a client branches on;\n``message`` is human-only. See ``src/web_api/errors.py``."
+      },
+      "BatchItemResult": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "The requested document id."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status",
+            "description": "``success`` when the item was applied, else ``error``."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchItemError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when ``status`` is ``error``."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id",
+            "description": "Task id created for this item (reprocess only)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "status"
+        ],
+        "title": "BatchItemResult",
+        "description": "One per-document outcome within a batch response."
+      },
+      "BatchMoveRequest": {
+        "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id",
+            "description": "Target folder id; ``null`` moves documents to the collection root."
+          },
+          "document_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Document Ids",
+            "description": "Target documents (up to 100)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_ids"
+        ],
+        "title": "BatchMoveRequest",
+        "description": "Body for ``POST .../documents/batch/move``."
+      },
+      "BatchReprocessRequest": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Document Ids",
+            "description": "Target documents (up to 20)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_ids"
+        ],
+        "title": "BatchReprocessRequest",
+        "description": "Body for ``POST .../documents/batch/reprocess``."
+      },
+      "BatchResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchItemResult"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "One result per requested document."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "BatchResponse",
+        "description": "Top-level envelope for all batch document operations."
+      },
+      "BatchTagsRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove",
+              "replace"
+            ],
+            "title": "Action",
+            "description": "``add`` | ``remove`` | ``replace``."
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tag Ids",
+            "description": "Tag ids to apply; every id must belong to the collection."
+          },
+          "document_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Document Ids",
+            "description": "Target documents (up to 100)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "tag_ids",
+          "document_ids"
+        ],
+        "title": "BatchTagsRequest",
+        "description": "Body for ``POST .../documents/batch/tags``."
       },
       "BatchUploadResponse": {
         "properties": {
@@ -3315,6 +4232,26 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTagRef"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "Tags bound to this document (B2.5 enrichment)."
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id",
+            "description": "Folder this document is placed in, or null for the collection root (B2.5)."
+          },
           "file_hash": {
             "anyOf": [
               {
@@ -3595,6 +4532,26 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentTagRef"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "Tags bound to this document (B2.5 enrichment)."
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id",
+            "description": "Folder this document is placed in, or null for the collection root (B2.5)."
           }
         },
         "type": "object",
@@ -3620,6 +4577,34 @@
           "status": "ready",
           "updated_at": "2026-07-31T08:25:42.001Z"
         }
+      },
+      "DocumentTagRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Stable tag id (UUID string)."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Tag display name."
+          },
+          "color": {
+            "type": "string",
+            "title": "Color",
+            "description": "Controlled colour token."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "color"
+        ],
+        "title": "DocumentTagRef",
+        "description": "Tag summary embedded in a document list row (B2.5)."
       },
       "DocumentTagsResponse": {
         "properties": {
@@ -3950,6 +4935,157 @@
         ],
         "title": "KnowledgeBaseMetric"
       },
+      "MCPConnectionError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "suggested_action": {
+            "type": "string",
+            "title": "Suggested Action"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id",
+            "description": "Server request id, useful when reporting an issue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "suggested_action"
+        ],
+        "title": "MCPConnectionError",
+        "description": "User-safe diagnostics for a failed test (B4.2).\n\n``message`` and ``suggested_action`` are always safe for end-users; the\nraw ``code`` is the stable contract the frontend branches on."
+      },
+      "MCPConnectionTestRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "format": "password",
+            "title": "Api Key",
+            "description": "The MCP Client Key returned at create/rotate time. It is send-only: never stored, logged or returned.",
+            "writeOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "MCPConnectionTestRequest",
+        "description": "POST body for the ephemeral connection test (B4.3).\n\n``api_key`` is a one-time MCP Client Key. It exists only for the\nrequest lifetime; nothing is persisted, logged, traced or echoed."
+      },
+      "MCPConnectionTestResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/MCPConnectionTestStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MCPConnectionError"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User-safe diagnostics; null when ok is True."
+          },
+          "tested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Tested At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "stages",
+          "tested_at"
+        ],
+        "title": "MCPConnectionTestResponse",
+        "description": "Result of the full protocol test (B4.3).\n\n``ok`` is True only when every stage succeeded. ``error`` is null on\nsuccess and holds a user-safe diagnostics object otherwise. The raw\n``api_key`` is never a field here."
+      },
+      "MCPConnectionTestStage": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "connect|initialize|tools_list|list_collections"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "success|failed|skipped"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms",
+            "description": "Wall-clock time for the stage in milliseconds."
+          },
+          "tool_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Count",
+            "description": "Number of tools advertised by the server (tools_list only)."
+          },
+          "collection_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Count",
+            "description": "Number of authorized collections (list_collections only)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "MCPConnectionTestStage",
+        "description": "One protocol-level stage of the connection test (B4.3)."
+      },
       "MCPKeyCollectionsUpdateRequest": {
         "properties": {
           "allowed_collections": {
@@ -4137,7 +5273,10 @@
           },
           "api_key": {
             "type": "string",
-            "title": "Api Key"
+            "format": "password",
+            "title": "Api Key",
+            "description": "The MCP Client Key. Returned exactly once at create/rotate time and never readable again; send-only for the connection test.",
+            "writeOnly": true
           }
         },
         "type": "object",
@@ -4153,6 +5292,68 @@
         ],
         "title": "MCPKeySecretResponse",
         "description": "Returned only by create/rotate; ``api_key`` is never listable."
+      },
+      "MCPServerStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Enum: online|degraded|offline|misconfigured"
+          },
+          "mcp_url": {
+            "type": "string",
+            "title": "Mcp Url"
+          },
+          "transport": {
+            "type": "string",
+            "title": "Transport",
+            "description": "MCP transport as reported by the anonymous /health probe.",
+            "default": "streamable-http"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "Server-reported MCP version (if the server exposes one)."
+          },
+          "upstream_status": {
+            "type": "string",
+            "title": "Upstream Status",
+            "description": "Enum: online|offline|unknown — main RAG API reachability.",
+            "default": "unknown"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms",
+            "description": "Health-probe round-trip latency in milliseconds."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "mcp_url",
+          "checked_at"
+        ],
+        "title": "MCPServerStatus",
+        "description": "B4.1 aggregated status snapshot of the MCP server.\n\n``mcp_url`` is the *public* client URL (from server config) — never a\ncontainer-internal address or a caller-supplied URL. No collection or\nkey information is included."
       },
       "OverviewAttentionItem": {
         "properties": {
@@ -5410,6 +6611,46 @@
           }
         ]
       },
+      "TraceListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TraceResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Page elements."
+          },
+          "page_info": {
+            "$ref": "#/components/schemas/PageInfo",
+            "description": "Pagination cursor info."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page_info"
+        ],
+        "title": "TraceListResponse",
+        "description": "``GET /traces`` response — cursor-paginated, newest-first.",
+        "examples": [
+          {
+            "items": [],
+            "page_info": {
+              "has_more": false
+            }
+          },
+          {
+            "items": [
+              "<one element>"
+            ],
+            "page_info": {
+              "has_more": true,
+              "next_cursor": "eyJwYWdlIjoxfQ=="
+            }
+          }
+        ]
+      },
       "TraceResponse": {
         "properties": {
           "id": {
@@ -5460,6 +6701,64 @@
             ],
             "title": "Error",
             "description": "Top-level error message if any."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "running",
+                  "success",
+                  "warning",
+                  "failed",
+                  "skipped",
+                  "canceled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "Lifecycle status. ``running``/``pending`` while in flight; ``success``/``failed``/``canceled``/``skipped`` once terminal."
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable",
+            "description": "True when this trace may be retried (status failed/canceled).",
+            "default": false
+          },
+          "cancelable": {
+            "type": "boolean",
+            "title": "Cancelable",
+            "description": "True when this trace may be cancelled (status pending/running).",
+            "default": false
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt",
+            "description": "Retry attempt (0 for the original run)."
+          },
+          "parent_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Trace Id",
+            "description": "Trace id of the failed run this attempt retried (null for the root)."
           }
         },
         "type": "object",
@@ -5570,6 +6869,102 @@
             "type": "object",
             "title": "Details",
             "description": "Provider-specific or method-specific extra fields."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "running",
+                  "success",
+                  "warning",
+                  "failed",
+                  "skipped",
+                  "canceled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "Lifecycle status of this stage. Derived for old traces: ``success`` for a completed stage, ``failed``/``skipped``/``canceled`` from a terminal event tag, ``running`` when still in flight."
+          },
+          "input_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Count",
+            "description": "Items processed into this stage (``None`` when unknown)."
+          },
+          "output_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Count",
+            "description": "Items produced by this stage (``None`` when unknown)."
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt",
+            "description": "Retry attempt this stage belongs to (0 for first try)."
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason",
+            "description": "Short reason when the stage was skipped."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Stable error code when the stage failed (branchable)."
+          },
+          "error_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Summary",
+            "description": "Sanitised, human-readable error summary (never raw secrets)."
           }
         },
         "type": "object",

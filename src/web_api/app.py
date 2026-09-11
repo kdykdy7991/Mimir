@@ -32,10 +32,12 @@ from src.web_api.exception_handlers import register_exception_handlers
 from src.web_api.middleware.request_id import RequestIDMiddleware
 from src.web_api.middleware.request_timing import RequestTimingMiddleware
 from src.web_api.routers import (
+    batch,
     collections,
     documents,
     folders,
     images,
+    mcp_server,
     queries,
     system,
     metrics,
@@ -110,6 +112,8 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
     app.include_router(mcp_keys.router, prefix=API_PREFIX)
     app.include_router(tags.router, prefix=API_PREFIX)
     app.include_router(folders.router, prefix=API_PREFIX)
+    app.include_router(batch.router, prefix=API_PREFIX)
+    app.include_router(mcp_server.router, prefix=API_PREFIX)
 
     # Internal read-only MCP surface (Phase 4 §P4.1) — mounted WITHOUT the
     # public API_PREFIX so it is never exposed as an ordinary public route.

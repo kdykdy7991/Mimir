@@ -50,6 +50,71 @@
 
 <!-- 每个任务完成时追加相应小节 -->
 
+## B2.5–B2.9 筛选与批量操作 — ✔ 完成（组合提交，文件耦合说明见下）
+
+> 说明：B2.5–B2.9 与 B3/B4 由并行子代理在同一工作树实现，`mappers.py`
+> （B2.5 的 `to_document_summary` 富化 与 B3 的 trace mapper）及
+> `ingestion_service.py`（B3 retry/cancel 与 reprocess）存在跨任务共享改动，
+> 无法按文件精确拆分为四个主题提交；实际提交按
+> `feat(api): filter and sort collection documents`、
+> `feat(api): batch update tags / move / reprocess / delete`、
+> `feat(trace/retry/cancel/list)` 分组，见提交哈希。
+
+### B2.5 文档组合筛选 — ✔ 完成
+- 扩展 `GET /collections/{collection_id}/documents`：`q`、`folder_id`（UUID 或字面 `root`）、
+  `tag_id`（重复、AND）、`status`、`file_type`、`updated_after`/`updated_before`、`sort`
+  （`updated_desc|updated_asc|name_asc|name_desc|size_desc`）。
+- 筛选在存储层：`SQLiteIntegrityChecker.list_processed/count` 以 SQL 实现
+  q/status/file_type/日期/sort + `source_paths_include`（IN 白名单）+ `file_path ASC` 稳定 tie-break；
+  WebApiDB 新增只读 `documents_with_all_tags`（HAVING COUNT=len）、`document_tags_map`、
+  `document_folder_map`；folder/tag 过滤先得 document-UUID 集，经 document 索引映射为 source_path 白名单。
+- 响应 `DocumentSummary` 新增 `tags:[{id,name,color}]`（默认 `[]`）、`folder_id`（默认 null），旧调用形状不变。
+- 测试 `tests/integration/test_web_api_collection_filters.py`（15）+ 回归
+  `test_web_api_endpoints.py`(25) + `unit/application`(88) → 全绿。
+
+### B2.6–B2.9 批量标签/移动/重解析/删除 — ✔ 完成
+- `POST .../documents/batch/tags`（add/remove/replace，≤100）、`batch/move`（≤100，`folder_id` null=根）、
+  `batch/reprocess`（≤20，独立 task_id，in-flight → `DUPLICATE_REPROCESS`，`Idempotency-Key` 幂等）、
+  `batch/delete`（≤100，显式 POST action，复用单篇删除服务）。
+- 统一逐项 `{document_id,status,error}` 批量结果模型；预校验 collection 作用域，单项失败不影响其它项。
+- 前端 `web/src/types/ux-contracts.ts` 只读核对参数名与响应形状。
+- 测试 `tests/integration/test_web_api_batch.py` + 集成批 → 部分成功、上限、跨库拒绝、幂等均绿。
+
+### B3.1–B3.5 可操作 Trace、retry/cancel、Trace 列表 — ✔ 完成
+- B3.1：`TraceStage` 增加可选 status/input_count/output_count/attempt/skip_reason/error_code/error_summary；
+  `TraceResponse` 增加 status/retryable/cancelable/attempt/parent_trace_id；旧 JSONL 可读（缺字段推导/null）。
+- B3.2：`TraceStore.upsert_live` + `build_live_trace_response`；终态优先不倒退；任务存在无 Trace → 兼容空 Trace 带任务状态；单次查询索引化，不全扫描 JSONL。
+- B3.3：`POST /tasks/{id}/retry`——仅 failed|canceled，子任务 id=`uuid5(parent,attempt)` 确定性幂等
+  （`TaskTracker.create_if_absent`），保留原任务，父子 Trace，缺源文件 → 404。
+- B3.4：`POST /tasks/{id}/cancel`——幂等 `request_cancel`，阶段边界停，任务置 canceled（不回滚已提交写入）。
+- B3.5：`GET /traces`——TraceStore 自带 SQLite `trace_index`（record() 时 upsert），list() 仅读索引，
+  type/status/collection_id/document_id/q + 时间范围 + `(started_at,trace_id)` keyset 游标分页。
+- 测试：`unit/test_trace_*`、`integration/test_web_api_task_actions.py`、`test_web_api_traces.py` → 176 通过。
+
+### B4.1–B4.4 MCP 状态与连通测试 — ✔ 完成
+- B4.1 `GET /mcp-server/status`：探测匿名 `/health`，返回 online|degraded|offline|misconfigured；
+  URL 仅来自配置 `upload`/`mcp_server.rag_api_base_url`，`trust_env=False`、硬超时、不跟随重定向、无 SSRF。
+- B4.2 诊断枚举：server_unreachable/handshake_failed/client_unauthorized/client_key_revoked/
+  internal_auth_failed/upstream_unavailable/empty_scope/timeout/unexpected_response，各带用户安全 message/action。
+- B4.3 `POST /mcp-server/test-connection`：`{"api_key": <SecretStr>}` → connect→initialize→tools/list→list_collections，
+  响应无 Key；滑动窗口限流 10/60s→429；只连配置 URL。
+- B4.4：Key 仅驻留请求生命周期；`writeOnly:true`；FastAPI 422 校验错误对 api_key 类字段输入脱敏为 `<redacted>`
+  （修复真实泄露）；`request_timing` 增加 body_capture_disabled 护栏；日志/Trace/响应/落盘无 Key。
+- 测试：B4 自测（unit+secret-boundary+真实 uvicorn 全链路）35+7 通过。
+
+### 交付提交（本段）
+- `feat(api): filter and sort collection documents`
+- `feat(api): batch tag/move/reprocess/delete`
+- `feat(trace/retry/cancel/list)` 等，见末尾提交列表。
+- MCP 只读工具/契约/授权/健康套件 154 通过；OpenAPI 43 paths/81 schemas；快照测试 17 通过；
+  基础端到端/chunks/unit-application 148 通过。
+
+**已知限制/环境**：`tests/unit` 中有与本次改动无关的既有失败（LLM prompt、multimodal_assembler 字段名、
+HTTP bootstrap 配置）；4 项上传校验失败源于 `src/application/services/upload_types.py` 默认已放行
+`.txt`/text/plain（`config/settings.yaml` 用户在进行中改动），均非本段引入，已记录为环境限制。
+
+<!-- B2.4 开始 -->
+
 ---
 
 ## B2.4 文件夹 CRUD 与文档移动接口 — ✔ 完成
