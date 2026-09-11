@@ -7,7 +7,9 @@ derived from ``(collection, source_path)`` — see ``mappers.document_uuid``.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path as FilePath
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query, status
@@ -24,6 +26,7 @@ from src.ingestion.chunk_order import (
 from src.ingestion.storage.bm25_locks import bm25_write_lock
 from src.web_api.dependencies import get_application_services
 from src.web_api.errors import (
+    BadRequestError,
     ChunkNotFoundError,
     DocumentDeleteError,
     DocumentNotFoundError,
@@ -36,7 +39,9 @@ from src.web_api.mappers import (
     to_document_summary,
 )
 from src.web_api.schemas.documents import (
+    ChunkListItem,
     DocumentChunkDetail,
+    DocumentChunkListResponse,
     DocumentDetail,
     DocumentListResponse,
 )
@@ -130,6 +135,107 @@ def _sanitize_page(value: int | None) -> int | None:
     if value is None or value < 1:
         return None
     return value
+
+
+def _chunk_preview(text: str, limit: int = 200) -> str:
+    """Whitespace-normalized preview snippet for list rows."""
+    compact = re.sub(r"\s+", " ", text.strip())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit] + "…"
+
+
+@router.get(
+    "/{document_id}/chunks",
+    response_model=DocumentChunkListResponse,
+    summary="Paginate, search, and filter a document's chunks",
+)
+async def list_document_chunks(
+    document_id: str = Path(..., description="Document ID (UUID)."),
+    services: ApplicationServices = Depends(get_application_services),
+    page: int = Query(1, ge=1, description="1-based page (min 1)."),
+    page_size: int = Query(
+        SETTINGS.chunk_page_size_default,
+        ge=1,
+        le=SETTINGS.chunk_page_size_max,
+        description=f"Rows per page, 1-{SETTINGS.chunk_page_size_max}.",
+    ),
+    q: str | None = Query(None, description="Case-insensitive literal text search."),
+    content_type: Literal["text", "table", "image_ocr", "image_caption"] | None =
+        Query(None, description="Chunk content-type filter."),
+    page_number: int | None = Query(None, ge=1, description="Filter by source page."),
+) -> DocumentChunkListResponse:
+    """Server-side paginated chunk list with literal search + filters.
+
+    Ordering matches the MCP ``get_document_chunks`` tool (shared
+    ``stable_order_chunks`` helper). ``q`` strips whitespace and is a
+    case-insensitive literal substring match (no full-text engine). The
+    ``page_number`` filter is *source page*, distinct from the ``page``
+    pagination index. Rows are preview summaries — full text comes from
+    ``GET /documents/{id}/chunks/{chunk_id}``.
+    """
+    query = (q or "").strip()
+    if len(query) > 200:
+        raise BadRequestError(
+            "chunk search query is limited to 200 characters",
+            details={"query_length": len(query), "max_length": 200},
+        )
+
+    doc_uuid = _parse_document_id(document_id)
+    resolved = resolve_document(services, doc_uuid)
+    if resolved is None:
+        raise DocumentNotFoundError(
+            f"document {document_id!r} does not exist",
+            details={"document_id": document_id},
+        )
+    collection, source_path = resolved
+    detail = services.document.get_document_detail(source_path, collection)
+    if detail is None:
+        raise DocumentNotFoundError(
+            f"document {document_id!r} does not exist",
+            details={"document_id": document_id},
+        )
+
+    ordered = stable_order_chunks(detail.chunks)
+    query_lower = query.lower() if query else None
+    matching: list[tuple[int, dict]] = []
+    for idx, hit in enumerate(ordered):
+        text = str(hit.get("text") or "")
+        meta = hit.get("metadata") or {}
+        if query_lower is not None and query_lower not in text.lower():
+            continue
+        chunk_type = str(meta.get("content_type") or "text")
+        if content_type is not None and chunk_type != content_type:
+            continue
+        if page_number is not None and page_number_of(meta) != page_number:
+            continue
+        matching.append((idx, hit))
+
+    total = len(matching)
+    start = (page - 1) * page_size
+    window = matching[start:start + page_size]
+    items: list[ChunkListItem] = []
+    for idx, hit in window:
+        meta = hit.get("metadata") or {}
+        text = str(hit.get("text") or "")
+        chunk_type = str(meta.get("content_type") or "text")
+        items.append(ChunkListItem(
+            index=idx,
+            chunk_id=chunk_id_of(hit),
+            heading=heading_of(hit),
+            page=_sanitize_page(page_number_of(meta)),
+            content_type=chunk_type,
+            character_count=len(text),
+            text_preview=_chunk_preview(text),
+        ))
+
+    return DocumentChunkListResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total=total,
+        has_next=start + len(window) < total,
+    )
 
 
 @router.get(

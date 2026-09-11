@@ -160,7 +160,7 @@ def test_existing_chunk_summary_contract() -> None:
 
 
 def test_b11_chunk_detail_contract() -> None:
-    """``GET /documents/{id}/chunks/{id}`` full-body schema is frozen (B1.1)."""
+    """``GET /documents/{id}/chunks/{chunk_id}`` full-body schema (B1.1)."""
     openapi = _live_openapi()
     paths = openapi.get("paths", {})
     assert "/api/v1/documents/{document_id}/chunks/{chunk_id}" in paths
@@ -175,6 +175,29 @@ def test_b11_chunk_detail_contract() -> None:
     kind = (locator.get("properties", {}).get("kind") or {}).get("enum")
     assert kind is not None, "SourceLocator.kind must be an explicit enum"
     assert set(kind) == {"pdf_page", "image", "section", "none"}, f"got {kind}"
+
+
+def test_b12_chunk_list_contract() -> None:
+    """``GET /documents/{id}/chunks`` paged list contract (B1.2)."""
+    openapi = _live_openapi()
+    paths = openapi.get("paths", {})
+    assert "/api/v1/documents/{document_id}/chunks" in paths
+    assert_schema_fields(
+        openapi, "DocumentChunkListResponse",
+        required={"items", "page", "page_size", "total", "has_next"},
+        properties=set(),
+    )
+    assert_schema_fields(
+        openapi, "ChunkListItem",
+        required={"index", "chunk_id", "character_count", "text_preview"},
+        properties={"heading", "page", "content_type"},
+    )
+    # page_size is capped at the frozen maximum.
+    op = paths["/api/v1/documents/{document_id}/chunks"]["get"]
+    params = {p["name"]: p for p in op.get("parameters", [])}
+    assert params["page_size"]["schema"]["maximum"] == PAGE_SIZE_MAX, (
+        "page_size must cap at 100"
+    )
 
 
 def test_existing_trace_contract() -> None:

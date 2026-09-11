@@ -579,6 +579,139 @@
         }
       }
     },
+    "/api/v1/documents/{document_id}/chunks": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Paginate, search, and filter a document's chunks",
+        "description": "Server-side paginated chunk list with literal search + filters.\n\nOrdering matches the MCP ``get_document_chunks`` tool (shared\n``stable_order_chunks`` helper). ``q`` strips whitespace and is a\ncase-insensitive literal substring match (no full-text engine). The\n``page_number`` filter is *source page*, distinct from the ``page``\npagination index. Rows are preview summaries — full text comes from\n``GET /documents/{id}/chunks/{chunk_id}``.",
+        "operationId": "list_document_chunks_api_v1_documents__document_id__chunks_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Document ID (UUID).",
+              "title": "Document Id"
+            },
+            "description": "Document ID (UUID)."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based page (min 1).",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "1-based page (min 1)."
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Rows per page, 1-100.",
+              "default": 50,
+              "title": "Page Size"
+            },
+            "description": "Rows per page, 1-100."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive literal text search.",
+              "title": "Q"
+            },
+            "description": "Case-insensitive literal text search."
+          },
+          {
+            "name": "content_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "text",
+                    "table",
+                    "image_ocr",
+                    "image_caption"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Chunk content-type filter.",
+              "title": "Content Type"
+            },
+            "description": "Chunk content-type filter."
+          },
+          {
+            "name": "page_number",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by source page.",
+              "title": "Page Number"
+            },
+            "description": "Filter by source page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentChunkListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/documents/{document_id}/chunks/{chunk_id}": {
       "get": {
         "tags": [
@@ -1820,6 +1953,75 @@
         "type": "object",
         "title": "Body_upload_collection_document_api_v1_collections__collection_id__documents_post"
       },
+      "ChunkListItem": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index"
+          },
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "default": "text"
+          },
+          "character_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Character Count"
+          },
+          "text_preview": {
+            "type": "string",
+            "title": "Text Preview",
+            "description": "Whitespace-normalized snippet."
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "chunk_id",
+          "character_count",
+          "text_preview"
+        ],
+        "title": "ChunkListItem",
+        "description": "Preview row for the server-paged chunk list (B1.2).\n\nFull text is intentionally not included — the client requests a single\nchunk via ``GET /documents/{id}/chunks/{id}`` for the drawer.",
+        "example": {
+          "character_count": 864,
+          "chunk_id": "stable-id",
+          "content_type": "text",
+          "heading": "3.2 服务部署",
+          "index": 17,
+          "page": 12,
+          "text_preview": "3.2 服务部署 ……"
+        }
+      },
       "Citation": {
         "properties": {
           "index": {
@@ -2380,6 +2582,58 @@
             "page": 12
           },
           "text": "3.2 服务部署 ……"
+        }
+      },
+      "DocumentChunkListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkListItem"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Current page rows."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "description": "Requested 1-based page."
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page Size",
+            "description": "Requested page size."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Total rows after filtering."
+          },
+          "has_next": {
+            "type": "boolean",
+            "title": "Has Next",
+            "description": "True when another page exists after this one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "has_next"
+        ],
+        "title": "DocumentChunkListResponse",
+        "description": "``GET /documents/{id}/chunks`` response (B1.2).",
+        "example": {
+          "has_next": false,
+          "items": [],
+          "page": 1,
+          "page_size": 50,
+          "total": 0
         }
       },
       "DocumentChunkSummary": {

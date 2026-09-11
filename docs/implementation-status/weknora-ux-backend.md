@@ -52,6 +52,47 @@
 
 ---
 
+## B1.2 文档 Chunk 分页、搜索和过滤 — ✔ 完成
+
+**状态**：通过（含 B1 项目门禁合集通过）。
+
+**实际修改文件**：
+
+- `src/web_api/settings.py` — 新增 `chunk_page_size_default=50` / `chunk_page_size_max=100`
+  （env：`WEB_API_CHUNK_PAGE_SIZE_DEFAULT/MAX`）。
+- `src/web_api/schemas/documents.py` — 新增 `ChunkListItem`、`DocumentChunkListResponse`。
+- `src/web_api/routers/documents.py` — 新增 `GET /documents/{id}/chunks`（page/page_size/q/content_type/page_number）。
+- `tests/integration/test_web_api_chunks.py`（B1.2 测试 12 项）、`tests/unit/test_ux_api_contracts.py`
+  （新增 `test_b12_chunk_list_contract`）、`docs/openapi/openapi.v0.2.json`（重新生成）。
+
+**数据库/API/兼容性决策**：
+
+- 分页统一 `page/page_size`：默认 50、最大 100（`page_size` 越界 → 422）。
+- 稳定排序沿用与 MCP 共享的 `stable_order_chunks`；分页在稳定排序结果上切窗。
+- `q` 去首尾空白后做大小写不敏感字面量包含匹配（无全文检索引擎）；>200 字符 → 400 `BAD_REQUEST`。
+- `content_type` 白名单 `text|table|image_ocr|image_caption`，非法类型 → 422。
+- `page_number` 是原文页码筛选（非分页页码），`>=1`；缺页码 Chunk 被过滤。
+- 列表项返回可预览摘要（`text_preview`），全文由 B1.1 提供；文档详情 `chunks` 兼容字段保留不废弃。
+
+**新增测试**（B1.2，12 项）：默认页大小/总数/has_next、中/尾页、越界页为空、中文搜索、字面量搜索大小写、
+content_type 过滤、page_number 源页码过滤、组合过滤、超长 q=400、非法 content_type=422、
+page_size 越界=422、未知文档 404、旧数据稳定顺序。
+
+**执行命令与结果**：
+
+- `python -m scripts.export_openapi` → 27 paths, 54 schemas
+- `python -m pytest tests/integration/test_web_api_chunks.py tests/unit/test_ux_api_contracts.py tests/contract/test_openapi_snapshot.py tests/integration/test_web_api_endpoints.py tests/unit/test_readonly_client_chunks.py tests/unit/test_get_document_chunks.py tests/unit/test_readonly_client_inprocess_services.py -q` → 75 passed
+
+**git diff --check**：通过。
+
+**提交哈希**：B1.2 提交见当前小节末尾。
+
+**遗留问题**：无新遗留。
+
+**下一任务**：B1.3 原文件定位契约（`source_locator` 归一化已在 B1.1 落地，本任务补齐契约测试与声明）。
+
+---
+
 ## B1.1 单 Chunk 详情读取 — ✔ 完成
 
 **状态**：通过（含 B1 阶段相关门禁部分，门禁合集见下方）。

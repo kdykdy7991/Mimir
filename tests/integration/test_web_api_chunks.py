@@ -184,3 +184,137 @@ def _client_for_source(ext: str, chunks, *, resolve_source: str | None = None) -
         system=object(), trace=object(), engines=object(),
     )
     return TestClient(create_app(services=services))
+
+
+# ---------------------------------------------------------------------------
+# B1.2 — GET /documents/{id}/chunks (pagination, search, filters)
+# ---------------------------------------------------------------------------
+
+def _many_chunks(n: int = 120) -> _StubDocument:
+    """n chunks with alternating types/pages; every 11th carries Chinese text."""
+    chunks = []
+    for i in range(n):
+        text = f"chunk number {i} content"
+        if i % 11 == 0:
+            text = f"中文内容 第 {i} 条"
+        meta = {
+            "chunk_index": i,
+            "content_type": "table" if i % 3 == 0 else "text",
+            "page": (i // 10) + 1,
+        }
+        chunks.append(_chunk(f"id-{i:03d}", text, **meta))
+    return _StubDocument(chunks)
+
+
+def test_chunk_list_default_page_size_caps_and_total() -> None:
+    client = _client(_many_chunks())
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["page"] == 1
+    assert body["page_size"] == 50
+    assert body["total"] == 120
+    assert body["has_next"] is True
+    assert len(body["items"]) == 50
+
+
+def test_chunk_list_middle_and_last_page() -> None:
+    client = _client(_many_chunks())
+    page2 = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page=2").json()
+    assert page2["page"] == 2
+    assert len(page2["items"]) == 50
+    assert page2["items"][0]["index"] == 50
+
+    last = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page=3").json()
+    assert len(last["items"]) == 20
+    assert last["has_next"] is False
+
+
+def test_chunk_list_page_number_over_cap_is_empty() -> None:
+    client = _client(_many_chunks())
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page=99")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+    assert resp.json()["has_next"] is False
+
+
+def test_chunk_list_search_chinese_case_insensitive() -> None:
+    client = _client(_many_chunks())
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks?q=中文")
+    body = resp.json()
+    assert body["total"] >= 10
+    assert all("中文" in item["text_preview"] for item in body["items"])
+
+
+def test_chunk_list_search_is_literal_and_casedependent() -> None:
+    client = _client(_many_chunks())
+    # "NUMBER" matches uppercase text-case-insensitively
+    body = client.get(f"/api/v1/documents/{DOC_ID}/chunks?q=NUMBER").json()
+    assert body["total"] > 0
+    # no-match query returns empty
+    empty = client.get(f"/api/v1/documents/{DOC_ID}/chunks?q=zzzzmissing").json()
+    assert empty["total"] == 0 and empty["items"] == []
+
+
+def test_chunk_list_filter_content_type() -> None:
+    client = _client(_many_chunks())
+    table = client.get(f"/api/v1/documents/{DOC_ID}/chunks?content_type=table").json()
+    assert table["total"] == 40  # i % 3 == 0 within 0..119
+    assert all(item["content_type"] == "table" for item in table["items"])
+
+
+def test_chunk_list_filter_page_number_is_source_page() -> None:
+    client = _client(_many_chunks())  # each page group of 10 -> page = i//10 + 1
+    body = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page_number=2").json()
+    assert body["total"] == 10  # i in 10..19
+    assert all(item["page"] == 2 for item in body["items"])
+
+
+def test_chunk_list_combined_filters() -> None:
+    client = _client(_many_chunks())
+    body = client.get(
+        f"/api/v1/documents/{DOC_ID}/chunks?content_type=table&page_number=2"
+    ).json()
+    # page 2 -> i in 10..19; table = i%3==0 -> 12,15,18
+    assert body["total"] == 3
+    assert [item["index"] for item in body["items"]] == [12, 15, 18]
+
+
+def test_chunk_list_rejects_overlong_query() -> None:
+    client = _client(_many_chunks(10))
+    long_q = "a" * 201
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks?q={long_q}")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "BAD_REQUEST"
+
+
+def test_chunk_list_rejects_invalid_content_type() -> None:
+    client = _client(_many_chunks(10))
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks?content_type=bogus")
+    assert resp.status_code == 422
+
+
+def test_chunk_list_rejects_page_size_over_cap() -> None:
+    client = _client(_many_chunks(10))
+    resp = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page_size=101")
+    assert resp.status_code == 422
+
+
+def test_chunk_list_unknown_document_not_found() -> None:
+    client = _client(_StubDocument([_chunk("a", "x", chunk_index=0)], resolve=False))
+    resp = client.get("/api/v1/documents/ffffffff-0000-0000-0000-000000000000/chunks")
+    assert resp.status_code == 404
+
+
+def test_chunk_list_stable_order_of_legacy_ids() -> None:
+    """Rows without chunk_index sort by the numeric id index, same as MCP."""
+    chunks = [
+        _chunk("doc_0015_chunk", "old fifteen", page=1),
+        _chunk("doc_0001_chunk", "old one", page=1),
+        _chunk("doc_0009_chunk", "old nine", page=1),
+    ]
+    client = _client(_StubDocument(chunks))
+    body = client.get(f"/api/v1/documents/{DOC_ID}/chunks?page_size=100").json()
+    assert [i["chunk_id"] for i in body["items"]] == [
+        "doc_0001_chunk", "doc_0009_chunk", "doc_0015_chunk",
+    ]

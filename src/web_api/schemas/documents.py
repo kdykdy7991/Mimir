@@ -164,6 +164,60 @@ class DocumentChunkDetail(BaseModel):
     )
 
 
+class ChunkListItem(BaseModel):
+    """Preview row for the server-paged chunk list (B1.2).
+
+    Full text is intentionally not included — the client requests a single
+    chunk via ``GET /documents/{id}/chunks/{id}`` for the drawer.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "index": 17,
+                "chunk_id": "stable-id",
+                "heading": "3.2 服务部署",
+                "page": 12,
+                "content_type": "text",
+                "character_count": 864,
+                "text_preview": "3.2 服务部署 ……",
+            }
+        }
+    )
+
+    index: int = Field(..., ge=0)
+    chunk_id: str
+    heading: str | None = None
+    page: int | None = Field(None, ge=1)
+    content_type: str = "text"
+    character_count: int = Field(..., ge=0)
+    text_preview: str = Field(..., description="Whitespace-normalized snippet.")
+
+
+class DocumentChunkListResponse(BaseModel):
+    """``GET /documents/{id}/chunks`` response (B1.2)."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "items": [],
+                "page": 1,
+                "page_size": 50,
+                "total": 0,
+                "has_next": False,
+            }
+        }
+    )
+
+    items: list[ChunkListItem] = Field(..., description="Current page rows.")
+    page: int = Field(..., ge=1, description="Requested 1-based page.")
+    page_size: int = Field(..., ge=1, description="Requested page size.")
+    total: int = Field(..., ge=0, description="Total rows after filtering.")
+    has_next: bool = Field(
+        ..., description="True when another page exists after this one.",
+    )
+
+
 class DocumentDetail(DocumentSummary):
     """``GET /documents/{id}`` response — extends summary with ingestion refs.
 
@@ -304,6 +358,8 @@ __all__ = [
     "DocumentSummary",
     "DocumentChunkSummary",
     "DocumentChunkDetail",
+    "ChunkListItem",
+    "DocumentChunkListResponse",
     "DocumentDetail",
     "DocumentListResponse",
     "DocumentUploadResponse",
