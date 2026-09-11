@@ -343,6 +343,20 @@ def test_b22_tags_contract() -> None:
     )
 
 
+def test_b24_folders_contract() -> None:
+    """Folder CRUD + document-folder placement endpoints (B2.4)."""
+    openapi = _live_openapi()
+    paths = openapi.get("paths", {})
+    assert "/api/v1/collections/{collection_id}/folders" in paths
+    assert "/api/v1/documents/{document_id}/folder" in paths
+    folder_props = assert_schema_fields(
+        openapi, "Folder",
+        required={"id", "collection_id", "name", "depth", "created_at", "updated_at"},
+        properties={"parent_id", "document_count"},
+    )
+    assert folder_props["document_count"]["default"] == 0
+
+
 def test_planned_endpoints_registry_is_declared() -> None:
     """The planned-endpoint registry is explicit (used by later tasks)."""
     assert PLANNED_ENDPOINTS

@@ -52,6 +52,48 @@
 
 ---
 
+## B2.4 文件夹 CRUD 与文档移动接口 — ✔ 完成
+
+**状态**：通过。
+
+**实际修改文件**：
+
+- 新增 `src/web_api/schemas/folders.py`（`Folder`/`FolderCreateRequest`/`FolderRenameRequest`/
+  `FolderMoveRequest`/`FolderListResponse`/`DocumentFolderUpdateRequest`/`DocumentFolderResponse`）。
+- 新增 `src/web_api/routers/folders.py`。
+- `src/web_api/app.py` — 注册 folders 路由。
+- 新增 `tests/integration/test_web_api_folders.py`；`tests/unit/test_ux_api_contracts.py` 新增
+  `test_b24_folders_contract`；`docs/openapi/openapi.v0.2.json`（重新生成）。
+
+**数据库/API/兼容性决策**：
+
+- 端点：`GET/POST /collections/{id}/folders`、`PATCH .../{folder_id}`（重命名）、
+  `POST .../{folder_id}/move`（重挂载，body `parent_id`，null=移到根）、
+  `DELETE .../{folder_id}`（删除并上移子节点/文档）、`PUT /documents/{id}/folder`（设置/清除）。
+- 文件夹仅逻辑目录，不移动文件物理路径。跨 collection 文件夹 → 404 `FOLDER_NOT_FOUND`（防枚举）。
+- 文档移动文件夹必须属于文档所在 collection，否则 400 且不改写；文档不存在 → 404。
+- 同名冲突 → 409；未知父/深度越界/环移动 → 400。
+- `Folder.document_count` = 该文件夹直属文档数。
+
+**新增测试**（`tests/integration/test_web_api_folders.py`，9 项）：CRUD 流程、同名 409、
+未知父 400、环移动 400、跨 collection 404、未知 collection 404、文档设置/清除文件夹、
+跨 collection 文档移动 400、未知文档 404。
+
+**执行命令与结果**：
+
+- `python -m scripts.export_openapi` → 34 paths, 67 schemas
+- `python -m pytest tests/integration/test_web_api_folders.py tests/unit/application/test_folders_store.py tests/unit/test_ux_api_contracts.py tests/contract/test_openapi_snapshot.py tests/integration/test_web_api_endpoints.py -q` → 63 passed
+
+**git diff --check**：通过。
+
+**提交哈希**：B2.4 提交见当前小节末尾。
+
+**遗留问题**：无新遗留。
+
+**下一任务**：B2.5 文档组合筛选。
+
+---
+
 ## B2.3 文件夹数据模型和迁移 — ✔ 完成
 
 **状态**：通过。

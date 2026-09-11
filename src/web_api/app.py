@@ -34,6 +34,7 @@ from src.web_api.middleware.request_timing import RequestTimingMiddleware
 from src.web_api.routers import (
     collections,
     documents,
+    folders,
     images,
     queries,
     system,
@@ -108,6 +109,7 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
     app.include_router(images.router, prefix=API_PREFIX)
     app.include_router(mcp_keys.router, prefix=API_PREFIX)
     app.include_router(tags.router, prefix=API_PREFIX)
+    app.include_router(folders.router, prefix=API_PREFIX)
 
     # Internal read-only MCP surface (Phase 4 §P4.1) — mounted WITHOUT the
     # public API_PREFIX so it is never exposed as an ordinary public route.
