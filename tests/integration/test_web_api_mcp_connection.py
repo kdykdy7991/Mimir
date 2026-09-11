@@ -144,6 +144,9 @@ def mcp_env(tmp_path):
             base_url=base_url,
             key_db_path=str(tmp_path / "mcp_access.db"),
             timeout_s=10.0,
+            upstream_backend="in_process",
+            upstream_base_url="",
+            upstream_key="",
         )
 
     monkey = pytest.MonkeyPatch()
@@ -229,7 +232,8 @@ def test_empty_scope(mcp_env, tmp_path):
     from fastapi.testclient import TestClient
     monkey = pytest.MonkeyPatch()
     monkey.setattr(mcp_server_router, "_server_config", lambda: McpServerRouteConfig(
-        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0))
+        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0,
+        upstream_backend="in_process", upstream_base_url="", upstream_key=""))
     monkey.setattr(mcp_server_router, "_rate_limiter",
                    mcp_server_router.RuntimeRateLimiter(max_requests=1000, window_seconds=60.0))
     client = TestClient(app)
@@ -256,7 +260,8 @@ def test_tools_missing_is_unexpected(mcp_env, tmp_path):
     from fastapi.testclient import TestClient
     monkey = pytest.MonkeyPatch()
     monkey.setattr(mcp_server_router, "_server_config", lambda: McpServerRouteConfig(
-        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0))
+        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0,
+        upstream_backend="in_process", upstream_base_url="", upstream_key=""))
     monkey.setattr(mcp_server_router, "_rate_limiter",
                    mcp_server_router.RuntimeRateLimiter(max_requests=1000, window_seconds=60.0))
     client = TestClient(app)
@@ -295,7 +300,8 @@ async def test_mcp_status_endpoint_reports_online(tmp_path):
     base_url = instance.start()
     monkey = pytest.MonkeyPatch()
     monkey.setattr(mcp_server_router, "_server_config", lambda: McpServerRouteConfig(
-        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0))
+        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0,
+        upstream_backend="in_process", upstream_base_url="", upstream_key=""))
     from fastapi.testclient import TestClient
     try:
         with TestClient(create_app_with_router()) as client:
@@ -306,6 +312,34 @@ async def test_mcp_status_endpoint_reports_online(tmp_path):
             assert body["mcp_url"] == f"{base_url}/mcp"
             assert body["upstream_status"] == "online"
             assert body["latency_ms"] is not None
+    finally:
+        monkey.undo()
+        instance.stop()
+
+
+async def test_mcp_status_endpoint_reports_upstream_not_online_on_auth_failure(tmp_path):
+    """B4.1: MCP port alive but the internal RAG auth fails → NOT 'online'."""
+    service = ApiKeyService(db_path=tmp_path / "mcp_access.db")
+    handler = _build_handler()
+    instance = _McpUvicorn(handler, service)
+    base_url = instance.start()
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(mcp_server_router, "_server_config", lambda: McpServerRouteConfig(
+        base_url=base_url, key_db_path=str(tmp_path / "mcp_access.db"), timeout_s=10.0,
+        upstream_backend="http", upstream_base_url="https://api.internal:8766",
+        upstream_key="internal-secret"))
+    # The internal readonly API rejects the shared key → upstream must degrade.
+    from unittest.mock import AsyncMock
+    monkey.setattr(
+        mcp_server_router, "probe_upstream", AsyncMock(return_value="degraded"),
+    )
+    from fastapi.testclient import TestClient
+    try:
+        with TestClient(create_app_with_router()) as client:
+            body = client.get("/api/v1/mcp-server/status").json()
+            assert body["status"] == "online"
+            assert body["upstream_status"] == "degraded"
+            assert body["upstream_status"] != "online"
     finally:
         monkey.undo()
         instance.stop()

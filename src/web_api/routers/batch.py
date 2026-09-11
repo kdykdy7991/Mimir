@@ -23,6 +23,8 @@ router only orchestrates the per-item results.
 from __future__ import annotations
 
 from pathlib import Path as FilePath
+from hashlib import sha256
+from collections import OrderedDict
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Path, Request
@@ -30,7 +32,11 @@ from fastapi import APIRouter, Depends, Path, Request
 from src.application.composition import ApplicationServices
 from src.ingestion.storage.bm25_locks import bm25_write_lock
 from src.web_api.dependencies import get_application_services
-from src.web_api.errors import BadRequestError, CollectionNotFoundError
+from src.web_api.errors import (
+    BadRequestError,
+    CollectionNotFoundError,
+    ConflictError,
+)
 from src.web_api.mappers import collection_uuid, resolve_collection_name, resolve_document
 from src.web_api.schemas.batch import (
     BATCH_MAX_ITEMS,
@@ -56,9 +62,34 @@ _IN_FLIGHT_STATUSES = frozenset({"pending", "running"})
 # real service the authoritative duplicate check rides on TaskTracker; these
 # maps only back-stop stubs and play nicely with the same request retried.
 _REPROCESS_IN_FLIGHT: dict[tuple[str, str], UUID] = {}
-# idempotency-key -> per-document results, so a client retry with the same
-# Idempotency-Key returns the exact same task ids instead of re-enqueueing.
-_REPROCESS_BY_KEY: dict[str, list[BatchItemResult]] = {}
+# Idempotency cache: bounded + TTL'd. Key = (collection_id, idempotency_key,
+# canonical_request_hash) so the same key re-used for a DIFFERENT collection
+# or a DIFFERENT body returns 409 instead of the first call's task ids, and so
+# the cache cannot grow without bound.
+_IDEM_TTL_SECONDS = 3600.0
+_IDEM_MAX_ENTRIES = 1024
+# (collection_id, idempotency_key, canonical_hash) -> (expires_at, results)
+_REPROCESS_BY_KEY: "OrderedDict[tuple[str, str, str], tuple[float, list[BatchItemResult]]]" = OrderedDict()
+
+
+def _canonical_request_hash(document_ids: list[UUID]) -> str:
+    """Stable hash over the request body (sorted ids join) — same body only."""
+    canonical = ",".join(sorted(str(d) for d in document_ids))
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _prune_idem_cache(now: float | None = None) -> None:
+    import time
+
+    now = now if now is not None else time.monotonic()
+    while _REPROCESS_BY_KEY:
+        _expires, _ = next(iter(_REPROCESS_BY_KEY.values()))
+        if _expires > now:
+            break
+        _REPROCESS_BY_KEY.popitem(last=False)
+    # hard cap: evict oldest entries beyond the limit
+    while len(_REPROCESS_BY_KEY) > _IDEM_MAX_ENTRIES:
+        _REPROCESS_BY_KEY.popitem(last=False)
 
 
 def _ok(document_id: UUID, *, task_id: UUID | None = None) -> BatchItemResult:
@@ -269,8 +300,21 @@ async def batch_reprocess(
     collection_name = _resolve_collection(services, collection_id)
 
     idem_key = request.headers.get("Idempotency-Key") or request.headers.get("idempotency-key")
-    if idem_key and idem_key in _REPROCESS_BY_KEY:
-        return BatchResponse(items=list(_REPROCESS_BY_KEY[idem_key]))
+    if idem_key:
+        import time
+
+        _prune_idem_cache()
+        canonical = _canonical_request_hash(body.document_ids)
+        bucket = (str(collection_id), idem_key)
+        now = time.monotonic()
+        for (c, k, h), (expires, results) in list(_REPROCESS_BY_KEY.items()):
+            if (c, k) == bucket:
+                if h == canonical:
+                    return BatchResponse(items=list(results))
+                raise ConflictError(
+                    "Idempotency-Key already used with a different request body",
+                    details={"collection_id": str(collection_id)},
+                )
 
     tracker = getattr(services.ingestion, "tracker", None)
     results: list[BatchItemResult] = []
@@ -317,7 +361,13 @@ async def batch_reprocess(
         results.append(_ok(document_id, task_id=task_id))
 
     if idem_key:
-        _REPROCESS_BY_KEY[idem_key] = list(results)
+        import time
+
+        _prune_idem_cache()
+        canonical = _canonical_request_hash(body.document_ids)
+        key = (str(collection_id), idem_key, canonical)
+        _REPROCESS_BY_KEY[key] = (time.monotonic() + _IDEM_TTL_SECONDS, list(results))
+        _prune_idem_cache()
     return BatchResponse(items=results)
 
 

@@ -185,3 +185,69 @@ def test_document_folder_unknown_document_404(tmp_path) -> None:
     resp = client.put(f"/api/v1/documents/{DOC_ID}/folder", json={"folder_id": None})
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+
+
+class _TwoCollDoc:
+    resolve = True
+
+    def resolve_document_id(self, document_id):
+        return (COLLECTION, f"/data/uploads/{COLLECTION}/x.pdf")
+
+    def list_collections(self):
+        ref = type("R", (), {})
+        ref.name = COLLECTION
+        ref2 = type("R", (), {})
+        ref2.name = "elsewhere"
+        return [ref, ref2]
+
+
+def test_cross_collection_child_creation_rejected(tmp_path) -> None:
+    """P0: a child folder cannot hang off a parent in another collection (HTTP)."""
+    db = WebApiDB(tmp_path / "db" / "web_api.db")
+    services = ApplicationServices(
+        query=object(), ingestion=object(), document=_TwoCollDoc(),
+        system=object(), trace=object(), engines=object(), db=db,
+    )
+    client = TestClient(create_app(services=services))
+    parent = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders", json={"name": "pa"},
+    ).json()
+    other = collection_uuid("elsewhere")
+    resp = client.post(
+        f"/api/v1/collections/{other}/folders",
+        json={"name": "child", "parent_id": parent["id"]},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "BAD_REQUEST"
+
+
+def test_move_onto_same_name_sibling_is_409(tmp_path) -> None:
+    """P1: moving a folder under a parent that already has a same-name
+    sibling must be a 409 conflict, not a 500."""
+    db = WebApiDB(tmp_path / "db" / "web_api.db")
+    services = ApplicationServices(
+        query=object(), ingestion=object(), document=_StubDoc(),
+        system=object(), trace=object(), engines=object(), db=db,
+    )
+    client = TestClient(create_app(services=services))
+    x = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders", json={"name": "X"},
+    ).json()
+    y = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders", json={"name": "Y"},
+    ).json()
+    nx = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders",
+        json={"name": "n", "parent_id": x["id"]},
+    ).json()
+    client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders",
+        json={"name": "n", "parent_id": y["id"]},
+    )
+    # move X/n into Y (already has a sibling named 'n') → 409
+    resp = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/folders/{nx['id']}/move",
+        json={"parent_id": y["id"]},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "CONFLICT"

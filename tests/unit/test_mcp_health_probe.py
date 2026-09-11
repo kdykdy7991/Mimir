@@ -5,7 +5,11 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from src.web_api.mcp_connection import MisconfiguredError, probe_mcp_health
+from src.web_api.mcp_connection import (
+    MisconfiguredError,
+    probe_mcp_health,
+    probe_upstream,
+)
 
 
 def _mock(handler):
@@ -36,7 +40,8 @@ async def test_online():
         "http://127.0.0.1:8765", timeout_s=5.0, transport=_mock(_handler_ok),
     )
     assert result["status"] == "online"
-    assert result["upstream_status"] == "online"
+    # anonymous /health only proves the port answers, never the RAG upstream
+    assert result["upstream_status"] == "unknown"
     assert result["mcp_url"] == "http://127.0.0.1:8765/mcp"
     assert result["transport"] == "streamable-http"
     assert result["latency_ms"] is not None
@@ -99,6 +104,53 @@ async def test_server_error_degrades():
 async def test_empty_base_url_is_misconfigured():
     with pytest.raises(MisconfiguredError):
         await probe_mcp_health("")
+
+
+async def test_upstream_in_process_always_online():
+    assert await probe_upstream(
+        backend="in_process", upstream_base_url="", internal_key="",
+    ) == "online"
+
+
+async def test_upstream_http_online():
+    def handler(request):
+        assert request.headers.get("X-API-Key") == "secret"
+        assert not request.url.query
+        return httpx.Response(200, json={})
+
+    status = await probe_upstream(
+        backend="http", upstream_base_url="https://api.internal:8766",
+        internal_key="secret", timeout_s=5.0, transport=_mock(handler),
+    )
+    assert status == "online"
+
+
+async def test_upstream_http_internal_auth_failed_is_degraded():
+    def handler(request):
+        return httpx.Response(401, json={})
+
+    status = await probe_upstream(
+        backend="http", upstream_base_url="https://api.internal:8766",
+        internal_key="wrong", timeout_s=5.0, transport=_mock(handler),
+    )
+    assert status == "degraded"
+
+
+async def test_upstream_http_unreachable_is_offline():
+    def handler(request):
+        raise httpx.ConnectError("refused", request=request)
+
+    status = await probe_upstream(
+        backend="http", upstream_base_url="https://api.internal:8766",
+        internal_key="secret", timeout_s=5.0, transport=_mock(handler),
+    )
+    assert status == "offline"
+
+
+async def test_upstream_http_no_entry_returns_unknown():
+    assert await probe_upstream(
+        backend="http", upstream_base_url="", internal_key="",
+    ) == "unknown"
 
 
 async def test_url_never_comes_from_request():

@@ -34,6 +34,7 @@ from src.web_api.mcp_connection import (
     RuntimeRateLimiter,
     classify_normalized,
     probe_mcp_health,
+    probe_upstream,
 )
 from src.web_api.middleware.request_id import get_request_id
 from src.web_api.schemas.mcp_server import (
@@ -55,13 +56,18 @@ router = APIRouter(prefix="/mcp-server", tags=["mcp-server"])
 class McpServerRouteConfig:
     """Server-configured MCP target resolved at request time.
 
-    ``base_url`` is the public MCP client URL (``mcp_server.rag_api_base_url``).
-    Independently, the MCP access-control key DB is shared with the MCP
-    container so auth-failure classification can distinguish a revoked key
-    from a wrong one without reading any secret.
+    ``base_url`` is the MCP Server's **own public URL**
+    (``mcp_server.public_base_url``) — distinct from ``rag_api_base_url``,
+    which is the URL this API exposes to the MCP container's internal
+    readonly client. ``upstream_backend`` / ``upstream_base_url`` /
+    ``upstream_key`` describe the MCP Server's RAG upstream so the status
+    endpoint can report ``upstream_status`` truthfully.
     """
 
     base_url: str
+    upstream_backend: str
+    upstream_base_url: str
+    upstream_key: str
     key_db_path: str
     timeout_s: float
 
@@ -70,7 +76,10 @@ def _server_config() -> McpServerRouteConfig:
     """Resolve the MCP target from the core Settings (never from a request)."""
     settings = load_settings("./config/settings.yaml")
     return McpServerRouteConfig(
-        base_url=(settings.mcp_server.rag_api_base_url or ""),
+        base_url=(settings.mcp_server.public_base_url or ""),
+        upstream_backend=settings.mcp_server.rag_client_backend,
+        upstream_base_url=(settings.mcp_server.rag_api_base_url or ""),
+        upstream_key=settings.mcp_server.api_key or "",
         key_db_path=settings.mcp_access.database_path,
         timeout_s=float(settings.mcp_server.request_timeout_seconds),
     )
@@ -118,12 +127,25 @@ async def get_mcp_server_status() -> MCPServerStatus:
             checked_at=datetime.datetime.now(datetime.timezone.utc),
             latency_ms=None,
         )
+    # B4.1: report MCP reachability and upstream status independently. The
+    # anonymous /health cannot see the RAG upstream, so derive a truthful
+    # upstream_status via the internal readonly client (shared key, never
+    # echoed/logged).
+    try:
+        upstream_status = await probe_upstream(
+            backend=config.upstream_backend,
+            upstream_base_url=config.upstream_base_url,
+            internal_key=config.upstream_key,
+            timeout_s=config.timeout_s,
+        )
+    except Exception:  # noqa: BLE001 — never leak a probe failure as online
+        upstream_status = "unknown"
     return MCPServerStatus(
         status=health["status"],
         mcp_url=health["mcp_url"],
         transport=health["transport"],
         version=health["version"],
-        upstream_status=health["upstream_status"],
+        upstream_status=upstream_status,
         checked_at=health["checked_at"],
         latency_ms=health["latency_ms"],
     )

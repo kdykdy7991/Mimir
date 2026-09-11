@@ -310,6 +310,28 @@ def test_batch_reprocess_idempotency_via_key(tmp_path):
     assert len(ingestion.reprocess_calls) == 2  # one per distinct doc, not doubled
 
 
+def test_batch_reprocess_same_key_different_body_is_409(tmp_path):
+    """P1: an Idempotency-Key bound to a different request body must be a
+    409 conflict — never a silent replay of the first request's task ids."""
+    client, _1, _2, ingestion = _client(tmp_path, with_reprocess=True)
+    headers = {"Idempotency-Key": "repro-body-mismatch"}
+    first = {"document_ids": [DOC_A, DOC_B]}
+    changed = {"document_ids": [DOC_A]}  # same key, different canonical body
+
+    r1 = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/documents/batch/reprocess",
+        json=first, headers=headers,
+    )
+    assert r1.status_code == 200
+    assert all(it["status"] == "success" for it in r1.json()["items"])
+    r2 = client.post(
+        f"/api/v1/collections/{COLLECTION_ID}/documents/batch/reprocess",
+        json=changed, headers=headers,
+    )
+    assert r2.status_code == 409
+    assert r2.json()["error"]["code"] == "CONFLICT"
+
+
 def test_batch_reprocess_max_20(tmp_path):
     client, _1, _2, _3 = _client(tmp_path)
     ids = [str(uuid4()) for _ in range(21)]

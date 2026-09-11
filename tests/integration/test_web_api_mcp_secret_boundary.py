@@ -42,6 +42,9 @@ def _build_app(monkeypatch, tmp_path, *, base_url=""):
             base_url=base_url,
             key_db_path=str(tmp_path / "mcp_access.db"),
             timeout_s=3.0,
+            upstream_backend="in_process",
+            upstream_base_url="",
+            upstream_key="",
         )
 
     monkeypatch.setattr(mcp_server_router, "_server_config", fake_config)

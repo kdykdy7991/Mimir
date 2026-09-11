@@ -165,6 +165,10 @@ async def move_folder(
         row = services.db.move_folder(folder_id=folder_id, new_parent_id=body.parent_id)
     except ValueError as exc:
         raise BadRequestError(str(exc)) from exc
+    except sqlite3.IntegrityError as exc:
+        raise ConflictError(
+            "a folder with this name already exists at the target parent",
+        ) from exc
     return _to_folder(row, collection_id, services.db.count_documents_in_folder(folder_id))
 
 

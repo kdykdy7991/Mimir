@@ -276,6 +276,16 @@ class McpServerSettings(BaseModel):
     rag_api_base_url: str = ""
     request_timeout_seconds: float = 30.0
     api_key: str = ""  # X-API-Key / internal service credential
+    public_base_url: str = ""
+    """Publicly-reachable MCP Server base URL (B4.1/4.3 target).
+
+    This is the MCP Server's *own* address as seen by clients and by this
+    status aggregation endpoint — distinct from ``rag_api_base_url``, which is
+    the URL the MCP container uses to reach this API's internal readonly
+    endpoints. Kept separate so the status/test endpoints never mistake the
+    internal API for the MCP Server, and so default configs with an empty
+    ``rag_api_base_url`` (in_process backend) still expose a stub in /status.
+    """
 
     @field_validator("rag_client_backend")
     @classmethod
@@ -412,6 +422,15 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         settings = settings.model_copy(
             update={"document_parser": settings.document_parser.model_copy(update={"backend": env_backend.lower()})},
         )
+    # B4.1: the MCP Server's own public URL can be injected without editing
+    # YAML — distinct from rag_api_base_url.
+    env_public = os.environ.get("MCP_SERVER_PUBLIC_BASE_URL")
+    if env_public and env_public != settings.mcp_server.public_base_url:
+        settings = settings.model_copy(update={
+            "mcp_server": settings.mcp_server.model_copy(
+                update={"public_base_url": env_public},
+            ),
+        })
     return settings
 
 

@@ -73,7 +73,7 @@ async def probe_mcp_health(
     """
     base_url = (base_url or "").strip()
     if not base_url:
-        raise MisconfiguredError("mcp_server.rag_api_base_url is not configured")
+        raise MisconfiguredError("mcp_server.public_base_url is not configured")
 
     mcp_url = f"{base_url.rstrip('/')}/mcp"
     health_url = f"{base_url.rstrip('/')}/health"
@@ -114,9 +114,12 @@ async def probe_mcp_health(
     version = payload.get("version")
 
     if resp.status_code == 200 and payload.get("status") == "ok":
+        # The anonymous /health only proves the MCP port answers; it does NOT
+        # touch the RAG upstream (B4.1). So upstream health is reported
+        # separately (probe_upstream) — never claimed "online" here.
         return _health_result(
             status="online", mcp_url=mcp_url,
-            upstream_status="online", latency_ms=latency_ms,
+            upstream_status="unknown", latency_ms=latency_ms,
             transport=transport_label, version=version,
         )
 
@@ -126,6 +129,51 @@ async def probe_mcp_health(
         upstream_status="unknown", latency_ms=latency_ms,
         transport=transport_label, version=None,
     )
+
+
+async def probe_upstream(
+    *,
+    backend: str,
+    upstream_base_url: str,
+    internal_key: str,
+    timeout_s: float = 5.0,
+    transport: httpx.BaseTransport | None = None,
+    auth_header: str = "X-API-Key",
+) -> str:
+    """Report the MCP Server's RAG-upstream reachability (B4.1 upstream_status).
+
+    ``in_process`` backend shares the local process with the API, so the
+    upstream is inherently online. For the ``http`` backend the probe hits the
+    internal readonly API with the shared internal key (never a URL parameter,
+    never logged or returned), so a wrong/absent key reads as ``degraded``
+    rather than ``online`` and an unreachable API reads as ``offline``.
+
+    Returns one of ``online|degraded|offline|unknown``.
+    """
+    if backend == "in_process":
+        return "online"
+    upstream = (upstream_base_url or "").strip()
+    if not upstream:
+        return "unknown"
+    url = f"{upstream.rstrip('/')}/internal/mcp/v1/collections"
+    headers = {}
+    if internal_key:
+        headers[auth_header] = internal_key
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_s),
+            trust_env=False,
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            resp = await client.get(url, headers=headers)
+    except (httpx.TimeoutException, httpx.TransportError):
+        return "offline"
+    if resp.status_code == 200:
+        return "online"
+    if resp.status_code in (401, 403):
+        return "degraded"  # upstream reachable but internal auth failed
+    return "degraded"
 
 
 def _health_result(
@@ -306,7 +354,7 @@ class McpConnectionTester:
         """
         base_url = (base_url or "").strip()
         if not base_url:
-            raise MisconfiguredError("mcp_server.rag_api_base_url is not configured")
+            raise MisconfiguredError("mcp_server.public_base_url is not configured")
         mcp_url = f"{base_url.rstrip('/')}/mcp"
 
         stages: list[dict[str, Any]] = []
@@ -551,5 +599,6 @@ __all__ = [
     "RuntimeRateLimiter",
     "classify_normalized",
     "probe_mcp_health",
+    "probe_upstream",
     "resolve_auth_failure",
 ]

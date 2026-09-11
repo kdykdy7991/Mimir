@@ -137,3 +137,41 @@ def test_folder_name_validation(db: WebApiDB) -> None:
         db.create_folder(collection_id="c1", name="  ")
     with pytest.raises(ValueError):
         db.create_folder(collection_id="c1", name="x" * 65)
+
+
+def test_child_folder_must_be_same_collection(db: WebApiDB) -> None:
+    """P0: a child folder's parent must belong to the SAME collection."""
+    parent = db.create_folder(collection_id="c1", name="a")
+    with pytest.raises(ValueError):
+        db.create_folder(collection_id="c2", name="b", parent_id=parent["folder_id"])
+
+
+def test_root_sibling_duplicate_normalized_name_rejected(db: WebApiDB) -> None:
+    """P1: same normalized name under the collection root must be rejected.
+
+    The DB unique index cannot catch NULL-parent duplicates, so the store
+    guard must reject them (root included).
+    """
+    db.create_folder(collection_id="c1", name="研究")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.create_folder(collection_id="c1", name=" 研究 ")
+    # a different collection is fine
+    db.create_folder(collection_id="c2", name="研究")
+
+
+def test_move_subtree_that_exceeds_max_depth_rejected(db: WebApiDB) -> None:
+    """P1: moving a deep subtree can exceed the max depth even when the
+    moved root itself would fit; reject before writing."""
+    # Build a valid depth-0 subtree with descendants down to depth MAX (0..5).
+    subtree_root = db.create_folder(collection_id="c1", name="sub")
+    prev = subtree_root
+    for d in range(1, MAX_FOLDER_DEPTH + 1):  # depths 1..5 relative to root
+        prev = db.create_folder(collection_id="c1", name=f"l{d}", parent_id=prev["folder_id"])
+    # Moving the subtree (relative depth = MAX) below another root-level folder
+    # would push its deepest descendant to depth MAX+1 > MAX.
+    other = db.create_folder(collection_id="c1", name="other")
+    with pytest.raises(ValueError):
+        db.move_folder(folder_id=subtree_root["folder_id"], new_parent_id=other["folder_id"])
+    # moving it to the root (depth 0) is still allowed (1+5 <= 5 is not the case
+    # at root, but depth 0 + rel 5 is 5 and fits) — assert not blocked when it fits.
+    db.move_folder(folder_id=subtree_root["folder_id"], new_parent_id=None)

@@ -309,6 +309,8 @@ class WebApiDB:
             parent = self.get_folder(parent_id)
             if parent is None:
                 raise ValueError("parent folder does not exist")
+            if parent["collection_id"] != collection_id:
+                raise ValueError("parent folder does not belong to this collection")
             depth = int(parent["depth"]) + 1
             if depth > MAX_FOLDER_DEPTH:
                 raise ValueError(f"folder depth exceeds the maximum {MAX_FOLDER_DEPTH}")
@@ -316,6 +318,22 @@ class WebApiDB:
         now = time.time()
         conn = self._connect()
         try:
+            # Defensive sibling check (the expression unique index also
+            # enforces this at the DB level; this catches in-memory fakes).
+            duplicate = conn.execute(
+                """
+                SELECT 1 FROM document_folders
+                 WHERE collection_id = ? AND normalized_name = ?
+                   AND (parent_id = ? OR (parent_id IS NULL AND ? IS NULL))
+                 LIMIT 1
+                """,
+                (collection_id, normalize_folder_name(cleaned),
+                 parent_id, parent_id),
+            ).fetchone()
+            if duplicate is not None:
+                raise sqlite3.IntegrityError(
+                    f"folder {cleaned!r} already exists under this parent",
+                )
             conn.execute(
                 """
                 INSERT INTO document_folders
@@ -386,6 +404,29 @@ class WebApiDB:
             frontier = nxt
         return descendants
 
+    def _subtree_relative_depth(self, conn, folder_id: str, folder_depth: int) -> int:
+        """Max depth of ``folder_id``'s subtree relative to the folder itself.
+
+        Returns 0 for a leaf. Used by moves so that moving a deep subtree up
+        never exceeds :data:`MAX_FOLDER_DEPTH` for its deepest descendant.
+        """
+        max_rel = 0
+        frontier = [folder_id]
+        while frontier:
+            nxt: list[str] = []
+            for fid in frontier:
+                rows = conn.execute(
+                    "SELECT folder_id, depth FROM document_folders WHERE parent_id = ?",
+                    (fid,),
+                ).fetchall()
+                for r in rows:
+                    rel = int(r["depth"]) - folder_depth
+                    if rel > max_rel:
+                        max_rel = rel
+                    nxt.append(r["folder_id"])
+            frontier = nxt
+        return max_rel
+
     def move_folder(
         self, *, folder_id: str, new_parent_id: str | None,
     ) -> dict[str, Any] | None:
@@ -410,6 +451,15 @@ class WebApiDB:
             ) + 1
             if new_depth > MAX_FOLDER_DEPTH:
                 raise ValueError(f"folder depth exceeds the maximum {MAX_FOLDER_DEPTH}")
+            # The whole subtree moves: the deepest descendant must stay within
+            # the cap even though the moved node itself may look fine.
+            rel_max = self._subtree_relative_depth(
+                conn, folder_id, int(folder["depth"]),
+            )
+            if new_depth + rel_max > MAX_FOLDER_DEPTH:
+                raise ValueError(
+                    f"moving this folder would exceed the maximum depth {MAX_FOLDER_DEPTH}",
+                )
             conn.execute(
                 """
                 UPDATE document_folders SET parent_id = ?, updated_at = ? WHERE folder_id = ?

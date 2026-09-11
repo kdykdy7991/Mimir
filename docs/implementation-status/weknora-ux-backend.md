@@ -50,6 +50,36 @@
 
 <!-- 每个任务完成时追加相应小节 -->
 
+## B2/B3/B4 复审修复（6 项）— ✔ 完成
+
+**状态**：通过。用户复审发现 6 项实质缺陷（3 × P0），已全部修复并补充回归测试。提交见下方。
+
+1. **P0 MCP URL 配置错误** — 状态/连通测试原读取 `mcp_server.rag_api_base_url`（MCP 容器访问主 API 内部只读接口的地址）。
+   → 新增独立 `mcp_server.public_base_url`（MCP Server 自身公开地址）+ 环境覆盖 `MCP_SERVER_PUBLIC_BASE_URL`；
+   状态/测试端点改用该字段；`config/settings.yaml`（用户文件）未改动。
+2. **P0 upstream_status 误报** — 匿名 `/health` 不能验证 RAG 上游，原实现却回 `upstream="online"`。
+   → `probe_mcp_health` 的 `/health` 仅表示端口存活（upstream=`unknown`）；新增 `probe_upstream`：
+   `in_process`→online，`http`→用共享 `X-API-Key` 有界探测 `/internal/mcp/v1/collections`（200→online，
+   401/403→degraded，不可达→offline），Key 仅进 header 不进 URL/日志；`/status` 分别报告 MCP 与 upstream。
+3. **P0 子文件夹跨知识库挂载** — `create_folder` 未校验 parent 属同一 collection。
+   → 增加 `parent["collection_id"] == collection_id` 校验；store + HTTP 两层回归测试。
+4. **P1 根目录同名唯一无效（NULL）** — SQLite UNIQUE 对 NULL 不生效。
+   → `create_folder` 增加应用层防重（含 root）守卫并抛 `IntegrityError`→409；store 测试覆盖 root 同名，避免表达式索引迁移风险。
+5. **P1 移动子树突破最大深度** — 仅校验移动节点自身深度。
+   → 新增 `_subtree_relative_depth`，`move_folder` 校验 `new_depth + rel_max <= MAX_FOLDER_DEPTH` 后再写入；
+   move 撞同名兄弟 `IntegrityError` → 409（非 500）。
+6. **P1 批量重解析幂等缓存未绑定作用域且无限增长** — 键仅取裸 Idempotency-Key。
+   → 键改为 `(collection_id, idempotency_key, canonical_request_hash)`（body 哈希）；同 Key 不同 body → 409；
+   缓存加 TTL（3600s）与容量上限（1024），过期/超限淘汰。
+
+**新增/更新测试**：`test_mcp_health_probe`（upstream 不再 online + probe_upstream 五态）、
+`test_web_api_mcp_connection`（MCP 存活但上游 degraded 时不 online）、`test_folders_store`
+（跨库 parent、root 同名、子树深度）、`test_web_api_folders`（跨库 400、move 同名 409）、
+`test_web_api_batch`（同 Key 不同 body 409）。
+
+**执行结果**：folder/batch/mcp 相关 53 通过；MCP health+connection+secret-boundary 27 通过；
+snapshot+application 112 通过（1 个 MCP secret-boundary 夹具已被修复后全绿）。
+
 ## B2.5–B2.9 筛选与批量操作 — ✔ 完成（组合提交，文件耦合说明见下）
 
 > 说明：B2.5–B2.9 与 B3/B4 由并行子代理在同一工作树实现，`mappers.py`
