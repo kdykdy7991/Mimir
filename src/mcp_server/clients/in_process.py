@@ -345,7 +345,7 @@ class InProcessRagReadOnlyClient:
                     r.metadata.get("source_path")
                     or r.metadata.get("source") or "(no source)",
                 ),
-                page=_page_number(r.metadata),
+                page=page_number_of(r.metadata),
                 score=float(r.score if r.score is not None else 0.0),
                 text=r.text or "",
                 source_type=r.source or "fusion",
