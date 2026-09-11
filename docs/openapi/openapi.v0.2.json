@@ -1301,6 +1301,172 @@
           }
         }
       }
+    },
+    "/internal/mcp/v1/collections": {
+      "get": {
+        "tags": [
+          "internal-mcp-readonly"
+        ],
+        "summary": "List Collections",
+        "operationId": "list_collections_internal_mcp_v1_collections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Collections Internal Mcp V1 Collections Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/mcp/v1/query": {
+      "post": {
+        "tags": [
+          "internal-mcp-readonly"
+        ],
+        "summary": "Query Knowledge",
+        "operationId": "query_knowledge_internal_mcp_v1_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_QueryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Query Knowledge Internal Mcp V1 Query Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/mcp/v1/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "internal-mcp-readonly"
+        ],
+        "summary": "Get Document",
+        "operationId": "get_document_internal_mcp_v1_documents__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Document Internal Mcp V1 Documents  Document Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/mcp/v1/documents/{document_id}/chunks": {
+      "get": {
+        "tags": [
+          "internal-mcp-readonly"
+        ],
+        "summary": "Get Document Chunks",
+        "operationId": "get_document_chunks_internal_mcp_v1_documents__document_id__chunks_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Document Chunks Internal Mcp V1 Documents  Document Id  Chunks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4173,6 +4339,34 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "_QueryBody": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "collection": {
+            "type": "string",
+            "title": "Collection",
+            "default": "default"
+          },
+          "top_k": {
+            "type": "integer",
+            "title": "Top K",
+            "default": 10
+          },
+          "rerank": {
+            "type": "boolean",
+            "title": "Rerank",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "_QueryBody"
       }
     }
   }
