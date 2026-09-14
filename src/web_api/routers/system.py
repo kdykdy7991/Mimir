@@ -21,6 +21,12 @@ from src.web_api.schemas.system import (
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+@router.get("/live", summary="Process liveness", include_in_schema=False)
+async def get_system_liveness() -> dict[str, str]:
+    """Report that HTTP is serving without building optional RAG providers."""
+    return {"status": "ok"}
+
+
 @router.get(
     "/info",
     response_model=SystemInfo,

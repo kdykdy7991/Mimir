@@ -70,6 +70,14 @@ def test_healthy_stack_reports_ok(tmp_path) -> None:
     assert names == {"embedding", "chroma", "sqlite", "bm25"}
 
 
+def test_liveness_does_not_resolve_application_services() -> None:
+    client = TestClient(create_app())
+    response = client.get("/api/v1/system/live")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert client.app.state.application_services is None
+
+
 def test_failed_embedding_reports_down(tmp_path) -> None:
     client = _client(
         embedding=_FailEmbedding(), vector_store=_OkStore(),

@@ -220,6 +220,10 @@ curl -sS http://127.0.0.1:8766/api/v1/system/health
 
 > 说明：产品 UI 已由 Web 前端承担；Streamlit Dashboard 保留为**内部调试工具**，不再是产品界面。
 
+Embedding 属于可降级依赖：Provider 不可达时 API、Web、MCP 和知识库管理仍可启动，
+`/api/v1/system/health` 会将 Embedding 标记为 `down`；实际需要向量的查询和入库操作
+会返回明确错误。修复 Provider 后需重启 API 以恢复 Dense 检索与向量入库。
+
 ### 并发与部署（重要）
 
 **Web API 必须运行在单个 worker 进程**。原因：BM25 磁盘索引的写锁

@@ -26,6 +26,7 @@ API's convenience wrapper, not a hard replacement.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -40,6 +41,31 @@ __all__ = [
     "build_application_services",
     "build_document_manager",
 ]
+
+logger = logging.getLogger(__name__)
+
+
+class _UnavailableEmbedding:
+    """Deferred failure used when an optional embedding backend is offline."""
+
+    provider_name = "unavailable"
+    usage_supported = False
+
+    def __init__(self, *, dimensions: int, error: Exception) -> None:
+        self._dimensions = dimensions
+        self._error = error
+
+    @property
+    def dimensions(self) -> int:
+        return self._dimensions
+
+    def embed(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
+        from src.libs.embedding import EmbeddingError
+
+        raise EmbeddingError(f"embedding provider unavailable: {self._error}")
+
+    def embed_single(self, text: str, **kwargs: Any) -> list[float]:
+        return self.embed([text], **kwargs)[0]
 
 
 @dataclass
@@ -157,7 +183,19 @@ def build_application_services(
 
     settings = settings or _load_settings(config_path)
     splitter = splitter or SplitterFactory.create(settings.splitter)
-    embedding = embedding or EmbeddingFactory.create(settings.embedding)
+    if embedding is None:
+        try:
+            embedding = EmbeddingFactory.create(settings.embedding)
+        except Exception as exc:  # provider outage must not stop the API
+            logger.warning(
+                "Embedding provider unavailable at startup; dense retrieval "
+                "and ingestion will remain disabled until restart: %s",
+                exc,
+            )
+            embedding = _UnavailableEmbedding(
+                dimensions=settings.embedding.dimensions,
+                error=exc,
+            )
     if vector_store is None:
         vector_store = VectorStoreFactory.create_multi_collection(
             settings.vector_store,

@@ -52,6 +52,27 @@ class TestBuildApplicationServices:
         # SystemService reads the same settings object back.
         assert services.system.settings is settings
 
+    def test_embedding_outage_degrades_instead_of_aborting_boot(
+        self, tmp_path, monkeypatch,
+    ) -> None:
+        from src.libs.embedding import EmbeddingFactory
+
+        def unavailable(_settings):
+            raise RuntimeError("provider offline")
+
+        monkeypatch.setattr(EmbeddingFactory, "create", unavailable)
+        services = build_application_services(
+            data_dir=str(tmp_path),
+            settings=Settings(),
+            splitter=object(),
+            vector_store=object(),
+        )
+
+        health = services.system.get_health()
+        embedding = next(d for d in health.dependencies if d.name == "embedding")
+        assert embedding.status == "down"
+        assert "provider unavailable" in (embedding.detail or "")
+
 
 class TestBuildDocumentManager:
     def test_returns_manager(self, tmp_path) -> None:

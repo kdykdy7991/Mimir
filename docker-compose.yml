@@ -75,14 +75,13 @@ services:
       - ./data:/app/data
     healthcheck:
       # Python is guaranteed to exist in the image; avoid depending on curl.
-      # /system/info exercises FastAPI startup and lazy service composition
-      # without requiring the external embedding/LLM endpoints to be healthy.
+      # Liveness deliberately does not initialize optional RAG providers.
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/api/v1/system/info', timeout=5)",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/api/v1/system/live', timeout=5)",
         ]
       interval: 10s
       timeout: 8s

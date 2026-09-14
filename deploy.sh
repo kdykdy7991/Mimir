@@ -33,6 +33,25 @@ else
     echo ">>> Git sync completed"
 fi
 
+# The standalone MCP and the API require a shared internal credential.
+# Generate it once when the operator has not supplied one. .env is gitignored
+# and Docker Compose loads it automatically on subsequent deployments.
+if [[ -z "${MCP_INTERNAL_API_KEY:-}" && -f .env ]]; then
+    while IFS='=' read -r key value; do
+        if [[ "${key}" == "MCP_INTERNAL_API_KEY" ]]; then
+            MCP_INTERNAL_API_KEY="${value}"
+        fi
+    done < .env
+fi
+if [[ -z "${MCP_INTERNAL_API_KEY:-}" ]]; then
+    command -v openssl >/dev/null 2>&1 || die "openssl is required to generate MCP_INTERNAL_API_KEY"
+    umask 077
+    MCP_INTERNAL_API_KEY="$(openssl rand -hex 32)"
+    printf '\nMCP_INTERNAL_API_KEY=%s\n' "${MCP_INTERNAL_API_KEY}" >> .env
+    echo ">>> Generated persistent MCP internal credential in .env"
+fi
+export MCP_INTERNAL_API_KEY
+
 echo ">>> Validating Docker Compose configuration"
 docker compose config --quiet
 
