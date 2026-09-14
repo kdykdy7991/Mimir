@@ -213,7 +213,7 @@ curl -sS http://127.0.0.1:8766/api/v1/system/health
 - 完整容器部署：根目录运行 `./deploy.sh`。脚本会对当前分支执行
   `git pull --ff-only`，构建并启动 DocReader、Web API、MCP 和 Web 前端，
   等待全部健康后才报告成功。部署机上的已跟踪文件如有未提交修改，脚本会停止，
-  避免覆盖本地改动。默认地址为 Web `:3000`、API `:8766`、MCP `:8765/mcp`。
+  避免覆盖本地改动。默认地址为 Web `:3008`、API `:8766`、MCP `:8765/mcp`。
   首次部署前需确保当前 Git 分支已配置 upstream，且本机的 LLM `:8000` 与
   Embedding `:8003` 服务可用。仅需重建、不拉代码时可运行
   `SKDY_SKIP_GIT_PULL=1 ./deploy.sh`。

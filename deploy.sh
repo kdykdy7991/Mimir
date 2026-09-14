@@ -53,6 +53,6 @@ PUBLIC_HOST="${SKDY_PUBLIC_HOST:-127.0.0.1}"
 
 echo ">>> Deployment succeeded"
 docker compose ps
-printf 'Web UI:   http://%s:3000\n' "${PUBLIC_HOST}"
+printf 'Web UI:   http://%s:3008\n' "${PUBLIC_HOST}"
 printf 'API docs: http://%s:8766/docs\n' "${PUBLIC_HOST}"
 printf 'MCP:      http://%s:8765/mcp\n' "${PUBLIC_HOST}"

@@ -129,7 +129,7 @@ services:
       api:
         condition: service_healthy
     environment:
-      PORT: "3000"
+      PORT: "3008"
       INTERNAL_API_BASE_URL: "http://127.0.0.1:8766"
       NEXT_PUBLIC_MCP_SERVER_URL: "${MCP_SERVER_PUBLIC_BASE_URL:-http://127.0.0.1:8765/mcp}"
     healthcheck:
