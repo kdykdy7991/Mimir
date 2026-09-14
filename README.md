@@ -181,7 +181,7 @@ streamlit run src/observability/dashboard/app.py
 独立的 Next.js Web 前端 + FastAPI Web API（替代 Streamlit 作为产品 UI）。统一入口与文档：
 
 ```bash
-# 统一启动（后端 + 前端一起）
+# 本地开发启动（后端 + 前端一起）
 ./scripts/start_dev.sh
 
 # 自定义端口（可选）
@@ -210,7 +210,13 @@ curl -sS http://127.0.0.1:8766/api/v1/system/health
 - Web API 契约 / 错误码 / 端点速查：**[`docs/web-api-onboarding.md`](docs/web-api-onboarding.md)**。
 - 里程碑交接包：`docs/handoff-2026-07-31-m2-batch*.md`、`docs/handoff-2026-08-03-m3-batch*.md`。
 - 性能基线：`make benchmark`（查询延迟 p50/p95，预算 P95 < 2s；本机实测 p95 ≈ 25ms）。
-- 可选容器部署：`make docker-up`（后端，`network_mode: host` 直达本机 embedding）。
+- 完整容器部署：根目录运行 `./deploy.sh`。脚本会对当前分支执行
+  `git pull --ff-only`，构建并启动 DocReader、Web API、MCP 和 Web 前端，
+  等待全部健康后才报告成功。部署机上的已跟踪文件如有未提交修改，脚本会停止，
+  避免覆盖本地改动。默认地址为 Web `:3000`、API `:8766`、MCP `:8765/mcp`。
+  首次部署前需确保当前 Git 分支已配置 upstream，且本机的 LLM `:8000` 与
+  Embedding `:8003` 服务可用。仅需重建、不拉代码时可运行
+  `SKDY_SKIP_GIT_PULL=1 ./deploy.sh`。
 
 > 说明：产品 UI 已由 Web 前端承担；Streamlit Dashboard 保留为**内部调试工具**，不再是产品界面。
 

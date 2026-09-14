@@ -1,4 +1,4 @@
-# SKDY RAG Server — 可选容器部署（后端 Web API）
+# SKDY RAG Server — 完整容器部署（DocReader + API + MCP + Web）
 #
 # 启动：  docker compose up -d
 # 停止：  docker compose down
@@ -7,7 +7,7 @@
 # - network_mode: host 让容器内 localhost:8003 / :8000 直达宿主机上的
 #   embedding / LLM vLLM 服务（与 config/settings.yaml 的本地默认一致）。
 # - data/ 通过 volume 持久化（uploads / db / images / traces）。
-# - 前端 Next.js 默认本地 `npm run dev` 运行；如需容器化前端可再扩一个 service。
+# - 所有产品服务均由 Compose 管理；根目录 `./deploy.sh` 负责同步代码并部署。
 # - 远程 / 多机部署：请先改 config/settings.yaml 的 embedding/llm base_url
 #   指向可达服务，再置于反向代理之后（见 README「容器部署」）。
 # - **必须单 worker**：BM25 写锁是进程内的，多 worker 共享 data/ 会并发
@@ -31,7 +31,7 @@ services:
         https_proxy: ${https_proxy:-}
         no_proxy: ${no_proxy:-}
     image: skdy-docreader:local
-    container_name: skdy-docreader
+    container_name: skdy-rag-docreader
     ports:
       # 宿主机使用 50052，避免与 WeKnora DocReader 的 50051 冲突；
       # 容器内部仍监听标准端口 50051。
@@ -102,7 +102,7 @@ services:
       context: .
       dockerfile: deploy/mcp/Dockerfile
     image: skdy-mcp:local
-    container_name: skdy-mcp
+    container_name: skdy-rag-mcp
     network_mode: host
     depends_on:
       api:
@@ -117,4 +117,29 @@ services:
       timeout: 20s
       start_period: 20s
       retries: 3
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    image: skdy-rag-web:local
+    container_name: skdy-rag-web
+    network_mode: host
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      INTERNAL_API_BASE_URL: "http://127.0.0.1:8766"
+      NEXT_PUBLIC_MCP_SERVER_URL: "${MCP_SERVER_PUBLIC_BASE_URL:-http://127.0.0.1:8765/mcp}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:' + process.env.PORT).then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
     restart: unless-stopped

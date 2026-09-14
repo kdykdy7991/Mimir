@@ -16,7 +16,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: install mcp api web dev dashboard test test-e2e smoke benchmark gen-types docker-build docker-up docker-down docreader docreader-probe docreader-probe-remote
+.PHONY: install mcp api web dev dashboard test test-e2e smoke benchmark gen-types docker-build docker-up docker-down deploy docreader docreader-probe docreader-probe-remote
 
 PYTHON   := .venv/bin/python
 UVICORN  := .venv/bin/uvicorn
@@ -108,6 +108,9 @@ docker-build:
 
 docker-up:
 	docker compose up -d
+
+deploy:
+	./deploy.sh
 
 docker-down:
 	docker compose down
