@@ -1,8 +1,115 @@
 # 任务 02：MCP 公共契约与能力发现
 
-> 状态：待实施  
-> 前置：任务 01 Gate 通过  
+> 状态：进行中（2026-09-15 启动）
+> 前置：任务 01 Gate 通过
 > 后继：任务 03
+
+## 0. 实施状态流水（持续追加）
+
+### 2026-09-15 启动与工作区保护
+
+- 分支：`feature/weknora-inspired-optimizations`；HEAD：`a647f05`（docs: add task 02 developer prompt）。
+- 启动时 `git status --short`：仅有未跟踪文件（用户既有文件，本任务全程不触碰、不暂存、不混入提交）：
+  `.DS_Store`、`.codebuddy/`、`docs/.DS_Store`、`docs/prompts/.DS_Store`、
+  `web/src/features/knowledge/` 下 11 个未跟踪 ts/tsx 文件、`web/src/test/mocks/viewport.ts`、
+  `web/tests/e2e/document-detail.spec.ts`。
+- 保护措施：仅 `git add <精确文件>` 提交本任务产物；不使用 `git add -A`、
+  `git reset --hard`、`git checkout --`、`git clean`；不推送远端；每个 02.x 独立测试、独立提交；
+  每批提交前 `git diff --check`。
+- 环境说明（偏差记录）：任务书命令基于 `/home/hello/workspace/SKDY-RAG-SERVER` 与 `.venv`；
+  本机仓库为 `/Users/dykong/Documents/Mimir`，启动时无 `.venv`。按 `uv.lock`（mcp 2.2.0）
+  用 uv sync 建立 `.venv`（未跟踪，不入库），作为测试解释器；系统 anaconda 的 mcp 为 1.23.1，
+  与本仓库 v2 构造 API 不兼容，不作为测试环境。
+
+### 代码现状审计（2026-09-15，基于 HEAD `a647f05`）
+
+1. **transport-neutral dataclass 现状**：`src/mcp_server/clients/models.py` 定义
+   CollectionInfo / QueryRequest / EvidenceItem / Diagnostics / KnowledgeQueryResult /
+   DocumentInfo / DocumentChunk / DocumentChunkPage（frozen dataclass，纯类型）。
+   使用点：`clients/base.py`（Protocol）、`clients/in_process.py`、`clients/http_client.py`、
+   `clients/__init__.py`、`web_api/internal_mcp.py`，以及约 12 个测试文件。
+   问题（对本任务而言）：它位于 **mcp_server** 层，application 层无法反向复用；
+   EvidenceItem 只有单一 `score: float` 与 `source_type`，无多阶段 scores/null 语义。
+   本任务**不移动、不破坏**该模块，新 application 契约独立建立，02.2 mapper 负责二者适配。
+2. **5 工具 `_format` 重复与差异**：query 工具自带 `_format`（markdown + structured，
+   含 `_excerpt` 200 字符硬编码、score 按 `:.4f` 渲染、兼容 n_results/citations）；
+   list_collections、get_document、get_document_chunks 各自 `_render` + markdown 函数；
+   结构化字段手工拼装、重复严重。所有工具均返回 `(markdown, structured_dict)` 元组，
+   经 `ProtocolHandler._normalize_result` 走 structured content。
+3. **ProtocolHandler**：`ToolRegistration(name/description/input_schema/handler/output_schema)`；
+   `build_server()` 用 mcp v2 构造 API（`on_list_tools`/`on_call_tool`）；stdio 与
+   streamable-http 共用同一 Server 注册结果。`tool_error()` → CallToolResult(is_error=True)；
+   handler 未知异常协议级传播。**当前未注册任何 resource handler**。
+4. **MCP SDK Resource 能力**：uv.lock 钉 `mcp==2.2.0`（Server 为 FastMCP 内核），
+   支持 `@server.list_resources()` / `@server.read_resource()` 装饰器与
+   `Resource` / `ReadResourceResult` / `TextResourceContents` 类型，
+   支持静态/模板 Resource 和 Resource Link；`create_connected_server_and_client_session`
+   可做内存双通道验证。结论：**优先 Resource 方案可行**，无需退回第 6 只工具。
+5. **现有上限及环境覆盖**：query 长度 2000 与 top_k 1..50 默认 10 硬编码在
+   `tools/query_knowledge_hub.py`（MAX_QUERY_LENGTH 与 schema 字面量）；page_size 1..50
+   默认 20、page≥1 同时硬编码在 `tools/get_document_chunks.py` 的 schema、handler 与
+   `clients/in_process.py:488-491`（InvalidRequestError）三处；正文无字符预算
+   （`_excerpt` 仅 markdown 截 200，structured `text` 全量返回）。
+   `Settings`/`McpServerSettings` 无任何预算字段；环境覆盖仅见
+   `DOCUMENT_PARSER_BACKEND`、`MCP_SERVER_PUBLIC_BASE_URL` 两处 env 注入先例。
+6. **重复常量盘点**：`50`（top_k/page_size 上限）、`20`/`10`（默认页大小/top-k）、
+   `2000`（query 上限）、`200`（markdown excerpt）分散在工具 schema、handler、
+   in_process client 三处，无单一事实源。
+7. **错误现状**：clients/errors.py 有 ReadonlyClientError 基类 + InvalidRequest /
+   ResourceNotFound / AccessDenied / UpstreamUnavailable / UpstreamTimeout；
+   工具级错误返回固定英文文案；query 基础设施错误经 in_process 包成
+   `knowledge retrieval failed: <ExcType>` 协议级错误。**无 rate_limited / overloaded**。
+   HTTP client 已有 408/504→timeout、5xx→unavailable 的映射，无 429 区分。
+8. **OpenAPI**：REST/internal DTO 不引用 mcp_server clients 模型以外的契约
+   （internal_mcp 仅用 QueryRequest），本任务新增 `application/contracts` 不会被
+   FastAPI schema 引用 → **不刷新 OpenAPI**；02.5 以 `export_openapi --check` 实证无 diff。
+9. **capability 事实源**：工具清单可直接从 `ProtocolHandler` 注册表（list_names/get）
+   生成；限制从 Settings 新增预算节生成；retrieval modes 应用层固定为
+   hybrid/dense/sparse（QueryService.search）；rerank 由 settings.rerank.backend != none
+   决定；filters/父子块/多库/多查询/写工具按实现注册情况固定 false 事实，不另写手编名单。
+
+任务书与代码的偏差：无实质性冲突；任务书仓库路径与 `.venv` 路径不同（见上，已用 uv 解决）。
+
+### 02.1 应用层传输无关契约
+
+- 状态：done
+- 新增文件：
+  - `src/application/contracts/__init__.py`（公共出口；`CONTRACT_VERSION="evidence-v1"`）
+  - `src/application/contracts/serialization.py`（**唯一** JSON-safe 序列化入口
+    `to_jsonable`/`to_json`；`ContractError`；构造工具：non-empty 字符串、
+    元组去重保序、aware datetime、unknown key 忽略策略）
+  - `src/application/contracts/evidence.py`（`EvidenceScores`、`SourceLocator`、
+    `EvidenceV1`）
+  - `src/application/contracts/filters.py`（`TagOperator`、`EvidenceFilterV1`）
+  - `src/application/contracts/messaging.py`（`WarningCode`、`WarningV1`、
+    `EvidencePageV1`）
+  - `tests/unit/application/test_evidence_contracts.py`（34 项）
+- 关键决策：
+  - 全部 frozen dataclass + tuple/MappingProxyType，构造期 `__post_init__` 强校验；
+  - `scores` 四阶段固定形状，未执行 = `null`（非 0、不省略），禁 NaN/Inf；
+  - `SourceLocator` 只有 kind/page/heading 相对定位，拒绝 POSIX/Windows 绝对路径；
+  - Evidence 九项可选未来字段（版本/parent/title/content/preview/heading_path/
+    asset_ids/indexed_at）默认 None，**不从旧数据猜测**；
+  - Filter：缺失=不限制、显式空列表非法、去重保序、descendants 必须有 folder、
+    时间必须带时区、after≤before；本任务不接检索；
+  - Warning 四码冻结为字符串枚举；page 与 cursor 分页互斥；truncated_* 为 true 时
+    强制带 `truncated` warning（禁止无提示截断）；
+  - unknown optional field 读取策略：`from_mapping` 经 `known_kwargs` 显式忽略，
+    永不回吐（前向兼容）；
+  - 契约包仅依赖标准库；子进程断言导入后 sys.modules 无 mcp/fastapi/starlette/
+    uvicorn/httpx/chromadb/pydantic/openai/src.mcp_server/src.web_api/src.libs/
+    src.core。
+- 旧 `src/mcp_server/clients/models.py` 未改动（5 工具 Client 契约保持），
+  新契约独立存在，适配留到 02.2。
+- 测试命令与结果：
+  ```bash
+  python3 -m pytest tests/unit/application/test_evidence_contracts.py -q
+  # 34 passed in 0.10s
+  python3 -m pytest tests/unit/test_architecture_boundary.py -q
+  # 15 passed in 0.07s
+  git diff --check   # 无输出
+  ```
+- 遗留问题：无。
 
 ## 1. 目标
 
