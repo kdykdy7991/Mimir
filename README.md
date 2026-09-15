@@ -208,7 +208,6 @@ curl -sS http://127.0.0.1:8766/api/v1/system/health
 关键入口：
 - 前端契约与类型生成：`cd web && npm run gen:types`（读 `docs/openapi/openapi.v0.2.json`）。
 - Web API 契约 / 错误码 / 端点速查：**[`docs/web-api-onboarding.md`](docs/web-api-onboarding.md)**。
-- 里程碑交接包：`docs/handoff-2026-07-31-m2-batch*.md`、`docs/handoff-2026-08-03-m3-batch*.md`。
 - 性能基线：`make benchmark`（查询延迟 p50/p95，预算 P95 < 2s；本机实测 p95 ≈ 25ms）。
 - 完整容器部署：根目录运行 `./deploy.sh`。脚本会对当前分支执行
   `git pull --ff-only`，构建并启动 DocReader、Web API、MCP 和 Web 前端，

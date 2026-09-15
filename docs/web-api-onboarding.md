@@ -201,7 +201,7 @@ v0.2 真实存在、已实现并可被触发的错误码：
 
 ## 7. Mock 工作流
 
-v0.2 阶段 System / Collection / Document / Upload / Task / Query / Image / Trace 端点已接通真实后端（见 handoff `docs/handoff-2026-07-31-m2-batch3.md`）。尚未接通的 UI 仍可本地 Mock（MSW 等）——**Mock 数据直接从 [`examples/`](openapi/examples/) 拷贝**，字段名、状态、ID 格式、时间字符串都要与 examples 完全一致，避免后端真实数据接入时再返工。
+System / Collection / Document / Upload / Task / Query / Image / Trace 端点均已接通真实后端。需要本地 Mock（MSW 等）时，数据应直接从 [`examples/`](openapi/examples/) 复制，并与当前 OpenAPI examples 保持一致。
 
 如果使用 TypeScript 类型生成，建议从 `openapi.json` 出发：
 - `npx openapi-typescript http://127.0.0.1:8766/openapi.json -o src/api/types.ts`
