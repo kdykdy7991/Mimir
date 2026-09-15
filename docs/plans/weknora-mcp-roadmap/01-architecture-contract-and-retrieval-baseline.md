@@ -121,7 +121,7 @@
 ### 01.3 定义 Golden Set v1
 
 - 状态：done
-- 提交：见本提交（`test(retrieval): add versioned golden-set corpus`）
+- 提交：`da6c2cb`（`test(retrieval): add versioned golden-set corpus`）
 - 新增文件：
   - `tests/fixtures/retrieval_golden/corpus.json`（手工编写、全合成；
     7 文档 / 18 chunks；`synthetic: true`；零用户数据）
@@ -176,6 +176,71 @@
   ```
 - 遗留问题：无（dense 无阈值导致 no-answer FP 为**记录的既有行为**，
   在 01.5 基线中分模式量化）。
+
+### 01.4 实现离线评测器
+
+- 状态：done
+- 提交：见本提交（`feat(eval): add deterministic retrieval evaluation runner`）
+- 新增文件：
+  - `scripts/eval_metrics.py`（纯指标层，无任何检索/存储代码）：
+    `tie_normalized_rows`（`(score desc, chunk_id asc)`，None 排末尾，不改生产行为）、
+    recall@K/precision@K/reciprocal_rank/DCG/nDCG（二元相关）、nearest-rank P50/P95、
+    mean、`Aggregate.as_dict()`；`aggregate()` 严格只统计 `status=="ok"` 用例，
+    infra error 永不并入，no-answer 只进 no-answer 计数器。
+  - `scripts/run_retrieval_eval.py`（CLI 评测器）：经**应用层组合根**
+    `scripts.query.build_query_components` + `QueryService`（与 MCP in-process
+    client 同一构造路径），不走 Web/MCP 网络，不复制检索；Chroma 读
+    `<data-dir>/db/chroma`，BM25 读 `<data-dir>/db/bm25/golden_v1.json`，
+    embedding 仅 `DeterministicHashEmbedding`。
+  - `tests/unit/test_eval_metrics.py`（14 项纯函数/聚合语义）
+  - `tests/integration/test_run_retrieval_eval.py`（14 项，真实 Chroma+BM25）
+- CLI 参数：`--data-dir`（默认 gitignore 的夹具数据目录）、`--cases`、
+  `--mode dense|sparse|hybrid`、`--top-k 1..50`、`--rerank`、`--config`、
+  `--profile ci|release`、`--output`（JSON）、`--report-md`。
+- 指标与记录：Recall@K / Precision@K / MRR / nDCG@K，
+  K = sorted({1, min(5,top_k), top_k})；document/chunk hit rate；
+  no-answer accuracy + FP 单列；latency 用 `time.perf_counter()`（单调时钟）
+  出 P50/P95/mean；平均返回字符数（按实际返回行）；branch contribution
+  （`dense_count/sparse_count/fused_count` 汇总 + 每行 `RetrievalResult.source`
+  计数 dense/sparse/fusion）。每案记录期望/实际 ID、relevant ranks、score、
+  branch、`safe_preview`（压平换行、截断 120 字符），**不写完整正文**。
+- rerank 语义镜像 `in_process.py`：`rerank.backend == none` 或构造异常 →
+  `rerank.status=skipped`、run `status=degraded`、退出码仍 0，指标照常计算；
+  缺失 reranker 绝不记零召回。运行前校验 manifest 存在且 embedding_profile
+  匹配（不匹配 → 退出 1 提示重 seed）；sparse/hybrid 预检 BM25 文件。
+- 退出码：0 完成（含 degraded）；1 基础设施失败（未 seed/缺 BM25/检索抛错，
+  每案标 `status=error` 并截断错误信息 ≤300 字符，不与 no-answer 混淆）；
+  2 参数/用例文件错误（不存在、非法 JSONL、schema 不合法、外集合）；
+  3 评测整体 skip（如评估栈构造失败）。
+- 实测结果（默认夹具，deterministic-hash-v1，top-10；latency 随机器波动不冻结）：
+  - dense：R@1=0.571 / R@5=0.714 / R@10=1.0，MRR=0.654；no-answer 0/1
+    （Chroma 无分数阈值 → FP，既有行为如实记录）。
+  - sparse：R@1/R@5/R@10=1.0，MRR=1.0；no-answer 1/1（BM25 严格空）；
+    7 案共返回 34 行（小语料不强行填满 top-k）。
+  - hybrid：R@1/R@5/R@10=1.0，MRR=1.0；no-answer 0/1（FP 来自 dense 路）。
+  - hybrid+rerank：rerank skipped（backend none）→ status=degraded、退出 0，
+    指标与 hybrid 一致，不是零召回。
+  - 同一固定索引连跑两次：每案 ID 排名与 score 完全一致。
+  - 退出码实证：缺 cases=2、top-k 越界=2、坏 JSONL=2、外集合=2、
+    未 seed=1、缺 BM25(sparse)=1；注入 `QueryService.search` 全量异常 →
+    8/8 案 error、退出 1、`answerable_evaluated=0`、recall/precision/nDCG
+    全为 None（不是 0）、no-answer 三计数全 0。
+- 测试命令与结果：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_eval_metrics.py -q
+  # 14 passed in 0.04s
+  .venv/bin/python -m pytest tests/integration/test_run_retrieval_eval.py -q
+  # 14 passed in 0.79s
+  .venv/bin/python -m pytest \
+      tests/unit/test_architecture_boundary.py \
+      tests/unit/test_mcp_contract_v1_snapshot.py \
+      tests/unit/test_retrieval_golden_schema.py tests/unit/test_eval_metrics.py \
+      tests/integration/test_retrieval_golden_seed.py \
+      tests/integration/test_run_retrieval_eval.py -q
+  # 77 passed, 1 skipped in 2.60s
+  git diff --check   # 无输出
+  ```
+- 遗留问题：无。profile 阈值（ci/release 的 P95 上限）在 01.5 随基线快照落盘。
 
 ## 1. 目标
 
