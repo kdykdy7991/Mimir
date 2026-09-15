@@ -61,7 +61,7 @@
 ### 01.1 建立正式 ADR
 
 - 状态：done
-- 提交：见本提交（`docs(adr): define mcp-server-only rag boundary`）
+- 提交：`153e776`（`docs(adr): define mcp-server-only rag boundary`）
 - 新增文件：
   - `docs/adr/0001-mcp-server-only-rag-boundary.md`（背景/定位/决策/职责边界/允许模型阶段/
     永久排除项/正反例/安全原则/评审约束/后果/复审条件/现状盘点）
@@ -76,6 +76,46 @@
   # 15 passed in 0.04s
   git diff --check   # 无输出
   ```
+- 遗留问题：无。
+
+### 01.2 导出现有 MCP 清单
+
+- 状态：done
+- 提交：见本提交（`test(mcp): freeze current readonly contract inventory`）
+- 新增文件：
+  - `scripts/mcp_contract_inventory.py`（清单生成器；离线、不构造检索栈）
+  - `tests/fixtures/mcp_contract/readonly_v1_inventory.json`（机器快照）
+  - `docs/contracts/mcp-readonly-v1.md`（人类契约：总则/传输认证/5 工具/
+    兼容别名保留策略/显式排除能力/重生成门禁）
+  - `tests/unit/test_mcp_contract_v1_snapshot.py`（11 项，两层漂移门禁）
+- 事实源策略：`name/description/input_schema/output_schema` 直接抽自真实注册表
+  `_register_default_tools`（stdio/HTTP 共用）；策展元数据（别名、错误、授权、
+  后端矩阵、生命周期）在生成器内维护，其中**涉及 schema 的声明**
+  （required/oneOf/别名属性/数值界/默认值）在生成时对真实 schema 做交叉断言，
+  漂移即 `AssertionError`，无法靠改快照绕过。
+- 冻结内容：5 工具集合；query 必填/长度 1..2000/top_k 1..50 默认 10/
+  rerank 默认 true/no_rerank 别名；get_document(_chunks) 的 oneOf 与 doc_id
+  别名；chunks 分页 page≥1、page_size 1..50 默认 20；输出别名
+  n_results/citations/n_collections/doc_id/doc_type/source_path；
+  get_document_summary 标记 compat_alias；v1 全量 schema 无 enum/const
+  （新增枚举即契约事件，测试显式钉住空集合）。
+- 错误文案已与源码逐字核对（含 `knowledge retrieval failed: <ExcType>`
+  协议级错误面、not-found/forbidden 同形）。
+- 漂移有效性实证（/tmp 一次性脚本，不入库）：新增工具、删除 required、
+  删除 oneOf 分支、删除别名属性、引入 enum、篡改 fixture——六类均被
+  非零退出/断言拦截；连续两次生成逐字节一致。
+- 测试命令与结果：
+  ```bash
+  .venv/bin/python scripts/mcp_contract_inventory.py --check   # exit 0
+  .venv/bin/python -m pytest tests/unit/test_mcp_contract_v1_snapshot.py -q
+  # 11 passed in 0.43s
+  .venv/bin/python -m pytest $(find tests -name '*mcp*.py') -q
+  # 185 passed in 16.30s（17 个 MCP 相关测试文件，含既有 phase0 快照）
+  git diff --check   # 无输出
+  ```
+- 既有失败分类：`tests/unit/test_metadata_enricher_contract.py` 2 项失败
+  （prompt 文案断言）为本任务前既有失败，与本次新增文件无导入/修改关系，
+  不在本任务修复。
 - 遗留问题：无。
 
 ## 1. 目标

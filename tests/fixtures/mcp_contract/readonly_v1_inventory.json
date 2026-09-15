@@ -1,0 +1,709 @@
+{
+  "contract": "mcp-readonly",
+  "contract_version": "v1",
+  "generated_from": "src.mcp_server.server._register_default_tools (live MCP tools/list registry; shared by stdio and streamable-http)",
+  "read_only": true,
+  "tool_count": 5,
+  "tools": {
+    "get_document": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "document_id"
+      ],
+      "collection_authorization": "Stable document UUID resolves to (collection, source_path); collection access is re-checked before any storage read. Not-found and forbidden share one external message.",
+      "compat_aliases": [
+        {
+          "alias": "doc_id",
+          "canonical": "document_id",
+          "phase_out": "compatibility window",
+          "surface": "input"
+        },
+        {
+          "alias": "doc_id",
+          "canonical": "document_id",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        },
+        {
+          "alias": "doc_type",
+          "canonical": "document_type",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        },
+        {
+          "alias": "source_path",
+          "canonical": "source",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        }
+      ],
+      "description": "Return read-only metadata for a document (by its document_id) from an authorized SKDY knowledge base, including its title, summary, tags, source and chunk count.",
+      "errors": [
+        {
+          "condition": "neither document_id nor doc_id supplied/empty",
+          "message": "'document_id' is required and must be a non-empty string",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown id OR id in an unauthorized collection",
+          "message": "document not found or not accessible",
+          "surface": "tool result is_error=true (identical shape)"
+        },
+        {
+          "condition": "invalid request from client layer",
+          "message": "client InvalidRequestError text",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "document_id"
+            ]
+          },
+          {
+            "required": [
+              "doc_id"
+            ]
+          }
+        ],
+        "properties": {
+          "doc_id": {
+            "description": "Deprecated alias for `document_id`.",
+            "type": "string"
+          },
+          "document_id": {
+            "description": "The stable document UUID.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "kind": "document_metadata",
+      "lifecycle": "long_term",
+      "limits": "document_id or doc_id required (oneOf); additionalProperties rejected.",
+      "name": "get_document",
+      "output_schema": {
+        "properties": {
+          "chunk_count": {
+            "type": "integer"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "doc_id": {
+            "type": "string"
+          },
+          "doc_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "summary",
+          "tags",
+          "source",
+          "doc_type",
+          "chunk_count"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "One document's metadata (title, type, source, summary, tags, chunk_count). No unbounded chunk body."
+    },
+    "get_document_chunks": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "document_id",
+        "page",
+        "page_size"
+      ],
+      "collection_authorization": "Same UUID resolution + collection re-check as get_document, performed before chunk reads.",
+      "compat_aliases": [
+        {
+          "alias": "doc_id",
+          "canonical": "document_id",
+          "phase_out": "compatibility window",
+          "surface": "input"
+        }
+      ],
+      "description": "Read a stable-ordered page of a document's indexed chunks by its document_id. Ordering is independent of storage order and stable across calls. Reads only — never mutates.",
+      "errors": [
+        {
+          "condition": "document id missing/empty",
+          "message": "'document_id' is required and must be a non-empty string",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "page/page_size not integers",
+          "message": "'page' and 'page_size' must be integers",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "page_size outside 1..50 or page < 1",
+          "message": "page_size must be between 1 and 50 / page must be >= 1",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown/unauthorized id",
+          "message": "document not found or not accessible",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "document_id"
+            ]
+          },
+          {
+            "required": [
+              "doc_id"
+            ]
+          }
+        ],
+        "properties": {
+          "doc_id": {
+            "description": "Deprecated alias for `document_id`.",
+            "type": "string"
+          },
+          "document_id": {
+            "description": "The stable document UUID.",
+            "type": "string"
+          },
+          "page": {
+            "default": 1,
+            "description": "1-based page number.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 20,
+            "description": "Chunks per page (1..50).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "kind": "chunk_pagination",
+      "lifecycle": "long_term",
+      "limits": "document_id or doc_id required (oneOf).",
+      "name": "get_document_chunks",
+      "output_schema": {
+        "properties": {
+          "chunks": {
+            "items": {
+              "properties": {
+                "chunk_id": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "section": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunk_id",
+                "index"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "page",
+          "page_size",
+          "total",
+          "has_next",
+          "chunks"
+        ],
+        "type": "object"
+      },
+      "pagination": "1-based page pagination; page>=1, page_size 1..50 (default 20). Ordering is explicit and independent of the vector store's natural order (chunk_index -> embedded index -> chunk id).",
+      "returns": "One stable-ordered page of a document's indexed chunks with full chunk text, page/section metadata and total/has_next."
+    },
+    "get_document_summary": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "doc_id"
+      ],
+      "collection_authorization": "Identical to get_document (shared implementation).",
+      "compat_aliases": [
+        {
+          "alias": "get_document_summary",
+          "canonical": "get_document",
+          "phase_out": "compatibility window (>= one release)",
+          "surface": "tool_name"
+        },
+        {
+          "alias": "doc_id",
+          "canonical": "document_id",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        },
+        {
+          "alias": "doc_type",
+          "canonical": "document_type",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        },
+        {
+          "alias": "source_path",
+          "canonical": "source",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        }
+      ],
+      "description": "Compatibility alias of get_document. Return read-only metadata for a document by its legacy doc_id.",
+      "errors": [
+        {
+          "condition": "doc_id missing/empty",
+          "message": "'document_id' is required and must be a non-empty string",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown/unauthorized id",
+          "message": "document not found or not accessible",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "doc_id": {
+            "description": "The document id (= source_ref on every chunk). Matches the parent Document.id generated at ingest.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_id"
+        ],
+        "type": "object"
+      },
+      "kind": "document_metadata_compat_alias",
+      "lifecycle": "compat_alias",
+      "limits": "doc_id required; additionalProperties rejected.",
+      "name": "get_document_summary",
+      "output_schema": {
+        "properties": {
+          "chunk_count": {
+            "type": "integer"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "doc_id": {
+            "type": "string"
+          },
+          "doc_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "summary",
+          "tags",
+          "source",
+          "doc_type",
+          "chunk_count"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "Same handler, schema and output as get_document."
+    },
+    "list_collections": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [],
+      "collection_authorization": "Returns extant server collections intersected with the API key whitelist; stdio TrustedLocalPrincipal sees all. Unauthorized names, counts and existence are never leaked.",
+      "compat_aliases": [
+        {
+          "alias": "n_collections",
+          "canonical": "count",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        }
+      ],
+      "description": "List knowledge bases authorized for the current MCP API key. Each entry includes its collection name, business description, and document / chunk counts.",
+      "errors": [
+        {
+          "condition": "credential has no accessible/extant collections",
+          "message": "collections: []",
+          "surface": "successful empty result (count=0)"
+        },
+        {
+          "condition": "upstream statistics stores unavailable",
+          "message": "document_count/chunk_count = null",
+          "surface": "successful result with null counts"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "kind": "collection_discovery",
+      "lifecycle": "long_term",
+      "limits": "No arguments; additionalProperties rejected.",
+      "name": "list_collections",
+      "output_schema": {
+        "properties": {
+          "collections": {
+            "items": {
+              "properties": {
+                "chunk_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "document_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "n_collections": {
+            "description": "Deprecated alias for `count`.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "collections"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "Authorized collections as name/description/document_count/chunk_count entries. Counts may be null when backing storage is unavailable — zero is never fabricated. No disk paths."
+    },
+    "query_knowledge_hub": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "query",
+        "collection",
+        "top_k",
+        "rerank"
+      ],
+      "collection_authorization": "Explicit collection must be in the key grant; omitted with a single-collection grant auto-selects it; omitted with a multi-collection grant is a tool error. Authorization runs before embedding/vector/BM25/reranker construction. stdio defaults to 'default'.",
+      "compat_aliases": [
+        {
+          "alias": "no_rerank",
+          "canonical": "rerank (rerank wins when both present)",
+          "phase_out": "compatibility window",
+          "surface": "input"
+        },
+        {
+          "alias": "n_results",
+          "canonical": "count",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        },
+        {
+          "alias": "citations",
+          "canonical": "evidence",
+          "phase_out": "compatibility window",
+          "surface": "output"
+        }
+      ],
+      "description": "Search an authorized SKDY knowledge base and return ranked retrieval evidence (chunks + citations). Returns NO answer — the evidence is for your own synthesis. Use list_collections first to identify the collection name.",
+      "errors": [
+        {
+          "condition": "query missing/empty",
+          "message": "'query' is required and must be a non-empty string",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "query longer than 2000 characters",
+          "message": "'query' exceeds the 2000-character limit",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "collection outside key grant",
+          "message": "collection is not accessible with this credential",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "multi-collection key omits collection",
+          "message": "'collection' is required when this credential can access multiple knowledge bases",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "retrieval stack failure (embedding/store/BM25)",
+          "message": "knowledge retrieval failed: <ExceptionType>",
+          "surface": "protocol-level error (NOT an empty result)"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "default": "default",
+            "description": "Collection name (= BM25 index name) to query.",
+            "type": "string"
+          },
+          "no_rerank": {
+            "default": false,
+            "description": "Deprecated alias for `rerank`. Use `rerank` instead.",
+            "type": "boolean"
+          },
+          "query": {
+            "description": "The text to retrieve evidence for. Up to 2000 characters.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "rerank": {
+            "default": true,
+            "description": "Whether to apply the optional rerank stage when one is configured. Highly recommended for precision.",
+            "type": "boolean"
+          },
+          "top_k": {
+            "default": 10,
+            "description": "Maximum number of evidence results to return.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "kind": "evidence_retrieval",
+      "lifecycle": "long_term",
+      "limits": "query required, 1..2000 chars; top_k 1..50 (default 10); additionalProperties rejected.",
+      "name": "query_knowledge_hub",
+      "output_schema": {
+        "properties": {
+          "citations": {
+            "description": "Deprecated alias for `evidence`.",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "diagnostics": {
+            "properties": {
+              "degraded": {
+                "type": "boolean"
+              },
+              "reasons": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "trace_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "degraded",
+              "reasons"
+            ],
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "properties": {
+                "chunk_id": {
+                  "type": "string"
+                },
+                "document_id": {
+                  "type": "string"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "rank": {
+                  "type": "integer"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rank",
+                "chunk_id",
+                "document_id",
+                "source",
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "n_results": {
+            "description": "Deprecated alias for `count`.",
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "collection",
+          "count",
+          "evidence",
+          "diagnostics"
+        ],
+        "type": "object"
+      },
+      "pagination": "Single top-k window (no cursor); 1..50, default 10.",
+      "returns": "Ranked raw evidence chunks (chunk_id, document_id, title, source, page, score, text excerpt) plus diagnostics. Returns NO synthesized answer."
+    }
+  }
+}
