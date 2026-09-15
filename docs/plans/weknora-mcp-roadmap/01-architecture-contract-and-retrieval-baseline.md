@@ -118,6 +118,65 @@
   不在本任务修复。
 - 遗留问题：无。
 
+### 01.3 定义 Golden Set v1
+
+- 状态：done
+- 提交：见本提交（`test(retrieval): add versioned golden-set corpus`）
+- 新增文件：
+  - `tests/fixtures/retrieval_golden/corpus.json`（手工编写、全合成；
+    7 文档 / 18 chunks；`synthetic: true`；零用户数据）
+  - `tests/fixtures/retrieval_golden/schema.json`（2020-12 JSON Schema；
+    schema_version 必填 const、id 模式、document/chunk id 模式、
+    no_answer 条件式 if/then/else、filters 标量约束）
+  - `tests/fixtures/retrieval_golden/cases.jsonl`（8 用例覆盖六类：
+    exact_keyword×3 含中文/带页码、chinese_semantic、multicolumn_pdf、
+    table、image_ocr、no_answer）
+  - `tests/fixtures/retrieval_golden/README.md`（范围/非范围、ID 规则、
+    重建方法、已知系统行为）
+  - `scripts/eval_support.py`（seeder/evaluator 共用构造入口：
+    DeterministicHashEmbedding、语料加载、生产 ID 公式、seed+manifest）
+  - `scripts/seed_retrieval_fixtures.py`（CLI；默认数据目录被 gitignore；
+    非空目录拒绝写入，--rebuild 覆盖；退出码 0/1/2）
+  - `tests/unit/test_retrieval_golden_schema.py`（10 项离线校验）
+  - `tests/integration/test_retrieval_golden_seed.py`（真实 Chroma+BM25；
+    13 passed + 1 skip）
+  - 修改：`.gitignore` 增加 `tests/fixtures/retrieval_golden/data/`
+- 关键设计：
+  - **不复制 ID 方案**：document id 用 `src.application.identifiers.document_uuid`
+    （uuid5 公式），chunk id 用生产 `DocumentChunker._generate_chunk_id`
+    （`{doc_id}_{index:04d}_{sha256(text)[:8]}`）；cases 中的冻结 ID 由
+    测试用生产公式对语料文本重算校验，改字即失败。
+  - 入库走真实生产组件：`ChromaStore`（临时/夹具数据目录）、
+    `VectorUpserter`、`BM25Indexer`；数据目录布局与查询组合根一致
+    （`db/chroma`、`db/bm25/golden_v1.json`）。
+  - DeterministicHashEmbedding 对**生产 token 流**（SparseEncoder：
+    ASCII run + CJK 1+2-gram + 同一停用词表）做 BLAKE2b 有符号 512 维
+    哈希投影并 L2 归一化；无网络、不依赖 PYTHONHASHSEED；明确是
+    词汇重叠几何而非神经语义，真实模型 profile 留给 01.5 显式命令。
+  - 多栏 PDF/表格/OCR 类别诚实建模为**抽取后的文本层**
+    （content_type=multicolumn_text/table_text/ocr_text，doc_type/pdf/image，
+    page 元数据），不评测 OCR/PDF 解析模型本身（README 显式声明）。
+- 设计前实证（probe 索引，未入库）：7 个可答用例在 dense/sparse/hybrid
+  下目标均进 top-5（其中 7/7 在 sparse 与 hybrid 排名第 1；中文语义用例
+  经一次问法/文本调整后三路第 1）；filters `doc_type=pdf` 生效；
+  no-answer 在 sparse 严格返回空；dense/hybrid 返回零相似度行——
+  生产 DenseRetriever 无分数阈值（README 与基线如实记录，本任务不修）。
+- 确定性证据：两次重建 manifest 与 BM25 JSON 逐字节相同；
+  manifest 无时间戳/主机名（内容哈希 + profile + 版本号的纯函数）。
+- 测试命令与结果：
+  ```bash
+  .venv/bin/python scripts/seed_retrieval_fixtures.py   # 18 chunks/7 docs
+  .venv/bin/python -m pytest tests/unit/test_retrieval_golden_schema.py \
+      tests/integration/test_retrieval_golden_seed.py -q
+  # 23 passed, 1 skipped
+  .venv/bin/python -m pytest tests/unit/test_architecture_boundary.py \
+      tests/unit/test_mcp_contract_v1_snapshot.py -q     # 26 passed
+  git diff --check   # 无输出
+  git check-ignore tests/fixtures/retrieval_golden/data/build_manifest.json  # 命中
+  ```
+- 遗留问题：无（dense 无阈值导致 no-answer FP 为**记录的既有行为**，
+  在 01.5 基线中分模式量化）。
+
 ## 1. 目标
 
 在改变线上行为前冻结系统职责、现有 MCP 兼容面和检索质量基线。后续任何功能必须能回答：是否越过

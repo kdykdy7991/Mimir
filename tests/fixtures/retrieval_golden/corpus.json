@@ -1,0 +1,161 @@
+{
+  "schema_version": "golden-corpus-v1",
+  "collection": "golden_v1",
+  "synthetic": true,
+  "description": "Hand-authored fully synthetic retrieval corpus for Golden Set v1. Every name, product, number and policy is fictional. It models the TEXT LAYER available to retrieval after parsing/extraction (including linearized multi-column / table / OCR text); it is not an OCR or PDF-layout model benchmark.",
+  "documents": [
+    {
+      "source_path": "synthetic/en/zephyrflow-firmware.md",
+      "title": "ZephyrFlow 7400 Firmware Rollback Runbook",
+      "doc_type": "md",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "zf-rollback-quixbuckle",
+          "text": "This synthetic runbook covers the quixbuckle latch procedure. To roll back ZephyrFlow 7400 firmware, press the recessed quixbuckle latch on the controller front panel and hold it for ten seconds while power cycling the controller."
+        },
+        {
+          "index": 1,
+          "ref": "zf-lumenvane",
+          "text": "After a successful rollback, the amber lumenvane indicator blinks twice. ZephyrFlow 7400 controllers use firmware channel zf-stable-7400; do not switch to the zf-beta channel during a rollback."
+        },
+        {
+          "index": 2,
+          "ref": "zf-noc",
+          "text": "If the rollback fails three times in a row, call the synthetic network operations desk at extension 44170 and quote ticket prefix ZFROLL."
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/zh/canteen-waste-policy.md",
+      "title": "园区食堂泔水与浪费公示制度（虚构）",
+      "doc_type": "md",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "canteen-weighing",
+          "text": "本制度为虚构文本。每餐供餐结束后，食堂值班经理须对各档口的泔水桶逐桶称重，并将重量录入后勤公示系统，次日在食堂入口屏公示称重结果。"
+        },
+        {
+          "index": 1,
+          "ref": "canteen-penalty",
+          "text": "对连续三日浪费率超过百分之八、情节严重的档口，后勤中心将对档口负责人作约谈处理，责令其停业整顿并提交整改清单，同时核减该档口次月的备餐配额。"
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/zh/attendance-policy.md",
+      "title": "考勤与加班管理制度（虚构）",
+      "doc_type": "md",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "attendance-overtime",
+          "text": "本制度为虚构文本。员工加班须至少提前四小时在考勤系统提交加班申请，未经审批通过的加班时长不计入调休。"
+        },
+        {
+          "index": 1,
+          "ref": "attendance-absent",
+          "text": "连续旷工达三个工作日的，视为严重违反劳动纪律，公司可依据劳动合同的约定解除劳动关系。"
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/pdf/xk2200-specsheet.pdf",
+      "title": "XK-2200 工业网关多栏规格表（虚构）",
+      "doc_type": "pdf",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "xk2200-ip-rating",
+          "page": 1,
+          "content_type": "multicolumn_text",
+          "text": "双栏排版提取文本。左栏：XK-2200 工业网关的工作温度范围为零下四十摄氏度至正七十摄氏度。右栏：XK-2200 的外壳防护等级为 IP65，壳体采用压铸铝工艺，适用于多尘厂房环境。"
+        },
+        {
+          "index": 1,
+          "ref": "xk2200-warranty",
+          "page": 1,
+          "content_type": "multicolumn_text",
+          "text": "双栏排版提取文本。左栏：电源输入为二十四伏直流电，待机功耗两瓦。右栏：标准保修期限为三十六个月，在官网注册后可延长至四十八个月。"
+        },
+        {
+          "index": 2,
+          "ref": "xk2200-install",
+          "page": 2,
+          "content_type": "multicolumn_text",
+          "text": "安装说明：XK-2200 应水平固定在 DIN 导轨上，接线端子的推荐拧紧扭矩为零点五牛米，引入线缆外径需在六至十二毫米之间。"
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/pdf/region-sales.pdf",
+      "title": "虚构区域季度营收表",
+      "doc_type": "pdf",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "sales-north",
+          "page": 1,
+          "content_type": "table_text",
+          "text": "表格线性化文本，华北大区季度营收，单位万元：第一季度 1200，第二季度 1450，第三季度 1390，第四季度 1620。"
+        },
+        {
+          "index": 1,
+          "ref": "sales-south-east",
+          "page": 1,
+          "content_type": "table_text",
+          "text": "表格线性化文本，华南大区季度营收，单位万元：第一季度 980，第二季度 1120，第三季度 1205，第四季度 1300。华东大区第一季度 2100，第二季度 2260。"
+        },
+        {
+          "index": 2,
+          "ref": "sales-north-note",
+          "page": 2,
+          "content_type": "table_text",
+          "text": "表格附注：华北大区第四季度营收中包含一次性设备交付确认收入三百万元，进行跨年度比较时应予以剔除。"
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/images/kz5500g-nameplate.png",
+      "title": "KZ-5500G 电机铭牌照片（虚构）",
+      "doc_type": "image",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "ocr-nameplate",
+          "content_type": "ocr_text",
+          "text": "铭牌图片 OCR 提取文本：设备名称永磁同步电机，型号 KZ-5500G，序列号 SN-88731-KAPPLER，额定转速每分钟三千转，制造商为虚构的卡普勒动力公司。"
+        },
+        {
+          "index": 1,
+          "ref": "ocr-warning-label",
+          "content_type": "ocr_text",
+          "text": "机壳警示图片 OCR 提取文本：高温表面，请勿徒手触摸；停机后应等待三十分钟，再进行维护接线。"
+        }
+      ]
+    },
+    {
+      "source_path": "synthetic/en/retrieval-notes.md",
+      "title": "Notes on Retrieval Pipelines (synthetic)",
+      "doc_type": "md",
+      "chunks": [
+        {
+          "index": 0,
+          "ref": "notes-dense",
+          "text": "Dense retrieval maps passages into embedding vectors and tends to match paraphrased questions even when no keyword overlaps."
+        },
+        {
+          "index": 1,
+          "ref": "notes-hybrid",
+          "text": "Hybrid search combines lexical BM25 rankings with vector similarity through reciprocal rank fusion, often shortened as RRF."
+        },
+        {
+          "index": 2,
+          "ref": "notes-rollback-decoy",
+          "text": "When a model deployment regresses evaluation metrics, operators roll back to the previous model snapshot before rerunning the suite."
+        }
+      ]
+    }
+  ]
+}

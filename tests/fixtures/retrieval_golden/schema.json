@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skdy.local/schemas/retrieval-golden-case-v1.json",
+  "title": "Retrieval Golden Set case record (v1)",
+  "description": "One line of cases.jsonl. Relevance is judged against content-addressed production ids (document_uuid + DocumentChunker id formula) over the fully synthetic corpus.json seeded into the golden_v1 collection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "category",
+    "query",
+    "collection_ids",
+    "relevant_document_ids",
+    "relevant_chunk_ids",
+    "acceptable_source_locations",
+    "filters",
+    "tags"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "retrieval-golden-v1",
+      "description": "Required; bump with a migration when case semantics change."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,63}$",
+      "description": "Stable kebab-case case identifier."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "exact_keyword",
+        "chinese_semantic",
+        "multicolumn_pdf",
+        "table",
+        "image_ocr",
+        "no_answer"
+      ]
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "collection_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "const": "golden_v1"
+      }
+    },
+    "relevant_document_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+    },
+    "relevant_chunk_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[0-9]{4}_[0-9a-f]{8}$"
+      }
+    },
+    "acceptable_source_locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_path"],
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pages": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "description": "Metadata post-filter passed to retrieval (exact-match keys, e.g. {\"doc_type\": \"pdf\"}). Empty object = no filter.",
+      "additionalProperties": {
+        "type": ["string", "integer", "number", "boolean"]
+      }
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "expect_no_answer": {
+      "type": "boolean",
+      "default": false,
+      "description": "True only for no_answer cases: the ideal system returns zero evidence."
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "category": {
+            "const": "no_answer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "relevant_document_ids": {
+            "maxItems": 0
+          },
+          "relevant_chunk_ids": {
+            "maxItems": 0
+          },
+          "acceptable_source_locations": {
+            "maxItems": 0
+          },
+          "expect_no_answer": {
+            "const": true
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "relevant_document_ids": {
+            "minItems": 1
+          },
+          "relevant_chunk_ids": {
+            "minItems": 1
+          },
+          "acceptable_source_locations": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

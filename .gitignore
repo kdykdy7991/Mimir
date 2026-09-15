@@ -109,3 +109,6 @@ nonexistent_traces.jsonl/
 # Claude Code / agent tooling (local-only)
 .agents/
 .claude/
+
+# Retrieval Golden Set generated indexes (rebuild with scripts/seed_retrieval_fixtures.py)
+tests/fixtures/retrieval_golden/data/
