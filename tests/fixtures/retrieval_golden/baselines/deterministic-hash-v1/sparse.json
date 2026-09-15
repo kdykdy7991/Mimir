@@ -1,0 +1,263 @@
+{
+  "baseline_schema_version": "retrieval-baseline-v1",
+  "case_order": [
+    "kw-en-quixbuckle",
+    "zh-semantic-canteen-penalty",
+    "kw-zh-overtime",
+    "xk2200-ip65-multicolumn",
+    "sales-south-q2-table",
+    "kz5500g-serial-ocr",
+    "xk2200-warranty-page",
+    "noanswer-florpsnickle"
+  ],
+  "cases": {
+    "kw-en-quixbuckle": {
+      "actual_ids": [
+        "0593f9c7-02c4-535c-b5a0-b0bb1a0f3b68_0000_6f8b359b",
+        "0593f9c7-02c4-535c-b5a0-b0bb1a0f3b68_0001_856d9bdf",
+        "0593f9c7-02c4-535c-b5a0-b0bb1a0f3b68_0002_0a1de287"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "exact_keyword",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "0593f9c7-02c4-535c-b5a0-b0bb1a0f3b68_0000_6f8b359b"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 3,
+      "status": "ok"
+    },
+    "kw-zh-overtime": {
+      "actual_ids": [
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5",
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0001_0223790c",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0001_eb52e0f9",
+        "7dd61cbe-b804-5b27-baf7-562b1dda675d_0000_77ad1111",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0002_c9d1b51b",
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0000_a35fa357"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "exact_keyword",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 6,
+      "status": "ok"
+    },
+    "kz5500g-serial-ocr": {
+      "actual_ids": [
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0000_a35fa357",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0000_b3847796"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "image_ocr",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0000_a35fa357"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 3,
+      "status": "ok"
+    },
+    "noanswer-florpsnickle": {
+      "actual_ids": [],
+      "branches": [],
+      "category": "no_answer",
+      "expect_no_answer": true,
+      "expected_chunk_ids": [],
+      "relevant_ranks": [],
+      "returned_count": 0,
+      "status": "ok"
+    },
+    "sales-south-q2-table": {
+      "actual_ids": [
+        "a4b1cd14-a810-56bd-8499-c16714564b08_0001_85ef4e30",
+        "a4b1cd14-a810-56bd-8499-c16714564b08_0000_abdb20f9",
+        "a4b1cd14-a810-56bd-8499-c16714564b08_0002_7d0ab193",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0000_b3847796",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0002_c9d1b51b",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0001_63c604ae",
+        "7dd61cbe-b804-5b27-baf7-562b1dda675d_0000_77ad1111"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "table",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "a4b1cd14-a810-56bd-8499-c16714564b08_0001_85ef4e30"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 8,
+      "status": "ok"
+    },
+    "xk2200-ip65-multicolumn": {
+      "actual_ids": [
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0000_b3847796",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5",
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0001_0223790c",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0002_c9d1b51b"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "multicolumn_pdf",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0000_b3847796"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 4,
+      "status": "ok"
+    },
+    "xk2200-warranty-page": {
+      "actual_ids": [
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0001_63c604ae",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0000_b3847796",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0002_c9d1b51b"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "exact_keyword",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0001_63c604ae"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 3,
+      "status": "ok"
+    },
+    "zh-semantic-canteen-penalty": {
+      "actual_ids": [
+        "7dd61cbe-b804-5b27-baf7-562b1dda675d_0001_96e13bda",
+        "7dd61cbe-b804-5b27-baf7-562b1dda675d_0000_77ad1111",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0001_eb52e0f9",
+        "02126778-be0a-54c6-943b-8bef1c5f4925_0000_f7f2f1e5",
+        "a4b1cd14-a810-56bd-8499-c16714564b08_0002_7d0ab193",
+        "e2f772dc-412b-5287-b8e8-e39971b92d26_0001_0223790c",
+        "4b51b64a-fe12-55ff-a6b6-ccc8143dda6b_0001_63c604ae"
+      ],
+      "branches": [
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse",
+        "sparse"
+      ],
+      "category": "chinese_semantic",
+      "expect_no_answer": false,
+      "expected_chunk_ids": [
+        "7dd61cbe-b804-5b27-baf7-562b1dda675d_0001_96e13bda"
+      ],
+      "relevant_ranks": [
+        1
+      ],
+      "returned_count": 7,
+      "status": "ok"
+    }
+  },
+  "contract": {
+    "collection": "golden_v1",
+    "corpus_revision": "2026-09-15.v1",
+    "corpus_sha256": "8b2a1def1109d3378ceaf889d7f3ab998bd94a8b40a8d1ff9785558f9b54d99d",
+    "embedding_profile": "deterministic-hash-v1",
+    "eval_schema": "retrieval-eval-v1",
+    "ks": [
+      1,
+      5,
+      10
+    ],
+    "mode": "sparse",
+    "rerank": {
+      "applied": false,
+      "requested": false,
+      "status": "off"
+    },
+    "tie_break": "score_desc_then_chunk_id",
+    "top_k": 10
+  },
+  "metrics": {
+    "branch_contribution": {
+      "dense_candidates_total": 0,
+      "returned_by_source": {
+        "sparse": 34
+      },
+      "sparse_candidates_total": 34
+    },
+    "chunk_hit_rate": 1.0,
+    "document_hit_rate": 1.0,
+    "mrr": 1.0,
+    "ndcg": {
+      "ndcg_at_1": 1.0,
+      "ndcg_at_10": 1.0,
+      "ndcg_at_5": 1.0
+    },
+    "no_answer_accuracy": 1.0,
+    "no_answer_correct": 1,
+    "no_answer_false_positives": 0,
+    "no_answer_total": 1,
+    "precision": {
+      "precision_at_1": 1.0,
+      "precision_at_10": 0.24064625850340135,
+      "precision_at_5": 0.2642857142857143
+    },
+    "recall": {
+      "recall_at_1": 1.0,
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0
+    }
+  },
+  "profile": "ci",
+  "tolerances": {
+    "metric_tolerance": 0.0,
+    "no_answer_fp_allowance": 0,
+    "rank_slack": 0,
+    "result_set_strict": true
+  }
+}

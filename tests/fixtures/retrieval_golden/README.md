@@ -27,6 +27,7 @@ rerank) *before* any retrieval changes land.
 | `corpus.json` | Hand-authored source of truth: 7 synthetic documents, 18 chunks |
 | `schema.json` | JSON Schema (2020-12) for one `cases.jsonl` record |
 | `cases.jsonl` | 8 golden cases across the 6 required categories |
+| `baselines/` | Frozen 4-mode regression baselines + gate README (Task 01.5) |
 | `data/` | **Generated, git-ignored**: Chroma + BM25 indexes and `build_manifest.json` |
 
 Everything in `corpus.json` is fictional: product names
@@ -62,8 +63,10 @@ The build is deterministic: real Chroma + real BM25 production code,
 dense vectors from `DeterministicHashEmbedding` (BLAKE2b-hashed
 production token stream into signed 512 dimensions, L2-normalized —
 lexical-overlap geometry, no network, no `PYTHONHASHSEED` dependence).
-The manifest is a pure function of the corpus (no timestamps/hostnames),
-so two rebuilds compare byte-equal.
+The manifest and BM25 JSON are pure functions of the corpus (no
+timestamps/hostnames), so two rebuilds compare byte-equal. The Chroma
+collection content is identical too; only near-tie search ORDER can
+vary between independently built collections (see known behavior).
 
 ## Cases
 
@@ -86,3 +89,27 @@ so two rebuilds compare byte-equal.
   this asymmetry; changing it is a product decision outside Task 01.
 - The dense path has no chunk-id tie-break; RRF/BM25 ties are broken by
   chunk id. The evaluator normalizes dense ties at the metrics layer.
+- Even with deterministic input, independently **built** Chroma
+  collections can order near-tie zero-signal HNSW neighbors differently:
+  across 4 fresh builds the dense worst case was one relevant rank
+  moving 3 → 4 (MRR −0.012, nDCG −0.010); Recall@K and hit rates were
+  stable, and sparse/hybrid rankings were identical. The dense baseline
+  therefore carries `rank_slack=1` / `metric_tolerance=0.02` while the
+  BM25/RRF baselines are strict. See `baselines/README.md`.
+
+## Evaluation and regression gate
+
+```bash
+# full JSON + Markdown report (application-layer QueryService only)
+.venv/bin/python scripts/run_retrieval_eval.py --mode hybrid --top-k 10 \
+  --output /tmp/hybrid.json --report-md /tmp/hybrid.md
+
+# frozen baseline gate (exit 0 pass / 1 regression / 2 usage / 3 infra)
+.venv/bin/python scripts/eval_gate.py check --profile ci \
+  --baseline baselines/deterministic-hash-v1/hybrid.json
+```
+
+Runner/gate details and the four recorded modes: `baselines/README.md`.
+Infrastructure errors (missing seed, provider outage) are reported
+separately from retrieval outcomes — never counted as misses or as
+no-answer false positives.

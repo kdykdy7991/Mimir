@@ -1,6 +1,6 @@
 # 任务 01：架构边界、现状契约与检索基线
 
-> 状态：进行中（2026-09-15 开始）  
+> 状态：01.1–01.5 全部完成（2026-09-15；最终复核与交付报告见收尾记录）
 > 前置：现有 DocReader、只读 MCP、知识管理和 Trace 相关测试可运行  
 > 后继：任务 02
 
@@ -241,6 +241,90 @@
   git diff --check   # 无输出
   ```
 - 遗留问题：无。profile 阈值（ci/release 的 P95 上限）在 01.5 随基线快照落盘。
+
+### 01.5 生成基线并接 CI
+
+- 状态：done
+- 提交：见本提交（`test(eval): record retrieval baseline and regression gate`）
+- 新增文件：
+  - `scripts/eval_gate.py`（基线记录 + 回归门禁；纯函数 `build_baseline` /
+    `compare_reports` 可单测，CLI 子命令 `record` / `check`）
+  - `tests/unit/test_eval_gate.py`（22 项：契约漂移、case 消失、标签变更、
+    排序降位/目标丢失/前缀漂移、指标回归、容差边界、no-answer FP、
+    infra 短路语义）
+  - `tests/integration/test_eval_baseline_gate.py`（14 项：四份提交基线对
+    **全新临时种子目录**校验、record/check 往返、逐字节确定性、三类手工
+    构造回归端到端失败、unseeded 退出 3、profile 不匹配退出 2）
+  - `tests/fixtures/retrieval_golden/baselines/deterministic-hash-v1/
+    {dense,sparse,hybrid,hybrid-rerank}.json`（四份冻结基线）
+  - `tests/fixtures/retrieval_golden/baselines/README.md`
+- 修改：`tests/fixtures/retrieval_golden/README.md`（评测/门禁入口与
+  HNSW 跨构建顺序漂移的已知行为）。
+- 基线设计：基线是**指纹**而非完整报告——契约身份（eval schema、
+  corpus revision/sha256、embedding profile、mode、top_k、ks、tie_break、
+  rerank 状态）、case 顺序与标签（category/expect_no_answer/
+  expected_chunk_ids）、每案 actual chunk-id 顺序与 relevant ranks、
+  汇总指标；**不含** latency、score 浮点、正文/预览；sorted-key JSON，
+  两次 record 逐字节一致。
+- 门禁判据（任一命中即非零退出）：契约不兼容（mode/top_k/rerank 状态/
+  embedding profile/corpus_revision 变化；sha256 仅留痕不门禁）；
+  case 消失/新增/标签改动；每案“显著前缀”（1..最后相关名次）身份变化或
+  相关排名超过 `rank_slack` 降位、相关块掉出窗口；Recall/Precision/nDCG@K、
+  MRR、doc/chunk hit rate、no-answer accuracy 低于基线超过
+  `metric_tolerance`；no-answer FP 超过基线 + allowance。
+- 退出码：0 通过 / 1 回归 / 2 用法或 profile 不匹配 / **3 基础设施失败**
+  （未 seed、检索抛错、构造 skip）。infra 时比较器短路，只产出 `infra`
+  findings——绝不把上游故障计成零召回或 no-answer。
+- **重要实测发现（dense 跨构建非完全确定）**：embedding 确定，但独立
+  构建的 Chroma 集合对近零相关 HNSW 邻居的取舍不同。4 次独立构建实测
+  上限：`xk2200-warranty-page` 相关名次 3→4（一次），MRR −0.012、
+  nDCG@5/@10 −0.010；Recall@K 与命中率不变；sparse/hybrid 逐案排名完全
+  一致。故 dense 快照自带**按实测选定**的容差（rank_slack=1、
+  metric_tolerance=0.02、不锁前缀，基线内附 `tolerance_rationale`），
+  sparse/hybrid/hybrid-rerank 保持零容差严格门禁。尾部零信号行不影响
+  Recall/MRR/nDCG，Precision@K 仍受汇总指标门禁。
+- 四模式冻结指标（profile=ci，top_k=10，deterministic-hash-v1）：
+  | 基线 | rerank | R@1 | R@5 | R@10 | MRR | nDCG@5 | doc hit | no-answer |
+  | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+  | dense | off | 0.5714 | 0.7143 | 1.0 | 0.6418 | 0.6330 | 1.0 | 0/1 (FP=1) |
+  | sparse | off | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1/1 |
+  | hybrid | off | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 0/1 (FP=1) |
+  | hybrid-rerank | **skipped (env block)** | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 0/1 (FP=1) |
+  hybrid+rerank 在本机 `rerank.backend=none`、无 cross-encoder/LLM
+  provider 条件下记录为可复现的 degraded/skipped 环境阻断快照（退出 0、
+  指标=hybrid）；在装有 rerank backend 的主机上契约校验会显式失败，
+  须以真实模型 profile 单独记录，不得替换 ci 快照。release profile 预设
+  0.05 容差/rank slack 2，仅显式命令生成。
+- 手工构造回归实证（均真实失败，非自证）：
+  - 排序回归：sparse 基线 rank-1 目标 id 换成跨案 id → check 退出 1，
+    `[ranking]`；纯函数级相关块降位 1→2、目标被移除、显著前缀换位均失败；
+  - case 消失：删除一个 case → `[case_set]` 退出 1；
+  - 契约漂移：corpus_revision 篡改 → `[contract]` 退出 1；
+  - 指标回归：dense R@1 基线改记为 0.60（当前 0.571）→ 零容差退出 1，
+    `--metric-tolerance 0.05` 退出 0；
+  - 上游异常：全部案 error → 只有 `[infra]` findings，退出 3；
+    unseeded 目录 check → 退出 3 且输出 inconclusive。
+- CI 默认路径（零外部依赖）：`tests/integration/test_eval_baseline_gate.py`
+  临时目录 seed 后 check 四份基线；真实模型完整基线是显式 release 门禁。
+- 测试命令与结果：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_eval_gate.py -q
+  # 22 passed in 0.44s
+  .venv/bin/python -m pytest tests/integration/test_eval_baseline_gate.py -q
+  # 14 passed in 0.87s（含三份独立种子目录的 dense 压力复验）
+  .venv/bin/python -m pytest \
+      tests/unit/test_architecture_boundary.py \
+      tests/unit/test_mcp_contract_v1_snapshot.py \
+      tests/unit/test_retrieval_golden_schema.py tests/unit/test_eval_metrics.py \
+      tests/unit/test_eval_gate.py tests/integration/test_retrieval_golden_seed.py \
+      tests/integration/test_run_retrieval_eval.py \
+      tests/integration/test_eval_baseline_gate.py -q
+  # 113 passed, 1 skipped in 2.20s
+  git diff --check   # 无输出
+  ```
+- 遗留问题：真实 embedding/rerank 模型的 release 基线未记录（本机无
+  provider），后续按基线 README 的 release 流程补做；dense 无分数阈值的
+  no-answer FP 与 HNSW 近邻顺序均为记录的既有行为，本任务不修复。
 
 ## 1. 目标
 
