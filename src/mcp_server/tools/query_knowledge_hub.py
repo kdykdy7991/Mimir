@@ -27,6 +27,7 @@ from src.mcp_server.auth.authorization import (
 )
 from src.mcp_server.auth.context import current_principal
 from src.mcp_server.clients.models import QueryRequest
+from src.mcp_server.presentation import format_query_result
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 
 from src.mcp_server.tools.common import client_from_args
@@ -124,12 +125,6 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     "required": ["query", "collection", "count", "evidence", "diagnostics"],
 }
 
-_EMPTY_HINT = (
-    "未找到相关文档。请确认已运行 ingest.py 完成数据入库，"
-    "或尝试调整 query / top_k。"
-)
-
-
 def _resolve_rerank(args: dict[str, Any]) -> bool:
     no_rerank = args.get("no_rerank")
     if "rerank" in args:
@@ -137,71 +132,8 @@ def _resolve_rerank(args: dict[str, Any]) -> bool:
     return not no_rerank
 
 
-def _excerpt(text: str, limit: int = 200) -> str:
-    text = (text or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
-
-
-def _format(result) -> tuple[str, dict[str, Any]]:
-    rows = []
-    for item in result.evidence:
-        header = f"**[{item.rank}] {item.source}**"
-        if item.page is not None:
-            header += f" (page {item.page})"
-        rows.append((header, _excerpt(item.text)))
-    if not rows:
-        return _EMPTY_HINT, {
-            "query": result.query,
-            "collection": result.collection,
-            "count": 0,
-            "evidence": [],
-            "diagnostics": {
-                "degraded": result.diagnostics.degraded,
-                "reasons": list(result.diagnostics.reasons),
-                "trace_id": result.diagnostics.trace_id,
-            },
-            "n_results": 0,
-            "citations": [],
-        }
-
-    body = "\n\n---\n\n".join(f"{h}\n\n{t}" for h, t in rows)
-    refs = ["", "## References", ""]
-    for item in result.evidence:
-        meta = f"p.{item.page}" if item.page is not None else "n/a"
-        refs.append(
-            f"[{item.rank}] `{item.chunk_id}` — {item.source} "
-            f"({meta}, score={item.score:.4f})",
-        )
-    markdown = body + "\n".join(refs)
-    structured = {
-        "query": result.query,
-        "collection": result.collection,
-        "count": result.count,
-        "evidence": [
-            {
-                "rank": item.rank,
-                "chunk_id": item.chunk_id,
-                "document_id": item.document_id,
-                "title": item.title,
-                "source": item.source,
-                "page": item.page,
-                "score": item.score,
-                "text": item.text,
-            }
-            for item in result.evidence
-        ],
-        "diagnostics": {
-            "degraded": result.diagnostics.degraded,
-            "reasons": list(result.diagnostics.reasons),
-            "trace_id": result.diagnostics.trace_id,
-        },
-        # Compatibility window.
-        "n_results": result.n_results,
-        "citations": result.citations,
-    }
-    return markdown, structured
+# Structured/markdown formatting lives in the single mapper
+# (src/mcp_server/presentation/evidence_mapper.py, Task 02.2).
 
 
 async def _query_knowledge_hub(args: dict[str, Any]) -> Any:
@@ -232,7 +164,7 @@ async def _query_knowledge_hub(args: dict[str, Any]) -> Any:
         ),
         current_principal(),
     )
-    return _format(result)
+    return format_query_result(result)
 
 
 def register(handler: ProtocolHandler) -> None:

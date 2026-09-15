@@ -111,6 +111,50 @@
   ```
 - 遗留问题：无。
 
+### 02.2 集中 MCP DTO 与兼容映射
+
+- 状态：done
+- 新增/修改文件：
+  - `src/mcp_server/presentation/__init__.py`、`evidence_mapper.py`（新增；
+    纯函数，不访问 DB/Client/Embedding/检索；运行时只依赖 application 契约，
+    clients.models 仅 TYPE_CHECKING 引用）
+  - `src/mcp_server/tools/query_knowledge_hub.py`（删除本地 `_format`/
+    `_excerpt`/`_EMPTY_HINT`，委托 mapper；schema/handler 一字未动）
+  - `tests/unit/test_evidence_mapper.py`（29 项）
+- 设计与兼容证据：
+  - `format_query_result()` 是 query 工具 markdown+structured 的**唯一**实现：
+    空态 hint、References 段、score `:.4f`、page p.N/n/a、n_results/citations
+    别名逐字保持；inventory `--check` 对 5 工具快照 **零 diff**（未重新生成）。
+  - 新 v1 路径：`evidence_v1_from_legacy()` → EvidenceV1；旧单一 score **只**
+    按 `source_type` 落到 dense/sparse/fusion/rerank 之一，其余 null；
+    未知 source_type → 四值全 null（不猜测）；版本/parent/assets 永不编造。
+  - 定位：有 page → `{kind:"page",page}`；无 page → `{kind:"chunk",page:null}`。
+  - 安全清洗 `redact_sensitive()`/`safe_preview()`：Bearer/Authorization 头、
+    `skdy_mcp_*` key、api_key/token/secret/password 赋值、POSIX（≥2 段，
+    URL 与相对路径不误伤）与 Windows 绝对路径、traceback 块统一脱敏；
+    v1 `content_preview` 先脱敏再截断（保留旧 `…` 截断语义）。
+  - **暂留点（Task 04 删除双实现）**：旧 structured `text`/`source` 等字段维持
+    原样全量输出（含原文中的路径字面量，属文档内容而非环境泄漏）；v1 行结构
+    （scores/source_locator/matched_queries）尚未追加到 5 工具输出 schema，
+    避免在映射提交中混入契约事件；02.5 决定是否追加并更新快照。
+  - markdown 摘要现在经过脱敏（仅在命中间谍特征时与旧输出不同，属安全加固）。
+- 测试命令与结果（系统 Python，mcp 1.23；build_server 4 项失败是项目要求
+  mcp 2.2 的环境差异，非本提交引入，.venv 就绪后复跑）：
+  ```bash
+  python3 -m pytest tests/unit/test_evidence_mapper.py \
+      tests/unit/application/test_evidence_contracts.py -q
+  # 63 passed
+  python3 -m pytest tests/unit/test_protocol_handler.py tests/unit/test_query_knowledge_hub.py \
+      tests/unit/test_list_collections.py tests/unit/test_get_document.py \
+      tests/unit/test_get_document_summary.py tests/unit/test_get_document_chunks.py \
+      tests/unit/test_readonly_compat.py tests/unit/test_mcp_contract_v1_snapshot.py \
+      tests/unit/test_mcp_readonly_invariants.py -q
+  # 80 passed, 4 failed（4 项均为 build_server v2 构造 API，系统 mcp 1.23 不支持）
+  python3 scripts/mcp_contract_inventory.py --check
+  # ok: fixture is current (5 tools), exit 0
+  ```
+- 遗留问题：无（4 项环境性失败待 .venv/mcp 2.2 复跑消除）。
+
 ## 1. 目标
 
 在增加工具前冻结统一的 Evidence、Filter、分页、预算、Warning 和 Error 模型，并提供机器可读能力发现。
