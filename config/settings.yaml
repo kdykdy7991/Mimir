@@ -240,3 +240,21 @@ mcp_server:
   rag_api_base_url: ""                  # backend=http 时必填
   request_timeout_seconds: 30
   api_key: "${MCP_INTERNAL_API_KEY}"    # 内部只读 API 共享凭证（backend=http 时用于鉴权；未设置即失败关闭）
+
+# ----------------------------------------------------------------
+# MCP 请求/响应预算（Task 02.3 唯一上限配置源）
+# ----------------------------------------------------------------
+# 缺省即下列默认值（与历史 5 工具公开上限完全一致）；非法组合在启动期
+# 由 Pydantic 校验拒绝（fail-fast）。数值支持 ${ENV_VAR} 环境替换。
+# mcp_limits:
+#   query_max_length: 2000              # 单条 query 最大字符数
+#   top_k_default: 10                   # top_k 默认值
+#   top_k_max: 50                       # top_k 最大值
+#   page_size_default: 20               # chunk 分页默认页大小
+#   page_size_max: 50                   # chunk 分页最大页大小
+#   max_evidence_count: 50              # 单次响应 Evidence 最大条数
+#   max_structured_chars: 200000        # structured content 总字符预算
+#   max_content_chars: 8000             # 单条 Evidence 正文最大字符数
+#   max_preview_chars: 200              # 单条 Evidence 预览最大字符数
+#   alternate_query_max_count: 3        # 预留 Task 05（本任务不开放输入）
+#   alternate_query_total_max_chars: 3000

@@ -30,6 +30,8 @@ from src.mcp_server.clients.base import RagReadOnlyClient
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
     InvalidRequestError,
+    OverloadedError,
+    RateLimitedError,
     ResourceNotFoundError,
     UpstreamTimeoutError,
     UpstreamUnavailableError,
@@ -56,12 +58,31 @@ _CODE_TO_CLIENT_ERROR: dict[str, type] = {
     "access_denied": AccessDeniedError,
     "upstream_unavailable": UpstreamUnavailableError,
     "upstream_timeout": UpstreamTimeoutError,
+    # Task 02.3 stable error plane — types only, no limiter implemented.
+    "rate_limited": RateLimitedError,
+    "overloaded": OverloadedError,
 }
 _STATUS_TO_CLIENT_ERROR: dict[int, type] = {
     400: InvalidRequestError,
     403: AccessDeniedError,
     404: ResourceNotFoundError,
+    # 429 is a budget rejection, never an upstream outage. A bare 5xx
+    # (incl. 503) stays upstream_unavailable; ``overloaded`` is only
+    # raised when the upstream explicitly sends that stable code.
+    429: RateLimitedError,
 }
+
+
+def _retry_after_seconds(resp: "httpx.Response") -> float | None:
+    """Parse a Retry-After delta-seconds header (HTTP dates ignored)."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        value = float(raw.strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 class HttpRagReadOnlyClient(RagReadOnlyClient):
@@ -165,11 +186,16 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
         if resp.status_code >= 400:
             code = str((payload.get("code") or "") or "")
             message = str(payload.get("message") or f"HTTP {resp.status_code}")
-            if code in _CODE_TO_CLIENT_ERROR:
-                raise _CODE_TO_CLIENT_ERROR[code](message)
-            status_cls = _STATUS_TO_CLIENT_ERROR.get(resp.status_code)
-            if status_cls is not None:
-                raise status_cls(message)
+            error_cls = _CODE_TO_CLIENT_ERROR.get(code)
+            if error_cls is None:
+                error_cls = _STATUS_TO_CLIENT_ERROR.get(resp.status_code)
+            if error_cls is not None:
+                if error_cls is RateLimitedError:
+                    raise RateLimitedError(
+                        message,
+                        retry_after_seconds=_retry_after_seconds(resp),
+                    )
+                raise error_cls(message)
             if resp.status_code in (408, 504):
                 raise UpstreamTimeoutError(message)
             raise UpstreamUnavailableError(message)

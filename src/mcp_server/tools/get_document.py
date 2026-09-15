@@ -26,8 +26,11 @@ from src.mcp_server.auth.context import current_principal
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
     InvalidRequestError,
+    OverloadedError,
+    RateLimitedError,
     ResourceNotFoundError,
 )
+from src.mcp_server.presentation.errors import tool_result_for_new_error
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 from src.mcp_server.tools.common import client_from_args
 
@@ -113,6 +116,11 @@ async def _get_document_item(args: dict[str, Any]) -> Any:
         return tool_error(_NOT_FOUND)
     except InvalidRequestError as exc:
         return tool_error(str(exc))
+    except (RateLimitedError, OverloadedError) as exc:
+        mapped = tool_result_for_new_error(exc)
+        if mapped is not None:
+            return mapped
+        raise
     return _render(info)
 
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +298,70 @@ class McpServerSettings(BaseModel):
         return v
 
 
+class McpLimitsSettings(BaseModel):
+    """Single configuration source for MCP request/response budgets
+    (Task 02.3).
+
+    Defaults are frozen to the pre-Task-02 legacy limits, so shipping the
+    section (or omitting it) changes nothing. The MCP layer converts this
+    model into the application-owned
+    :class:`src.application.contracts.ResponseBudget`; invalid
+    combinations fail fast at startup (pydantic ValidationError).
+
+    Values may be templated from the environment via the standard
+    ``${VAR_NAME}`` YAML substitution, e.g.
+    ``top_k_max: ${MCP_TOP_K_MAX}``.
+    """
+
+    query_max_length: int = 2000
+    top_k_default: int = 10
+    top_k_max: int = 50
+    page_size_default: int = 20
+    page_size_max: int = 50
+    max_evidence_count: int = 50
+    max_structured_chars: int = 200_000
+    max_content_chars: int = 8_000
+    max_preview_chars: int = 200
+    # Reserved for Task 05 (multi-query); no tool accepts this input yet.
+    alternate_query_max_count: int = 3
+    alternate_query_total_max_chars: int = 3_000
+
+    @model_validator(mode="after")
+    def _validate_budget(self) -> McpLimitsSettings:
+        for name in (
+            "query_max_length", "top_k_default", "top_k_max",
+            "page_size_default", "page_size_max", "max_evidence_count",
+            "max_structured_chars", "max_content_chars", "max_preview_chars",
+            "alternate_query_max_count", "alternate_query_total_max_chars",
+        ):
+            if getattr(self, name) < 1:
+                raise ValueError(f"mcp_limits.{name} must be >= 1")
+        if self.top_k_default > self.top_k_max:
+            raise ValueError("mcp_limits.top_k_default must be <= top_k_max")
+        if self.page_size_default > self.page_size_max:
+            raise ValueError(
+                "mcp_limits.page_size_default must be <= page_size_max",
+            )
+        if self.max_evidence_count < self.top_k_max:
+            raise ValueError(
+                "mcp_limits.max_evidence_count must be >= top_k_max",
+            )
+        if self.max_preview_chars > self.max_content_chars:
+            raise ValueError(
+                "mcp_limits.max_preview_chars must be <= max_content_chars",
+            )
+        if self.max_content_chars > self.max_structured_chars:
+            raise ValueError(
+                "mcp_limits.max_content_chars must be <= max_structured_chars",
+            )
+        if self.alternate_query_total_max_chars < self.query_max_length:
+            raise ValueError(
+                "mcp_limits.alternate_query_total_max_chars must be >= "
+                "query_max_length",
+            )
+        return self
+
+
 class Settings(BaseModel):
     """
     Root configuration model for the entire application.
@@ -322,6 +386,7 @@ class Settings(BaseModel):
     mcp_access: McpAccessSettings = Field(default_factory=McpAccessSettings)
     mcp: McpPresentationSettings = Field(default_factory=McpPresentationSettings)
     mcp_server: McpServerSettings = Field(default_factory=McpServerSettings)
+    mcp_limits: McpLimitsSettings = Field(default_factory=McpLimitsSettings)
 
 
 # ---------------------------------------------------------------------------

@@ -155,6 +155,68 @@
   ```
 - 遗留问题：无（4 项环境性失败待 .venv/mcp 2.2 复跑消除）。
 
+### 02.3 统一预算、分页与错误契约
+
+- 状态：done
+- 新增/修改文件：
+  - `src/application/contracts/budget.py`（新增 `ResponseBudget`：query 长度、
+    top-k、分页、evidence 条数、单条正文/预览、structured 总字符、Task 05
+    预留 alternate query 上限；构造期交叉校验；请求边界 check_* 方法，
+    非法消息在默认预算下与旧文案逐字一致）
+  - `src/application/contracts/errors.py`（新增六码 `ErrorCode` 与
+    `ErrorV1`：invalid_request / not_found_or_not_accessible /
+    upstream_timeout / upstream_unavailable / rate_limited / overloaded；
+    retryable/retry_after 一致性校验）
+  - `src/core/settings.py`（新增 `McpLimitsSettings` + `Settings.mcp_limits`，
+    Pydantic model_validator 启动期 fail-fast；数值支持 `${ENV_VAR}` 替换）
+  - `src/mcp_server/presentation/budgets.py`（active budget 持有者、
+    `budget_from_settings()`、`build_query_input_schema()`/
+    `build_chunks_input_schema()`——Schema 与运行时同源）
+  - `src/mcp_server/presentation/errors.py`（rate/overload →
+    工具级 is_error 稳定映射，code 前缀文案）
+  - `src/mcp_server/presentation/evidence_mapper.py`（新增
+    `bound_evidence_page()`：条数上限→单条正文/预览→等分行预算→末行淘汰，
+    截断必带 `truncated` warning；总字符预算实测必达）
+  - `src/mcp_server/clients/errors.py`（新增 `RateLimitedError`/
+    `OverloadedError`，前者带 retry_after_seconds）
+  - `src/mcp_server/clients/http_client.py`（429→RateLimitedError 并解析
+    Retry-After delta-seconds；显式 `rate_limited`/`overloaded` code 映射；
+    裸 5xx 仍为 upstream_unavailable，不混淆）
+  - 4 工具（query/chunks/get_document/list_collections；summary 共享
+    handler）接入预算校验与新错误捕获；`in_process` 分页硬编码 50 改为
+    `ResponseBudget()` 单一来源；`server.py` 启动时安装 active budget；
+    `config/settings.yaml` 追加 mcp_limits 注释示例。
+  - `scripts/mcp_contract_inventory.py`（策展 errors 表为 5 工具统一追加
+    rate_limited/overloaded 行；已重生成 fixture，**仅 +50 行 errors，
+    schema 零变化**）
+  - 测试：`tests/unit/application/test_response_budget.py`（24 项）、
+    `tests/unit/test_mcp_budget.py`（15 项）。
+- 关键决策：
+  - rate_limited/overloaded **只建契约和类型、接上游诚实信号**，未实现
+    任何限流/熔断；它们有独立工具级错误文案（`rate_limited: ...`、
+    `overloaded: ...`），绝不并入 upstream_unavailable；
+  - 请求越界 = 稳定 invalid_request（工具级 is_error）；响应超预算 =
+    显式 truncated，不静默、不报错伪装成功；
+  - 默认预算值与冻结 schema 逐字一致（测试直接对比 inventory fixture 中
+    query/chunks 的 input_schema，双写不可能漂移）；
+  - 行为收紧点（附加、不破坏旧合法输入）：top_k=0/page=0 由旧的“静默
+    回落到默认值”变为显式 invalid_request（JSON Schema 本就禁止）。
+- 测试命令与结果（系统 Python）：
+  ```bash
+  python3 -m pytest tests/unit/test_evidence_mapper.py tests/unit/test_mcp_budget.py \
+      tests/unit/application/test_evidence_contracts.py \
+      tests/unit/application/test_response_budget.py -q
+  # 95 passed
+  python3 -m pytest tests/unit/test_query_knowledge_hub.py tests/unit/test_get_document_chunks.py \
+      tests/unit/test_get_document.py tests/unit/test_get_document_summary.py \
+      tests/unit/test_list_collections.py tests/unit/test_readonly_compat.py \
+      tests/unit/test_readonly_client_http.py tests/unit/test_mcp_readonly_invariants.py -q
+  # 81 passed
+  python3 scripts/mcp_contract_inventory.py --check
+  # ok (5 tools), fixture diff 仅 +50 行 errors
+  ```
+- 遗留问题：build_server 4 项待 .venv/mcp 2.2 复跑；真实限流实现属 Task 08。
+
 ## 1. 目标
 
 在增加工具前冻结统一的 Evidence、Filter、分页、预算、Warning 和 Error 模型，并提供机器可读能力发现。

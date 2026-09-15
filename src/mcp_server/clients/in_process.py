@@ -485,10 +485,16 @@ class InProcessRagReadOnlyClient:
         page_size: int,
         principal: AccessPrincipalLike,
     ) -> DocumentChunkPage:
-        if page_size < 1 or page_size > 50:
-            raise InvalidRequestError("page_size must be between 1 and 50")
-        if page < 1:
-            raise InvalidRequestError("page must be >= 1")
+        # Single source for pagination bounds (Task 02.3); messages stay
+        # byte-identical at the default budget.
+        from src.application.contracts import ContractError, ResponseBudget
+
+        budget = ResponseBudget()
+        try:
+            budget.check_page(page)
+            budget.check_page_size(page_size)
+        except ContractError as exc:
+            raise InvalidRequestError(str(exc)) from exc
 
         collection, source_path = self._resolve_store_access(document_id, principal)
         try:

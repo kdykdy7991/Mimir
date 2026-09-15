@@ -16,7 +16,12 @@ from __future__ import annotations
 from typing import Any
 
 from src.mcp_server.auth.context import current_principal
-from src.mcp_server.protocol_handler import ProtocolHandler
+from src.mcp_server.clients.errors import OverloadedError, RateLimitedError
+from src.mcp_server.presentation.errors import tool_result_for_new_error
+from src.mcp_server.protocol_handler import (
+    CallToolResult,
+    ProtocolHandler,
+)
 from src.mcp_server.tools.common import client_from_args
 
 INPUT_SCHEMA: dict[str, Any] = {
@@ -87,9 +92,17 @@ def _render(collections) -> tuple[str, dict[str, Any]]:
     return "\n".join(md_lines), structured
 
 
-async def _list_collections(args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+async def _list_collections(
+    args: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | CallToolResult:
     client = client_from_args(args)
-    collections = client.list_collections(current_principal())
+    try:
+        collections = client.list_collections(current_principal())
+    except (RateLimitedError, OverloadedError) as exc:
+        mapped = tool_result_for_new_error(exc)
+        if mapped is not None:
+            return mapped
+        raise
     return _render(collections)
 
 

@@ -301,19 +301,29 @@ def test_warnings_rerank_degraded():
 # ---------------------------------------------------------------------------
 
 def test_mapper_module_imports_are_contracts_and_stdlib_only():
+    import ast
+
     mapper = REPO_ROOT / "src" / "mcp_server" / "presentation" / "evidence_mapper.py"
-    for line in mapper.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("import ", "from ")) and not stripped.startswith(
-            ("from __future__",),
-        ):
-            assert "mcp." not in stripped, line
-            assert "chromadb" not in stripped, line
-            assert any(token in stripped for token in (
-                "src.application.contracts",
-                "src.mcp_server.clients.models",
-                "typing", "re",
-            )), line
+    tree = ast.parse(mapper.read_text(encoding="utf-8"))
+    allowed_imports = {
+        "__future__",
+        "re",
+        "dataclasses",
+        "typing",
+        "src.application.contracts",
+        # typing-only (TYPE_CHECKING): no runtime dependency on clients.
+        "src.mcp_server.clients.models",
+    }
+    banned_tokens = ("mcp.", "chromadb", "fastapi", "starlette", "openai")
+    for node in ast.walk(tree):
+        modules: list[str] = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules = [node.module]
+        for module in modules:
+            assert not any(tok in module for tok in banned_tokens), module
+            assert module in allowed_imports, (module, node.lineno)
 
 
 def test_application_contracts_do_not_import_presentation():

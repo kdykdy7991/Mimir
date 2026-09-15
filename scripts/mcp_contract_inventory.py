@@ -59,6 +59,20 @@ _ALL_BACKENDS = {
     "standalone_http_client": True,
 }
 
+# Task 02.3 stable error plane — shared by every read tool. Task 02
+# establishes the contract/types only; no limiter is implemented, so the
+# condition is reachable today only via honest upstream signalling
+# (HTTP 429 / explicit error codes from backend=http).
+RATE_BUDGET_ERRORS = [
+    {"condition": "upstream 429 / rate budget (backend=http; no limiter "
+                  "implemented in Task 02)",
+     "surface": "tool result is_error=true",
+     "message": "rate_limited: rate limit exceeded"},
+    {"condition": "upstream explicit 'overloaded' code",
+     "surface": "tool result is_error=true",
+     "message": "overloaded: service is overloaded, retry later"},
+]
+
 _CURATED: dict[str, dict[str, Any]] = {
     "list_collections": {
         "kind": "collection_discovery",
@@ -81,6 +95,7 @@ _CURATED: dict[str, dict[str, Any]] = {
             {"condition": "upstream statistics stores unavailable",
              "surface": "successful result with null counts",
              "message": "document_count/chunk_count = null"},
+            *RATE_BUDGET_ERRORS,
         ],
         "collection_authorization": (
             "Returns extant server collections intersected with the API "
@@ -130,6 +145,7 @@ _CURATED: dict[str, dict[str, Any]] = {
             {"condition": "retrieval stack failure (embedding/store/BM25)",
              "surface": "protocol-level error (NOT an empty result)",
              "message": "knowledge retrieval failed: <ExceptionType>"},
+            *RATE_BUDGET_ERRORS,
         ],
         "collection_authorization": (
             "Explicit collection must be in the key grant; omitted with a "
@@ -181,6 +197,7 @@ _CURATED: dict[str, dict[str, Any]] = {
             {"condition": "invalid request from client layer",
              "surface": "tool result is_error=true",
              "message": "client InvalidRequestError text"},
+            *RATE_BUDGET_ERRORS,
         ],
         "collection_authorization": (
             "Stable document UUID resolves to (collection, source_path); "
@@ -220,6 +237,7 @@ _CURATED: dict[str, dict[str, Any]] = {
             {"condition": "unknown/unauthorized id",
              "surface": "tool result is_error=true",
              "message": "document not found or not accessible"},
+            *RATE_BUDGET_ERRORS,
         ],
         "collection_authorization": (
             "Identical to get_document (shared implementation)."
@@ -264,6 +282,7 @@ _CURATED: dict[str, dict[str, Any]] = {
             {"condition": "unknown/unauthorized id",
              "surface": "tool result is_error=true",
              "message": "document not found or not accessible"},
+            *RATE_BUDGET_ERRORS,
         ],
         "collection_authorization": (
             "Same UUID resolution + collection re-check as get_document, "

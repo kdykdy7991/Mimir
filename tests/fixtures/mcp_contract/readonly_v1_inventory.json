@@ -58,6 +58,16 @@
           "condition": "invalid request from client layer",
           "message": "client InvalidRequestError text",
           "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
         }
       ],
       "input_schema": {
@@ -184,6 +194,16 @@
         {
           "condition": "unknown/unauthorized id",
           "message": "document not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
           "surface": "tool result is_error=true"
         }
       ],
@@ -339,6 +359,16 @@
           "condition": "unknown/unauthorized id",
           "message": "document not found or not accessible",
           "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
         }
       ],
       "input_schema": {
@@ -439,6 +469,16 @@
           "condition": "upstream statistics stores unavailable",
           "message": "document_count/chunk_count = null",
           "surface": "successful result with null counts"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
         }
       ],
       "input_schema": {
@@ -561,6 +601,16 @@
           "condition": "retrieval stack failure (embedding/store/BM25)",
           "message": "knowledge retrieval failed: <ExceptionType>",
           "surface": "protocol-level error (NOT an empty result)"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
         }
       ],
       "input_schema": {

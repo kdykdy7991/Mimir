@@ -197,6 +197,15 @@ async def run_server(
             config_path, exc,
         )
 
+    # Task 02.3: tool schemas and runtime validation share one budget,
+    # installed from validated settings before tools register.
+    from src.mcp_server.presentation.budgets import (
+        budget_from_settings,
+        set_active_budget,
+    )
+
+    set_active_budget(budget_from_settings(settings))
+
     handler = ProtocolHandler(
         server_name=settings.mcp.server_name,
         server_title=settings.mcp.server_title,

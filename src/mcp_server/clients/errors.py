@@ -41,6 +41,25 @@ class UpstreamTimeoutError(ReadonlyClientError):
     """The upstream call exceeded its time budget."""
 
 
+class RateLimitedError(ReadonlyClientError):
+    """A caller (or upstream) rate budget was exceeded.
+
+    Task 02 establishes the contract/type only — the project implements
+    no limiter yet. It must never be collapsed into
+    :class:`UpstreamUnavailableError` (a budget rejection is not an
+    infrastructure outage).
+    """
+
+    def __init__(self, message: str = "", *, retry_after_seconds: float | None = None):
+        super().__init__(message or "rate limit exceeded")
+        self.retry_after_seconds = retry_after_seconds
+
+
+class OverloadedError(ReadonlyClientError):
+    """The service is at capacity (contract in Task 02; no overload
+    shedding is implemented yet)."""
+
+
 __all__ = [
     "ReadonlyClientError",
     "InvalidRequestError",
@@ -48,4 +67,6 @@ __all__ = [
     "AccessDeniedError",
     "UpstreamUnavailableError",
     "UpstreamTimeoutError",
+    "RateLimitedError",
+    "OverloadedError",
 ]

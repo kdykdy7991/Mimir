@@ -12,46 +12,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.application.contracts import ContractError, ResponseBudget
 from src.mcp_server.auth.context import current_principal
 from src.mcp_server.clients.errors import (
     AccessDeniedError,
     InvalidRequestError,
+    OverloadedError,
+    RateLimitedError,
     ResourceNotFoundError,
 )
+from src.mcp_server.presentation.budgets import (
+    active_budget,
+    build_chunks_input_schema,
+)
+from src.mcp_server.presentation.errors import tool_result_for_new_error
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 from src.mcp_server.tools.common import client_from_args
 
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "document_id": {
-            "type": "string",
-            "description": "The stable document UUID.",
-        },
-        "doc_id": {
-            "type": "string",
-            "description": "Deprecated alias for `document_id`.",
-        },
-        "page": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 1,
-            "description": "1-based page number.",
-        },
-        "page_size": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 50,
-            "default": 20,
-            "description": "Chunks per page (1..50).",
-        },
-    },
-    "oneOf": [
-        {"required": ["document_id"]},
-        {"required": ["doc_id"]},
-    ],
-    "additionalProperties": False,
-}
+# Default-budget schema: byte-identical to the pre-02.3 frozen schema.
+INPUT_SCHEMA: dict[str, Any] = build_chunks_input_schema(ResponseBudget())
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -118,11 +97,23 @@ async def _get_document_chunks(args: dict[str, Any]) -> Any:
         return tool_error(
             "'document_id' is required and must be a non-empty string",
         )
+    budget = active_budget()
     try:
-        page = int(args.get("page") or 1)
-        page_size = int(args.get("page_size") or 20)
+        raw_page = args.get("page")
+        raw_page_size = args.get("page_size")
+        page = int(raw_page) if raw_page not in (None, "") else 1
+        page_size = (
+            int(raw_page_size)
+            if raw_page_size not in (None, "")
+            else budget.page_size_default
+        )
     except (TypeError, ValueError):
         return tool_error("'page' and 'page_size' must be integers")
+    try:
+        budget.check_page(page)
+        budget.check_page_size(page_size)
+    except ContractError as exc:
+        return tool_error(str(exc))
 
     client = client_from_args(args)
     try:
@@ -133,6 +124,11 @@ async def _get_document_chunks(args: dict[str, Any]) -> Any:
         return tool_error(_NOT_FOUND)
     except InvalidRequestError as exc:
         return tool_error(str(exc))
+    except (RateLimitedError, OverloadedError) as exc:
+        mapped = tool_result_for_new_error(exc)
+        if mapped is not None:
+            return mapped
+        raise
     return _markdown(result), _render(result)
 
 
@@ -163,7 +159,7 @@ def register(handler: ProtocolHandler) -> None:
             "its document_id. Ordering is independent of storage order and "
             "stable across calls. Reads only — never mutates."
         ),
-        input_schema=INPUT_SCHEMA,
+        input_schema=build_chunks_input_schema(active_budget()),
         handler=_get_document_chunks,
         output_schema=OUTPUT_SCHEMA,
     )

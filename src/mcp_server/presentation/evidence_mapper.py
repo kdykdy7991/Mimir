@@ -23,15 +23,19 @@ own the contract.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import TYPE_CHECKING, Any
 
 from src.application.contracts import (
+    EvidencePageV1,
     EvidenceScores,
     EvidenceV1,
+    ResponseBudget,
     SourceLocator,
     WarningCode,
     WarningV1,
+    to_json,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -250,6 +254,134 @@ def v1_evidence_row(evidence: EvidenceV1) -> dict[str, Any]:
     return evidence.to_dict()
 
 
+def _trim_to(value: str | None, limit: int) -> str | None:
+    if value is None:
+        return None
+    trimmed = safe_preview(value, max(limit, 0))
+    return trimmed or None
+
+
+def _page_json_length(rows: list[EvidenceV1], **page_kwargs: Any) -> int:
+    page = EvidencePageV1(results=tuple(rows), **page_kwargs)
+    return len(to_json(page.to_dict()))
+
+
+def _envelope_overhead(rows: list[EvidenceV1], **page_kwargs: Any) -> int:
+    """Length of a page with all free text empty AND the truncation
+    warning present — the conservative fixed cost every bounded page
+    must fit inside before any row text is allowed back."""
+    probe = EvidencePageV1(
+        results=tuple(rows),
+        truncated_results=True,
+        truncated_characters=True,
+        warnings=(WarningV1(
+            code=WarningCode.TRUNCATED,
+            message="response truncated to fit server response budget",
+        ),),
+        **page_kwargs,
+    )
+    return len(to_json(probe.to_dict()))
+
+
+def bound_evidence_page(
+    results: Any,
+    budget: ResponseBudget,
+    *,
+    page: int | None = None,
+    page_size: int | None = None,
+    cursor: str | None = None,
+    next_cursor: str | None = None,
+    has_next: bool = False,
+) -> EvidencePageV1:
+    """Apply result/body/structured-char budgets to v1 evidence rows.
+
+    Request-bound violations are rejected upstream (invalid_request);
+    response overruns are handled explicitly here: capped/shortened
+    output always carries a ``truncated`` warning plus the corresponding
+    ``truncated_results`` / ``truncated_characters`` flag. Deterministic:
+    rows keep order, free text is cut at equal per-row character budgets
+    (preview first, then body), and tail rows are dropped only as a last
+    resort.
+    """
+    rows = [EvidenceV1.from_mapping(item) for item in (results or ())]
+    truncated_results = len(rows) > budget.max_evidence_count
+    rows = rows[: budget.max_evidence_count]
+
+    # Pass 1 — per-field configured caps (also redacts).
+    initially_capped: list[EvidenceV1] = []
+    for ev in rows:
+        initially_capped.append(dataclasses.replace(
+            ev,
+            content=_trim_to(ev.content, budget.max_content_chars),
+            content_preview=_trim_to(ev.content_preview, budget.max_preview_chars),
+        ))
+    rows = initially_capped
+
+    def build(
+        current: list[EvidenceV1], flags: tuple[bool, bool],
+    ) -> EvidencePageV1:
+        warnings: list[WarningV1] = []
+        if flags[0] or flags[1]:
+            message = "response truncated to fit server response budget"
+            warnings.append(WarningV1(code=WarningCode.TRUNCATED, message=message))
+        return EvidencePageV1(
+            results=tuple(current),
+            page=page,
+            page_size=page_size,
+            cursor=cursor,
+            next_cursor=next_cursor,
+            has_next=has_next,
+            truncated_results=flags[0],
+            truncated_characters=flags[1],
+            warnings=tuple(warnings),
+        )
+
+    truncated_characters = False
+    kwargs = dict(
+        page=page, page_size=page_size, cursor=cursor,
+        next_cursor=next_cursor, has_next=has_next,
+    )
+
+    # Pass 2 — total structured-char budget. Overhead is measured with all
+    # free text empty; the remainder is split equally across rows.
+    while rows:
+        overhead = _envelope_overhead(rows, **kwargs)
+        if overhead > budget.max_structured_chars:
+            # Identities/locators + envelope alone overflow — drop tail.
+            rows.pop()
+            truncated_results = True
+            continue
+        per_row = max(
+            (budget.max_structured_chars - overhead) // max(len(rows), 1),
+            0,
+        )
+        adjusted: list[EvidenceV1] = []
+        for ev in rows:
+            preview_budget = min(budget.max_preview_chars, per_row)
+            body_budget = min(
+                budget.max_content_chars,
+                max(per_row - preview_budget, 0),
+            )
+            new_preview = _trim_to(ev.content_preview, preview_budget)
+            new_content = _trim_to(ev.content, body_budget)
+            if new_preview != ev.content_preview or new_content != ev.content:
+                truncated_characters = True
+            adjusted.append(dataclasses.replace(
+                ev, content=new_content, content_preview=new_preview,
+            ))
+        candidate = build(
+            adjusted,
+            (truncated_results, truncated_characters),
+        )
+        if len(to_json(candidate.to_dict())) <= budget.max_structured_chars:
+            return candidate
+        # Rounding edge: drop the tail row rather than loop on fractions.
+        rows = adjusted[:-1]
+        truncated_results = True
+
+    return build(rows, (truncated_results, truncated_characters))
+
+
 def warnings_from_diagnostics(
     diagnostics: Diagnostics,
 ) -> tuple[WarningV1, ...]:
@@ -272,6 +404,7 @@ def warnings_from_diagnostics(
 
 __all__ = [
     "LEGACY_EMPTY_HINT",
+    "bound_evidence_page",
     "evidence_v1_from_legacy",
     "format_query_result",
     "legacy_evidence_row",

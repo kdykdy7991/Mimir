@@ -25,60 +25,26 @@ from src.mcp_server.auth.authorization import (
     CollectionSelectionRequired,
     resolve_query_collection,
 )
+from src.application.contracts import ContractError, ResponseBudget
 from src.mcp_server.auth.context import current_principal
+from src.mcp_server.clients.errors import OverloadedError, RateLimitedError
 from src.mcp_server.clients.models import QueryRequest
 from src.mcp_server.presentation import format_query_result
+from src.mcp_server.presentation.budgets import (
+    active_budget,
+    build_query_input_schema,
+)
+from src.mcp_server.presentation.errors import tool_result_for_new_error
 from src.mcp_server.protocol_handler import ProtocolHandler, tool_error
 
 from src.mcp_server.tools.common import client_from_args
 
-MAX_QUERY_LENGTH = 2000
-
-INPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": MAX_QUERY_LENGTH,
-            "description": (
-                "The text to retrieve evidence for. Up to "
-                f"{MAX_QUERY_LENGTH} characters."
-            ),
-        },
-        "top_k": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 50,
-            "default": 10,
-            "description": "Maximum number of evidence results to return.",
-        },
-        "collection": {
-            "type": "string",
-            "default": "default",
-            "description": (
-                "Collection name (= BM25 index name) to query."
-            ),
-        },
-        "rerank": {
-            "type": "boolean",
-            "default": True,
-            "description": (
-                "Whether to apply the optional rerank stage when one is "
-                "configured. Highly recommended for precision."
-            ),
-        },
-        "no_rerank": {
-            "type": "boolean",
-            "default": False,
-            "description": (
-                "Deprecated alias for `rerank`. Use `rerank` instead."
-            ),
-        },
-    },
-    "required": ["query"],
-    "additionalProperties": False,
-}
+# Default-budget schema/limit: byte-identical to the pre-02.3 frozen
+# values. Registration rebuilds the schema from the active
+# (settings-derived) budget, so declared limits and runtime validation
+# share one source. Kept as module constants for read-only references.
+INPUT_SCHEMA: dict[str, Any] = build_query_input_schema(ResponseBudget())
+MAX_QUERY_LENGTH = ResponseBudget().query_max_length
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -137,16 +103,25 @@ def _resolve_rerank(args: dict[str, Any]) -> bool:
 
 
 async def _query_knowledge_hub(args: dict[str, Any]) -> Any:
+    budget = active_budget()
     query: str = (args.get("query") or "").strip()
-    if not query:
-        return tool_error(
-            "'query' is required and must be a non-empty string",
-        )
-    if len(query) > MAX_QUERY_LENGTH:
-        return tool_error(
-            f"'query' exceeds the {MAX_QUERY_LENGTH}-character limit",
-        )
-    top_k: int = int(args.get("top_k") or 10)
+    try:
+        budget.check_query_length(query)
+    except ContractError as exc:
+        return tool_error(str(exc))
+
+    raw_top_k = args.get("top_k")
+    if raw_top_k is None or raw_top_k == "":
+        top_k = budget.top_k_default
+    else:
+        try:
+            top_k = int(raw_top_k)
+        except (TypeError, ValueError):
+            return tool_error("'top_k' must be an integer")
+        try:
+            budget.check_top_k(top_k)
+        except ContractError as exc:
+            return tool_error(str(exc))
     try:
         collection = resolve_query_collection(
             current_principal(), args.get("collection"),
@@ -155,15 +130,21 @@ async def _query_knowledge_hub(args: dict[str, Any]) -> Any:
         return tool_error(str(exc))
 
     client = client_from_args(args)
-    result = client.query_knowledge(
-        QueryRequest(
-            query=query,
-            collection=collection,
-            top_k=top_k,
-            rerank=_resolve_rerank(args),
-        ),
-        current_principal(),
-    )
+    try:
+        result = client.query_knowledge(
+            QueryRequest(
+                query=query,
+                collection=collection,
+                top_k=top_k,
+                rerank=_resolve_rerank(args),
+            ),
+            current_principal(),
+        )
+    except (RateLimitedError, OverloadedError) as exc:
+        mapped = tool_result_for_new_error(exc)
+        if mapped is not None:
+            return mapped
+        raise
     return format_query_result(result)
 
 
@@ -176,7 +157,7 @@ def register(handler: ProtocolHandler) -> None:
             "the evidence is for your own synthesis. Use list_collections "
             "first to identify the collection name."
         ),
-        input_schema=INPUT_SCHEMA,
+        input_schema=build_query_input_schema(active_budget()),
         handler=_query_knowledge_hub,
         output_schema=OUTPUT_SCHEMA,
     )
