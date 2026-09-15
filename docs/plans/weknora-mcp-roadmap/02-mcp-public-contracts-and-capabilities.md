@@ -217,6 +217,73 @@
   ```
 - 遗留问题：build_server 4 项待 .venv/mcp 2.2 复跑；真实限流实现属 Task 08。
 
+### 02.4 能力发现（只读 Resource）
+
+- 状态：done
+- 新增/修改文件：
+  - `src/mcp_server/capabilities.py`（新增：`build_capabilities()` 从真实
+    注册表 + 活动 `ResponseBudget` + settings 生成确定性文档；
+    `capabilities_json()` 稳定序列化；`capability_handlers()` 返回
+    `on_list_resources`/`on_read_resource` 供 `Server(...)` 构造使用）
+  - `src/mcp_server/transports/__init__.py`（原为空文件，现持有
+    `SUPPORTED_TRANSPORTS`/`DEFAULT_TRANSPORT` 单一事实源）
+  - `src/mcp_server/protocol_handler.py`（`build_server(*, capabilities=None)`
+    把 resource handler 合并进同一次 `Server(...)` 构造；`None` = 回滚形态）
+  - `src/mcp_server/server.py`（`--transport` choices 改用同一常量；启动时按
+    `mcp_server.capabilities_resource_enabled` 决定是否构建 capabilities）
+  - `src/core/settings.py`（新增 `McpServerSettings.capabilities_resource_enabled`）
+  - `config/settings.yaml`（注释示例：回滚开关）
+  - `tests/fixtures/mcp_contract/capabilities_v1.json`（新增冻结快照）
+  - `tests/unit/test_server_capabilities.py`（15 项）
+  - `tests/integration/test_mcp_capabilities_transports.py`（新增 2 项：真实
+    CLI 子进程 stdio 与 streamable-http 双通道取回同一份 capabilities）
+- SDK 证据（最小验证，未凭记忆假设）：
+  - `mcp==2.2.0` 的低层 `Server` **没有** `list_resources()/read_resource()`
+    装饰器方法（半成品实现曾用装饰器，导致 CLI 启动即
+    `AttributeError: 'Server' object has no attribute 'list_resources'`，
+    由 `tests/integration/test_streamable_http_cli.py` 的启动失败暴露）；
+  - 正确入口是构造器 kwargs `on_list_resources` / `on_read_resource`
+    （`mcp/server/lowlevel/server.py` 的 `_spec_requests` 表）；
+  - `mcp.shared.memory.create_connected_server_and_client_session` 在 2.2.0
+    已不存在；内存验证改用公开 API `mcp.Client(Server)`（内部走
+    `InMemoryTransport`），`mcp.client.session.ClientSession.list_resources()`
+    /`read_resource()` 亦可用；
+  - `resources/list` 只在注册了 handler 时出现在 `ServerCapabilities` 中，
+    未注册时该请求返回协议级 `METHOD_NOT_FOUND`（回滚形态断言依据）。
+- 关键决策：
+  - **采用 Resource 方案**（`rag://server/capabilities`），未退回第 6 只工具，
+    工具数量与快照保持 5；
+  - 事实源唯一：tools 来自 `ProtocolHandler` 注册表（含 `list_names()` 顺序）、
+    限制来自活动 `ResponseBudget`、score stages/warning/error/tag operator
+    来自 application 契约枚举、`features` 的 `false` 与 `unsupported[]`
+    同表派生（`_features_section()`），不存在第二份手编清单；
+  - `transports` 与 `--transport` 共用 `SUPPORTED_TRANSPORTS`，避免文档漂移；
+  - 文档不含 API Key/内部 URL/DB 路径/Provider Secret（有测试断言）；
+  - `server_name` 由调用方传入，缺失则不输出（不编造）；
+  - 回滚：`capabilities_resource_enabled=false`（或直接传
+    `build_server()` 不传 capabilities）。
+- 测试命令与结果（`.venv`，mcp 2.2.0 + pytest-asyncio 1.4.0）：
+  ```bash
+  .venv/bin/python -m pytest tests/unit/test_server_capabilities.py -q
+  # 15 passed
+  .venv/bin/python -m pytest tests/integration/test_mcp_capabilities_transports.py -q
+  # 2 passed（stdio 与 http 内容逐字节一致、工具集一致）
+  .venv/bin/python scripts/mcp_contract_inventory.py --check
+  # ok: readonly_v1_inventory.json is current (5 tools)
+  ```
+- 偏差/环境限制：
+  - 本机无本地 embedding 服务（`embedding.base_url=http://localhost:8003/v1`
+    未监听），`query_knowledge_hub` 的真实检索无法在集成测试中运行；相关
+    断言改为独立测试并在端点不可达时**显式 skip 并打印原因**（不静默弱化：
+    端点可达时该调用必须成功）。与 Task 01「CI 基线用确定性 Hash Embedding」
+    的登记事项同源。
+  - `tests/integration/test_streamable_http_cli.py` 存在**本任务之前**就已
+    失效的两处断言：fixture 引用了早在 `6ab0b75` 就迁移到
+    `clients/in_process.py` 的 `_list_bm25`，且 tools 数仍写 3。本任务顺带
+    修正为真实注册表（5 工具 + 直接扫描 `data/db/bm25`），否则该集成测试
+    无法启动，也就无法证明 HTTP transport 可用。
+- 遗留问题：真实限流/熔断属 Task 08；release profile 真实模型基线属发布前事项。
+
 ## 1. 目标
 
 在增加工具前冻结统一的 Evidence、Filter、分页、预算、Warning 和 Error 模型，并提供机器可读能力发现。

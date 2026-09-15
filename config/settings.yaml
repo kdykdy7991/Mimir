@@ -258,3 +258,7 @@ mcp_server:
 #   max_preview_chars: 200              # 单条 Evidence 预览最大字符数
 #   alternate_query_max_count: 3        # 预留 Task 05（本任务不开放输入）
 #   alternate_query_total_max_chars: 3000
+# Task 02.4 能力发现开关（默认 true）：关闭后不再注册
+# rag://server/capabilities 只读 Resource，回到纯工具服务器（回滚开关）。
+# mcp_server:
+#   capabilities_resource_enabled: true

@@ -64,15 +64,53 @@ def _wait_for_health(
     return False
 
 
-def _read_bm25_collections() -> list[str]:
-    """Discover the collection names the real ``list_collections`` tool
-    will report (BM25 dirs ∪ the configured ``default``), so the test key
-    can be granted exactly what the CLI tool needs to succeed."""
-    from src.mcp_server.tools.list_collections import _list_bm25
+def _embedding_base_url() -> str:
+    """Configured embedding endpoint (may be empty for local models)."""
     from src.core.settings import load_settings
 
     settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
-    bm25 = set(_list_bm25(str(REPO_ROOT / "data")).keys())
+    return str(getattr(settings.embedding, "base_url", "") or "")
+
+
+def _embedding_endpoint_reachable() -> bool:
+    """True when the configured remote embedding endpoint answers TCP.
+
+    Local providers (``sentence_transformers`` / ``huggingface``) have no
+    endpoint to probe and are treated as reachable — the call itself then
+    decides.
+    """
+    import urllib.parse
+
+    base_url = _embedding_base_url()
+    if not base_url:
+        return True
+    host = urllib.parse.urlparse(base_url).hostname
+    if not host:
+        return True
+    port = urllib.parse.urlparse(base_url).port or (
+        443 if base_url.startswith("https") else 80
+    )
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
+def _read_bm25_collections() -> list[str]:
+    """Discover the collection names the real ``list_collections`` tool
+    will report (BM25 index files ∪ the configured ``default``), so the
+    test key can be granted exactly what the CLI tool needs to succeed.
+
+    Mirrors ``InProcessReadonlyClient._list_bm25`` + the configured
+    collection merge in ``list_collections``; granting a superset is
+    harmless because the tool intersects the key's grant with the
+    collections that actually exist.
+    """
+    settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
+
+    bm25_dir = REPO_ROOT / "data" / "db" / "bm25"
+    bm25 = {p.stem for p in bm25_dir.glob("*.json")} if bm25_dir.is_dir() else set()
     configured = settings.vector_store.collection_name
     names = bm25 | ({configured} if configured else set())
     return sorted(names)
@@ -147,9 +185,9 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
     Verifies:
     - The CLI actually boots under the new transport (no
       'Server has no attribute list_tools' regressions).
-    - The three tools registered by
-      ``_register_default_tools`` (query_knowledge_hub,
-      list_collections, get_document_summary) are exposed.
+    - The five tools registered by ``_register_default_tools``
+      (query_knowledge_hub, list_collections, get_document,
+      get_document_summary, get_document_chunks) are exposed.
     - ``tools/list`` and at least one ``tools/call`` roundtrip
       successfully — proving the v2 on_call_tool wiring works
       through the full stack.
@@ -172,12 +210,14 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)
             assert names == [
+                "get_document",
+                "get_document_chunks",
                 "get_document_summary",
                 "list_collections",
                 "query_knowledge_hub",
             ]
 
-            # ---- all three REAL RAG tools over HTTP -------------
+            # ---- REAL RAG tools over HTTP (no external dependency) ----
 
             # 1) list_collections — scans the data dir, no external dep.
             result = await session.call_tool(
@@ -199,11 +239,42 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
             assert missing.is_error
             assert "document not found" in missing.content[0].text
 
-            # 3) query_knowledge_hub — runs the REAL retrieval pipeline
-            #    (dense + sparse + fusion) over HTTP. With no data it
-            #    returns an empty/degraded result, never an error.
-            #    The key has multiple grants, so §6.1 requires an explicit
-            #    ``collection``.
+            # 3) query_knowledge_hub over HTTP needs a live embedding
+            #    provider, so it lives in its own test below (see
+            #    test_query_knowledge_hub_over_http_with_live_embedding).
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    not _embedding_endpoint_reachable(),
+    reason=(
+        f"live embedding provider unreachable ({_embedding_base_url() or 'n/a'}); "
+        "retrieval over HTTP is covered by the unit suite and the "
+        "Task 01 eval Gate"
+    ),
+)
+async def test_query_knowledge_hub_over_http_with_live_embedding(http_server):
+    """Runs the REAL retrieval pipeline (dense + sparse + fusion) over
+    HTTP. With no data it returns an empty/degraded result, never an
+    error. The key has multiple grants, so §6.1 requires an explicit
+    ``collection``.
+
+    Skipped only when the configured embedding endpoint is not listening
+    (the usual state on a dev box, and the reason Task 01's CI baseline
+    uses a deterministic hash embedder) — never to hide a transport bug:
+    with the endpoint up the call must succeed.
+    """
+    http_client = None
+    if http_server[1]:
+        import httpx
+        http_client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {http_server[1]}"},
+        )
+    async with streamable_http_client(
+        f"{http_server[0]}/mcp", http_client=http_client,
+    ) as (r, w):
+        async with ClientSession(r, w) as session:
+            await session.initialize()
             q = await session.call_tool(
                 "query_knowledge_hub",
                 arguments={"query": "vector search", "top_k": 5, "collection": "default"},

@@ -1,0 +1,201 @@
+{
+  "capability_resource": "rag://server/capabilities",
+  "contract": "mcp-readonly",
+  "contract_version": "v1",
+  "errors": [
+    "invalid_request",
+    "not_found_or_not_accessible",
+    "upstream_timeout",
+    "upstream_unavailable",
+    "rate_limited",
+    "overloaded"
+  ],
+  "evidence": {
+    "content_types": [
+      "text"
+    ],
+    "matched_queries": {
+      "current_max": 1,
+      "reserved_max": 3
+    },
+    "score_stages": [
+      "dense",
+      "sparse",
+      "fusion",
+      "rerank"
+    ]
+  },
+  "evidence_contract": "evidence-v1",
+  "features": {
+    "alternate_queries": false,
+    "answer_generation": false,
+    "chunk_context_resources": false,
+    "get_chunk": false,
+    "governance_filters": false,
+    "list_documents": false,
+    "multi_collection_search": false,
+    "multi_query": false,
+    "parent_child_chunks": false,
+    "search_chunks": false,
+    "source_assets": false,
+    "write_tools": false
+  },
+  "filters": {
+    "dimensions_defined": [
+      "collection",
+      "document",
+      "tag",
+      "folder",
+      "file",
+      "content",
+      "source",
+      "time"
+    ],
+    "enforced_by_tools": false,
+    "tag_operators": [
+      "and",
+      "or"
+    ]
+  },
+  "limits": {
+    "alternate_query_max_count": 3,
+    "alternate_query_total_max_chars": 3000,
+    "max_content_chars": 8000,
+    "max_evidence_count": 50,
+    "max_preview_chars": 200,
+    "max_structured_chars": 200000,
+    "page_size_default": 20,
+    "page_size_max": 50,
+    "query_max_length": 2000,
+    "top_k_default": 10,
+    "top_k_max": 50
+  },
+  "pagination": {
+    "page_size": {
+      "default": 20,
+      "max": 50,
+      "min": 1
+    },
+    "top_k": {
+      "default": 10,
+      "max": 50,
+      "min": 1
+    }
+  },
+  "read_only": true,
+  "retrieval": {
+    "modes": [
+      "hybrid",
+      "dense",
+      "sparse"
+    ],
+    "rerank": {
+      "backend": "none",
+      "enabled": false
+    }
+  },
+  "tools": [
+    {
+      "lifecycle": "long_term",
+      "name": "query_knowledge_hub",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "list_collections",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "get_document",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "compat_alias",
+      "name": "get_document_summary",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "get_document_chunks",
+      "structured_output": true,
+      "version": "v1"
+    }
+  ],
+  "transports": [
+    "stdio",
+    "streamable-http"
+  ],
+  "unsupported": [
+    {
+      "id": "list_documents",
+      "planned_in": "task-03",
+      "status": "planned"
+    },
+    {
+      "id": "get_chunk",
+      "planned_in": "task-03",
+      "status": "planned"
+    },
+    {
+      "id": "search_chunks",
+      "planned_in": "task-04",
+      "status": "planned"
+    },
+    {
+      "id": "governance_filters",
+      "planned_in": "task-04",
+      "status": "contract_defined_only"
+    },
+    {
+      "id": "multi_query",
+      "planned_in": "task-05",
+      "status": "contract_defined_only"
+    },
+    {
+      "id": "alternate_queries",
+      "planned_in": "task-05",
+      "status": "contract_defined_only"
+    },
+    {
+      "id": "multi_collection_search",
+      "planned_in": "task-05",
+      "status": "planned"
+    },
+    {
+      "id": "parent_child_chunks",
+      "planned_in": "task-06",
+      "status": "planned"
+    },
+    {
+      "id": "source_assets",
+      "planned_in": "task-06",
+      "status": "planned"
+    },
+    {
+      "id": "chunk_context_resources",
+      "planned_in": "task-06",
+      "status": "planned"
+    },
+    {
+      "id": "write_tools",
+      "planned_in": null,
+      "status": "excluded_by_architecture"
+    },
+    {
+      "id": "answer_generation",
+      "planned_in": null,
+      "status": "excluded_by_architecture"
+    }
+  ],
+  "warnings": [
+    "truncated",
+    "rerank_degraded",
+    "legacy_metadata_missing",
+    "partial_collection_failure"
+  ]
+}

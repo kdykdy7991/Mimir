@@ -46,6 +46,10 @@ from mcp.server.stdio import stdio_server  # noqa: E402
 
 from src.core.settings import Settings, load_settings  # noqa: E402
 from src.mcp_server.protocol_handler import ProtocolHandler  # noqa: E402
+from src.mcp_server.transports import (  # noqa: E402
+    DEFAULT_TRANSPORT,
+    SUPPORTED_TRANSPORTS,
+)
 
 
 logger = logging.getLogger("mcp_server")
@@ -128,8 +132,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Python logging level (default: INFO).",
     )
     parser.add_argument(
-        "--transport", default="stdio",
-        choices=("stdio", "streamable-http"),
+        "--transport", default=DEFAULT_TRANSPORT,
+        choices=SUPPORTED_TRANSPORTS,
         help=(
             "MCP transport to use. 'stdio' (default) speaks JSON-RPC "
             "over stdin/stdout — the path every desktop MCP client "
@@ -223,7 +227,21 @@ async def run_server(
     # A missing settings file keeps the old missing-file tolerance (defaults).
     _bootstrap_rag_client(config_path)
 
-    server = handler.build_server()
+    # Task 02.4: versioned capability discovery Resource, built from the
+    # real registry + active budget/config; toggleable for rollback.
+    capabilities_doc = None
+    if settings.mcp_server.capabilities_resource_enabled:
+        from src.mcp_server.capabilities import build_capabilities
+
+        capabilities_doc = build_capabilities(
+            handler,
+            budget=budget_from_settings(settings),
+            rerank_backend=settings.rerank.backend,
+            server_name=settings.mcp.server_name,
+        )
+        logger.info("capabilities resource registered: rag://server/capabilities")
+
+    server = handler.build_server(capabilities=capabilities_doc)
 
     if transport == "stdio":
         await _run_stdio(server)

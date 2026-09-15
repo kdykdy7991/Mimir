@@ -213,10 +213,15 @@ class ProtocolHandler:
     # ------------------------------------------------------------------
     # MCP server construction
     # ------------------------------------------------------------------
-    def build_server(self) -> Server:
+    def build_server(self, *, capabilities: dict[str, Any] | None = None) -> Server:
         """
         Build an :class:`mcp.server.Server` with all registered tools
         wired via the mcp v2 constructor API.
+
+        When ``capabilities`` is given, the static
+        ``rag://server/capabilities`` Resource is registered too
+        (Task 02.4); ``None`` reproduces the exact pre-Task-02 server
+        (tools only), which is also the rollback switch.
 
         The returned server is transport-agnostic; the caller chooses
         whether to run it on stdio or streamable-http.
@@ -246,14 +251,23 @@ class ProtocolHandler:
                 ),
             )
 
-        server: Server = Server(
-            self._server_name,
-            title=self._server_title,
-            description=self._server_description,
-            instructions=self._instructions,
-            on_list_tools=_on_list_tools,
-            on_call_tool=_on_call_tool,
-        )
+        server_kwargs: dict[str, Any] = {
+            "title": self._server_title,
+            "description": self._server_description,
+            "instructions": self._instructions,
+            "on_list_tools": _on_list_tools,
+            "on_call_tool": _on_call_tool,
+        }
+        if capabilities is not None:
+            # Task 02.4: read-only capability discovery Resource. The
+            # installed SDK takes resource handlers as constructor
+            # kwargs (see src.mcp_server.capabilities.capability_handlers),
+            # so registration happens in the same Server(...) call.
+            from src.mcp_server.capabilities import capability_handlers
+
+            server_kwargs.update(capability_handlers(capabilities))
+
+        server: Server = Server(self._server_name, **server_kwargs)
         return server
 
 

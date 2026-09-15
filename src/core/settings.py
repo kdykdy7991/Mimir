@@ -276,6 +276,8 @@ class McpServerSettings(BaseModel):
     rag_api_base_url: str = ""
     request_timeout_seconds: float = 30.0
     api_key: str = ""  # X-API-Key / internal service credential
+    # Task 02.4 rollback switch for the capabilities Resource.
+    capabilities_resource_enabled: bool = True
     public_base_url: str = ""
     """Publicly-reachable MCP Server base URL (B4.1/4.3 target).
 
