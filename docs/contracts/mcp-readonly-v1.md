@@ -143,6 +143,62 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
 - 会话、对话历史、长期记忆；
 - 大正文/图片的无界内联（未来通过 MCP Resources 按需读取，见路线图 Phase 8）。
 
+## 5.1 能力发现 Resource（Task 02.4 起）
+
+服务器注册一个只读静态 MCP Resource：
+
+- URI：`rag://server/capabilities`（`mimeType: application/json`）；
+- 内容由**真实注册表**（5 工具）、活动 `ResponseBudget`、检索配置
+  （modes/rerank backend）与 application 契约枚举生成，不存在第二套手编
+  工具名单；transport 清单读自 `src/mcp_server/transports/__init__.py` 的
+  `SUPPORTED_TRANSPORTS`，与 `--transport` 的 argparse choices 同源；
+- 关键字段：`contract/contract_version/evidence_contract/read_only`、
+  `server_name`（调用方按已加载 settings 提供，缺失则不编造）、
+  `transports[]`、`tools[]`（name/version/lifecycle/structured_output）、
+  `features`（未实现能力显式为 `false`，与 `unsupported[]` 同表派生）、
+  `retrieval`、`evidence`（score stages、content types、matched_queries）、
+  `filters`（dimension 已定义、Task 04 前 `enforced_by_tools=false`）、
+  `pagination`、`limits`、`warnings`、`errors`、`unsupported[]`；
+- 不含 API Key、内部 URL、数据库路径或 Provider Secret；
+- 注册方式（SDK 事实）：仓库钉 `mcp==2.2.0`，其低层 `Server` **没有**
+  `@server.list_resources()` 装饰器，Resource 只能通过构造器关键字
+  `on_list_resources=` / `on_read_resource=` 提供
+  （`src/mcp_server/capabilities.py::capability_handlers`，经
+  `ProtocolHandler.build_server(capabilities=...)` 合并进同一次
+  `Server(...)` 构造）。因此 stdio 与 streamable-http 由**同一个
+  Server 对象**提供服务，能力文档不可能按 transport 漂移；
+- 快照：[`tests/fixtures/mcp_contract/capabilities_v1.json`](../../tests/fixtures/mcp_contract/capabilities_v1.json)，
+  生成自真实注册，确定性、无时间戳；
+- 回滚开关：`mcp_server.capabilities_resource_enabled: false`（默认 true），
+  关闭后服务器回到纯工具形态（不注册任何 Resource handler，
+  `resources/*` 不再是该服务器的方法）。
+
+## 5.2 统一错误码（Task 02.3 起）
+
+application 层冻结六个稳定错误码（`src/application/contracts/errors.py`）：
+
+| code | 语义 |
+| --- | --- |
+| `invalid_request` | 入参非法或越界（工具级 is_error） |
+| `not_found_or_not_accessible` | 不存在或无权限（同形，不泄露存在性） |
+| `upstream_timeout` | 上游读超时 |
+| `upstream_unavailable` | 上游连接/5xx 故障（协议级） |
+| `rate_limited` | 速率预算拒绝（429/显式 code；工具级 `rate_limited: ...`） |
+| `overloaded` | 服务过载（显式 code；工具级 `overloaded: ...`） |
+
+Task 02 **只建立契约、类型与上游信号映射，不实现限流/熔断**；
+`rate_limited`/`overloaded` 绝不并入 `upstream_unavailable`。
+429 响应携带的 `Retry-After` delta-seconds 会透传到
+`RateLimitedError.retry_after_seconds`。
+
+## 5.3 统一预算（Task 02.3 起）
+
+所有上限的唯一配置来源是 `mcp_limits`（默认值与旧工具公开上限一致：
+query 1..2000、top_k 1..50 默认 10、page_size 1..50 默认 20）。工具 JSON
+Schema 由同一 `ResponseBudget` 构建，运行时校验与之同源；请求越界返回
+稳定 invalid_request，响应超预算在输出层显式 `truncated` warning。
+数值支持 `${ENV_VAR}` 环境替换；非法组合启动期 fail-fast。
+
 ## 6. 快照与漂移门禁
 
 ```bash
@@ -164,3 +220,7 @@ MCP_REGENERATE_V1=1 .venv/bin/python -m pytest tests/unit/test_mcp_contract_v1_s
    修改，针对真实注册表的断言仍会失败。
 
 快照重复生成必须无 diff（排序键固定、`ensure_ascii=False`、末尾换行）。
+
+能力发现快照同理：`tests/unit/test_server_capabilities.py` 在校验模式下
+深比较 `tests/fixtures/mcp_contract/capabilities_v1.json` 与真实注册/预算
+生成结果；有意变更时以 `MCP_REGENERATE_V1=1` 重跑该测试。

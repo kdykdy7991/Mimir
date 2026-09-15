@@ -7,19 +7,23 @@
 > 命令：stdio（桌面客户端路径）与 streamable-http（远程 / HTTP 路径），
 > 以及自动化的集成测试入口。
 >
-> 三个 RAG 工具：`query_knowledge_hub`、`list_collections`、`get_document_summary`。
+> 五只只读工具：`query_knowledge_hub`、`list_collections`、`get_document`、
+> `get_document_summary`（兼容别名）、`get_document_chunks`；另有只读
+> 能力发现 Resource `rag://server/capabilities`（Task 02.4 起）。
 
 ## 多集合路由（M3）
 
-三个工具现在都使用与 Web API 相同的多集合数据模型，不再只读取
-`settings.yaml` 中配置的默认 Chroma collection：
+`query_knowledge_hub`、`list_collections`、`get_document`（含兼容别名
+`get_document_summary`）与 `get_document_chunks` 均使用与 Web API 相同的
+多集合数据模型，不再只读取 `settings.yaml` 中配置的默认 Chroma collection：
 
 - `query_knowledge_hub` 按 `collection` 参数同时路由到该集合的 Chroma
   向量存储和 BM25 索引；不传时仍使用 `default`。
 - `list_collections` 以 `data/db/bm25/*.json` 和配置中的默认集合为已知集合，
   并逐个查询对应 Chroma collection 的真实向量数。该调用只读，不会为了
   统计而创建不存在的 Chroma collection。
-- `get_document_summary` 接受 Web API 返回的稳定文档 UUID。服务先通过
+- `get_document` / `get_document_summary`（兼容别名）与 `get_document_chunks`
+  接受 Web API 返回的稳定文档 UUID。服务先通过
   `data/db/ingestion_history.db` 将 UUID 解析为 `(collection, source_path)`，
   再到正确的 collection 中读取文档 chunks。因此非默认集合中的文档也可查询。
 
@@ -211,7 +215,7 @@ asyncio.run(main())
 
 ```bash
 pytest tests/integration/test_streamable_http_cli.py -v
-# 真实子进程 `python -m main --transport streamable-http`,覆盖三个工具 + /health + Bearer 认证
+# 真实子进程 `python -m main --transport streamable-http`，覆盖 5 只工具 + /health + Bearer 认证
 
 # 访问控制专项（PRD §11.2）:无 Key / 越权 / 撤销 / 跨 Key session / 并发
 pytest tests/integration/test_mcp_http_access_control.py -v
@@ -223,13 +227,32 @@ pytest tests/integration/test_mcp_http_access_control.py -v
 
 | 传输 | 命令 | 覆盖 |
 |---|---|---|
-| stdio | `pytest tests/integration/test_mcp_server.py` | initialize / tools/list / 三个工具调用 / 错误约定 / stderr 纯净 |
-| HTTP | `pytest tests/integration/test_streamable_http_cli.py` | 真实子进程启动 / /health / 三个真实工具 / is_error |
+| stdio | `pytest tests/integration/test_mcp_server.py` | initialize / tools/list（5 工具）/ 工具调用 / 错误约定 / stderr 纯净 |
+| HTTP | `pytest tests/integration/test_streamable_http_cli.py` | 真实子进程启动 / /health / 真实工具 / is_error |
+| 双传输一致性 | `pytest tests/integration/test_mcp_capabilities_transports.py` | `rag://server/capabilities` 在 stdio 与 HTTP 下逐字节一致 / 5 工具一致 |
 | 单测 | `pytest tests/unit/test_protocol_handler.py` | 注册表 / dispatch / is_error 透传 |
 
 > 数据准备：`python scripts/ingest.py --path <pdf> --collection product-docs`（或
 > Web API 上传）。查询时的 `collection` 必须与摄取目标一致。无数据时
 > `query_knowledge_hub` 返回空/降级结果（`is_error=False`）。
+
+### 3.1 能力发现 Resource（Task 02.4）
+
+客户端可用标准 `resources/list` + `resources/read` 拿到机器可读的能力清单，
+无需解析文档或硬编码工具表：
+
+```python
+resources = await session.list_resources()          # → rag://server/capabilities
+read = await session.read_resource("rag://server/capabilities")
+caps = json.loads(read.contents[0].text)
+# caps["tools"] / ["transports"] / ["retrieval"] / ["filters"]
+# caps["pagination"] / ["limits"] / ["warnings"] / ["errors"] / ["features"]
+```
+
+- 内容由真实注册表 + 真实 Settings 生成；未实现能力显式 `false`；
+- stdio 与 streamable-http 返回**同一份**内容（同一 `Server` 注册）；
+- 不含 API Key、内部 URL、数据库路径或 Provider Secret；
+- 运维如需回到纯工具形态：`mcp_server.capabilities_resource_enabled: false`。
 
 ---
 

@@ -1,6 +1,6 @@
 # 任务 02：MCP 公共契约与能力发现
 
-> 状态：进行中（2026-09-15 启动）
+> 状态：完成（2026-09-15）
 > 前置：任务 01 Gate 通过
 > 后继：任务 03
 
@@ -237,6 +237,8 @@
   - `tests/unit/test_server_capabilities.py`（15 项）
   - `tests/integration/test_mcp_capabilities_transports.py`（新增 2 项：真实
     CLI 子进程 stdio 与 streamable-http 双通道取回同一份 capabilities）
+  - `tests/integration/test_streamable_http_cli.py`（修正本任务之前就已失效的
+    fixture 与「3 工具」断言，并在端点不可达时对真实检索项显式 skip）
 - SDK 证据（最小验证，未凭记忆假设）：
   - `mcp==2.2.0` 的低层 `Server` **没有** `list_resources()/read_resource()`
     装饰器方法（半成品实现曾用装饰器，导致 CLI 启动即
@@ -283,6 +285,84 @@
     修正为真实注册表（5 工具 + 直接扫描 `data/db/bm25`），否则该集成测试
     无法启动，也就无法证明 HTTP transport 可用。
 - 遗留问题：真实限流/熔断属 Task 08；release profile 真实模型基线属发布前事项。
+
+### 02.5 契约快照、文档与最终 Gate
+
+- 状态：done
+- 快照：capabilities 快照在 02.4 冻结
+  （`tests/fixtures/mcp_contract/capabilities_v1.json`，`MCP_REGENERATE_V1=1`
+  重生成）；**旧 5 工具 inventory 快照零 diff**
+  （`scripts/mcp_contract_inventory.py --check` → `ok ... (5 tools)`），
+  即旧工具名称/必填/oneOf/别名/默认值/授权/错误语义均未变。
+- OpenAPI：审计结论为「REST/internal DTO 不引用本次 application 契约」，
+  故**不刷新**；以 `python -m scripts.export_openapi --check` 实证无 diff
+  （`OK: docs/openapi/openapi.v0.2.json matches live schema (43 paths)`）。
+- 新增/修改文件：
+  - `tests/integration/test_mcp_capabilities_transports.py`（新增 2 项：
+    真实 CLI 子进程下 stdio 与 streamable-http 取回**逐字节一致**的
+    capabilities 与同一 5 工具集；served 文档与真实注册表 + Settings 派生
+    预算一致）
+  - `src/mcp_server/clients/in_process.py`（分页校验由 `ResponseBudget()`
+    默认值改为 `active_budget()`：Schema、工具校验与客户端校验共用同一个
+    budget 对象，配置化上限不再可能出现「声明与运行时不一致」）
+  - `tests/unit/test_mcp_budget.py`（新增 1 项：自定义 `page_size_max`
+    在客户端层以配置值拒绝 `page_size=34`）
+  - `tests/integration/test_streamable_http_cli.py`（已在 02.4 提交；本阶段
+    仅复核「真实检索 over HTTP」独立测试与 skip 语义）
+  - `docs/contracts/mcp-readonly-v1.md`（新增 §5.1 capabilities /
+    §5.2 错误码 / §5.3 预算，并写明 mcp 2.2.0 的 Resource 注册事实）
+  - `docs/mcp-integration.md`（顶部 3 工具 → 5 工具 + capabilities；
+    M3 多集合说明补 `get_document`/`get_document_chunks`；新增 §3.1
+    能力发现用法；测试覆盖表更新）
+  - 本状态文档
+- 02.5 要求的测试项覆盖位置：
+  | 要求 | 现有覆盖 |
+  | --- | --- |
+  | 契约序列化/不可变/依赖边界 | `tests/unit/application/test_evidence_contracts.py`（含子进程 sys.modules 断言） |
+  | scores null 语义 | 同上 `test_scores_unexecuted_stages_serialize_as_null_not_zero` |
+  | Filter 空数组/重复/非法 operator/无时区时间 | `tests/unit/application/test_evidence_contracts.py` |
+  | Warning/Error 全枚举与 JSON | 同上 + `test_response_budget.py` 六码 |
+  | 路径/Secret/Header/traceback 清洗 | `tests/unit/test_evidence_mapper.py` |
+  | query/top-k/page-size/字符预算边界 | `tests/unit/application/test_response_budget.py`、`tests/unit/test_mcp_budget.py` |
+  | 非法配置启动期失败 | `test_mcp_budget.py::test_settings_round_trip_defaults_and_rejects_invalid_combinations`（+ `${ENV}` 覆盖） |
+  | capabilities 与注册表/Settings 一致 | `tests/unit/test_server_capabilities.py`、`test_mcp_capabilities_transports.py` |
+  | Resource list/read | `tests/unit/test_server_capabilities.py`（内存会话）+ 双传输集成测试 |
+  | stdio 与 HTTP 能力一致 | `tests/integration/test_mcp_capabilities_transports.py` |
+  | inventory `--check` | 见下 |
+  | 既有 MCP 单测/集成 | 见下 |
+  | Golden Set 基线 Gate | 见下 |
+  | `git diff --check` | 见下 |
+- 最终 Gate 命令与真实结果（`.venv`，mcp 2.2.0 / pytest-asyncio 1.4.0）：
+  ```bash
+  .venv/bin/python scripts/mcp_contract_inventory.py --check
+  # ok: ... readonly_v1_inventory.json is current (5 tools), exit 0
+  .venv/bin/python -m pytest $(find tests -name '*mcp*.py') \
+      tests/unit/test_server_capabilities.py tests/unit/test_evidence_mapper.py \
+      tests/unit/test_mcp_budget.py -q
+  # 247 passed, 8 warnings（0 failed / 0 skipped）
+  .venv/bin/python -m pytest tests/integration/test_streamable_http_cli.py -q -rs
+  # 1 passed, 1 skipped（skip = 无本地 embedding 服务，见下）
+  .venv/bin/python -m pytest tests/unit/test_architecture_boundary.py tests/unit/application -q
+  # 160 passed
+  .venv/bin/python -m pytest tests/unit/test_eval_gate.py tests/integration/test_eval_baseline_gate.py -q
+  # 36 passed（四条确定性基线 dense/sparse/hybrid/hybrid-rerank 全部 gate passed）
+  .venv/bin/python -m scripts.export_openapi --check
+  # OK: ... matches live schema (43 paths)
+  git diff --check
+  # 无输出
+  ```
+  > 说明：`tests/integration/test_streamable_http_cli.py` 中
+  > 「真实检索 over HTTP」一项在无本地 embedding 服务时被显式 skip
+  > （原因打印在 `-rs` 输出），其余通过；该 skip 是本机环境限制而非
+  > 质量弱点，端点可达时该断言必须通过。
+- 回滚方法：
+  1. 关闭能力发现：`mcp_server.capabilities_resource_enabled: false`
+     （或 `build_server()` 不传 `capabilities`）→ 服务器立即回到
+     Task 01 形态（无 Resource、5 工具不变）；
+  2. 整体回退：`git revert cc96a4b`（capabilities）与本次 02.5 提交即可；
+     02.1–02.3 的契约类型是新增模块，无引用时可直接保留。
+- 遗留问题：无新增。已知发布前事项仍为 Task 01 登记的
+  「release profile 真实 Embedding/Rerank 基线」。
 
 ## 1. 目标
 

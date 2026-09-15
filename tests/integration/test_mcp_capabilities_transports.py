@@ -186,9 +186,9 @@ async def test_capabilities_are_identical_over_stdio_and_http(http_server):
 async def test_capabilities_body_matches_the_live_registry_and_budget():
     import json
 
-    from src.application.contracts import ResponseBudget
     from src.core.settings import load_settings
     from src.mcp_server.capabilities import build_capabilities
+    from src.mcp_server.presentation.budgets import budget_from_settings
     from src.mcp_server.protocol_handler import ProtocolHandler
     from src.mcp_server.server import _register_default_tools
 
@@ -196,17 +196,22 @@ async def test_capabilities_body_matches_the_live_registry_and_budget():
     served = json.loads(body)
 
     settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
+    budget = budget_from_settings(settings)
     handler = ProtocolHandler()
     _register_default_tools(handler)
     expected = build_capabilities(
         handler,
-        budget=ResponseBudget(),
+        budget=budget,
         rerank_backend=settings.rerank.backend,
         server_name=settings.mcp.server_name,
     )
     # The served document is the same fact set the server was built from:
-    # registry order, configured limits, configured rerank backend.
+    # real registry, Settings-derived budget, configured rerank backend.
     assert {t["name"] for t in served["tools"]} == set(handler.list_names())
     assert served["limits"] == expected["limits"]
+    assert served["limits"]["top_k_max"] == settings.mcp_limits.top_k_max
+    assert served["pagination"]["page_size"]["default"] == (
+        settings.mcp_limits.page_size_default
+    )
     assert served["retrieval"]["rerank"] == expected["retrieval"]["rerank"]
     assert served["server_name"] == settings.mcp.server_name

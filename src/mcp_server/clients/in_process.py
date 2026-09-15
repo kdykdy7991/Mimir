@@ -485,11 +485,15 @@ class InProcessRagReadOnlyClient:
         page_size: int,
         principal: AccessPrincipalLike,
     ) -> DocumentChunkPage:
-        # Single source for pagination bounds (Task 02.3); messages stay
-        # byte-identical at the default budget.
-        from src.application.contracts import ContractError, ResponseBudget
+        # Single source for pagination bounds (Task 02.3): the *active*
+        # budget, i.e. the same object that built the tool's JSON Schema,
+        # so a configured limit can never disagree with the declared one.
+        # Unset (tests, web API embedding) → module defaults, which keep
+        # the legacy messages byte-identical.
+        from src.application.contracts import ContractError
+        from src.mcp_server.presentation.budgets import active_budget
 
-        budget = ResponseBudget()
+        budget = active_budget()
         try:
             budget.check_page(page)
             budget.check_page_size(page_size)

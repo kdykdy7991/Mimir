@@ -125,6 +125,32 @@ def test_active_budget_drives_registered_schema():
     assert active_budget() == ResponseBudget()
 
 
+def test_active_budget_drives_client_pagination_check():
+    """One budget object feeds schema, tool validation and the client.
+
+    A configured ``page_size_max`` must be enforced identically at every
+    layer, otherwise the declared Schema and the runtime would disagree.
+    """
+    from src.mcp_server.auth.context import TrustedLocalPrincipal
+    from src.mcp_server.clients.errors import InvalidRequestError
+    from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
+
+    client = InProcessRagReadOnlyClient(data_dir="/nonexistent")
+    try:
+        set_active_budget(ResponseBudget(
+            page_size_default=10, page_size_max=33,
+        ))
+        with pytest.raises(InvalidRequestError) as exc:
+            client.get_document_chunks(
+                document_id="d", page=1, page_size=34,
+                principal=TrustedLocalPrincipal(),
+            )
+        # Rejected before any store access, with the configured bound.
+        assert str(exc.value) == "page_size must be between 1 and 33"
+    finally:
+        reset_active_budget()
+
+
 # ---------------------------------------------------------------------------
 # Runtime validation matches the schema
 # ---------------------------------------------------------------------------
