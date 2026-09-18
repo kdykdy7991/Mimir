@@ -22,9 +22,10 @@ from src.libs.llm.base_llm import (
 )
 
 try:
-    from openai import OpenAI
+    from openai import DefaultHttpxClient, OpenAI
 except ImportError:
     OpenAI = None  # type: ignore
+    DefaultHttpxClient = None  # type: ignore
 
 
 class OpenAICompatibleLLM(BaseLLM):
@@ -59,6 +60,10 @@ class OpenAICompatibleLLM(BaseLLM):
         self.client = OpenAI(
             api_key=settings.api_key,
             base_url=settings.base_url or "https://api.openai.com/v1",
+            # Provider availability must not depend on arbitrary shell proxy
+            # variables. In particular, httpx2 rejects the legacy
+            # ``socks://`` spelling during client construction.
+            http_client=DefaultHttpxClient(trust_env=False),
         )
 
     @property

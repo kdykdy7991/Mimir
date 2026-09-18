@@ -60,6 +60,7 @@ class EngineCache:
         sparse_encoder: Any | None = None,
         splitter: Any = None,
         llm: Any = None,
+        workload_limiter: Any = None,
     ) -> None:
         self._settings = settings
         self._data_dir = data_dir
@@ -68,6 +69,7 @@ class EngineCache:
         self._sparse_encoder = sparse_encoder
         self._splitter = splitter
         self._llm = llm
+        self._workload_limiter = workload_limiter
         self._lock = threading.Lock()
         self._hybrid: dict[str, Any] = {}
         self._pipeline: dict[str, Any] = {}
@@ -90,6 +92,10 @@ class EngineCache:
     @property
     def data_dir(self) -> str:
         return self._data_dir
+
+    @property
+    def llm(self) -> Any | None:
+        return self._llm
 
     # ------------------------------------------------------------------
     # Per-collection builders
@@ -165,7 +171,9 @@ class EngineCache:
         # resolve_document_parser returns None for legacy/disabled (→ legacy
         # LoaderRegistry) and fails fast on a docreader build/transport failure.
         from src.document_parser.factory import resolve_document_parser
-        document_parser = resolve_document_parser(self._settings.document_parser)
+        document_parser = resolve_document_parser(
+            self._settings.document_parser, limiter=self._workload_limiter,
+        )
 
         return build_pipeline(
             settings=self._settings,

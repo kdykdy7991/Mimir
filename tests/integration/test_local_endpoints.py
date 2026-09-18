@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import base64
 import math
+import os
 import socket
 import sys
 from pathlib import Path
@@ -113,10 +114,12 @@ def _server_up(host: str, port: int, timeout: float = 2.0) -> bool:
 # Skip the whole module if either server is down. The skip
 # reason shows up in pytest output so a user can see why.
 pytestmark = pytest.mark.skipif(
-    not (_server_up(LLM_HOST, LLM_PORT)
+    os.environ.get("RUN_LOCAL_ENDPOINT_TESTS") != "1"
+    or not (_server_up(LLM_HOST, LLM_PORT)
          and _server_up(EMBEDDING_HOST, EMBEDDING_PORT)),
     reason=(
-        f"local endpoints unreachable "
+        "live endpoint tests require RUN_LOCAL_ENDPOINT_TESTS=1 and "
+        f"reachable services "
         f"(need vLLM at {LLM_HOST}:{LLM_PORT} and "
         f"qwen3-embedding at {EMBEDDING_HOST}:{EMBEDDING_PORT})"
     ),

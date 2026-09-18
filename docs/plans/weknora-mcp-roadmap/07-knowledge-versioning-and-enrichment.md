@@ -1,6 +1,6 @@
 # 任务 07：知识版本治理与摄取增强
 
-> 状态：待实施；前置：任务 06 Gate；后继：任务 08
+> 状态：已完成；前置：任务 06 Gate；后继：任务 08
 
 ## 目标与边界
 
@@ -33,3 +33,9 @@ Gate：人工修改不丢失、激活原子、历史引用明确、增强可清�
 
 回滚：关闭编辑和增强，active version 切回上一版；版本历史只追加不删除。
 
+## 完成记录（2026-09-16）
+
+- 07.1–07.5：不可变 revision、授权历史/Diff、乐观并发、Dense/BM25/parent/derived 补偿式重建、回滚新版本和 MCP stale-reference 已落地；
+- 07.6–07.7：标签建议与派生摘要/合成问题具备 provenance、审核、独立 namespace、启停/删除/重建，引用始终回原文；
+- 07.8：Web 管理面板、exact-or-null 调用指标及增强评测 Gate 已完成；增强默认关闭；
+- 最终分组 Gate：后端增强/事务 22 passed，OpenAPI/MCP 19 passed，Golden Set/评测 45 passed、1 skipped；Web 107 tests，typecheck/lint/build 通过。OpenAPI 60 paths，MCP 9 tools。

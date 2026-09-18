@@ -55,18 +55,25 @@ async def test_initialize_returns_server_info():
 
 
 @pytest.mark.asyncio
-async def test_tools_list_returns_five_tools():
+async def test_tools_list_returns_readonly_tools():
     async with stdio_client(_server_params()) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)
             assert names == [
+                "get_chunk",
+                "get_chunk_context",
                 "get_document",
                 "get_document_chunks",
                 "get_document_summary",
+                "get_sync_status",
                 "list_collections",
+                "list_data_sources",
+                "list_documents",
+                "list_sync_failures",
                 "query_knowledge_hub",
+                "search_chunks",
             ]
 
 

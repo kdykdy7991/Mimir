@@ -273,7 +273,7 @@ class TestLlmMode:
         })
         e = MetadataEnricher(settings, llm=mock_llm)
         e.transform([make_chunk("INPUT_TEXT")])
-        sent_prompt = mock_llm.chat.call_args[0][0]
+        sent_prompt = mock_llm.chat.call_args[0][0][0]["content"]
         assert "META-FOR: INPUT_TEXT" in sent_prompt
         assert "--END--" in sent_prompt
 
@@ -414,7 +414,7 @@ class TestSettings:
         e = MetadataEnricher(settings, llm=mock_llm)
         e.transform([make_chunk("hi")])
         # Built-in prompt was sent (has Chinese text)
-        sent = mock_llm.chat.call_args[0][0]
+        sent = mock_llm.chat.call_args[0][0][0]["content"]
         assert "hi" in sent
 
     def test_malformed_prompt_raises_at_init(self, tmp_path):

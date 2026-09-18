@@ -142,9 +142,18 @@ class ApiKeyService:
         store: ApiKeyStore | None = None,
         *,
         db_path: str | Path | None = None,
+        audit_store=None,
     ) -> None:
         self._store = store or ApiKeyStore(db_path or ApiKeyStore.DEFAULT_DB_PATH)
         self._last_used = _LastUsedTracker(_LAST_USED_MIN_INTERVAL)
+        self._audit_store = audit_store
+
+    def _audit(self, action: str, key_id: str, outcome: str = "success") -> None:
+        if self._audit_store is not None:
+            self._audit_store.append(
+                actor_type="admin", actor_id="trusted-admin", action=action,
+                resource_type="mcp_key", resource_id=key_id, outcome=outcome,
+            )
 
     # ------------------------------------------------------------------
     # Management
@@ -188,6 +197,7 @@ class ApiKeyService:
             revoked_at=None,
             last_used_at=None,
         )
+        self._audit("mcp_key.create", key_id)
         return raw_key, metadata
 
     def authenticate(self, raw_key: str) -> AccessPrincipal | None:
@@ -246,6 +256,7 @@ class ApiKeyService:
         logger.info(
             "api_key revoked key_id=%s name=%s", record.key_id, record.name,
         )
+        self._audit("mcp_key.revoke", record.key_id)
         return _to_metadata(record)
 
     def delete_key(self, *, name: str) -> None:
@@ -254,6 +265,7 @@ class ApiKeyService:
         name = name.strip()
         self._store.delete(name=name)
         logger.info("api_key deleted name=%s", name)
+        self._audit("mcp_key.delete", name)
 
     def rename_key(self, *, name: str, new_name: str) -> ApiKeyMetadata:
         """Rename a key without changing the credential or its access scope."""
@@ -262,6 +274,7 @@ class ApiKeyService:
         old_name, new_name = name.strip(), new_name.strip()
         record = self._store.rename(name=old_name, new_name=new_name)
         logger.info("api_key renamed key_id=%s name=%s new_name=%s", record.key_id, old_name, new_name)
+        self._audit("mcp_key.rename", record.key_id)
         return _to_metadata(record)
 
     def update_key_collections(
@@ -278,6 +291,7 @@ class ApiKeyService:
             "api_key collections updated key_id=%s name=%s collections=%s",
             record.key_id, name, sorted(collections),
         )
+        self._audit("mcp_key.scope.update", record.key_id)
         return _to_metadata(record)
 
     def rotate_key(self, *, name: str) -> tuple[str, ApiKeyMetadata]:
@@ -305,6 +319,7 @@ class ApiKeyService:
         logger.info(
             "api_key rotated key_id=%s name=%s", key_id, name,
         )
+        self._audit("mcp_key.rotate", key_id)
         return raw_key, _to_metadata(record)
 
 

@@ -446,7 +446,7 @@ class TestUploadValidation:
         cid = collection_uuid("default")
         resp = client.post(
             f"/api/v1/collections/{cid}/documents",
-            files={"file": ("data.txt", b"hello", "text/plain")},
+            files={"file": ("data.exe", b"hello", "application/octet-stream")},
         )
         assert resp.status_code == 415
         assert resp.json()["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"

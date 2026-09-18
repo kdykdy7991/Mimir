@@ -221,6 +221,25 @@ class TestMetadataInheritance:
         for i, c in enumerate(chunks):
             assert c.metadata["chunk_index"] == i
 
+    def test_v2_version_and_source_span_metadata_is_deterministic(
+        self, chunker, doc_with_text,
+    ):
+        first = chunker.split_document(doc_with_text)
+        second = chunker.split_document(doc_with_text)
+        assert [c.metadata["document_version"] for c in first] == [
+            c.metadata["document_version"] for c in second
+        ]
+        for chunk in first:
+            meta = chunk.metadata
+            assert meta["index_format_version"] == 2
+            assert meta["chunk_level"] == "child"
+            assert meta["source_span"] == {
+                "start": chunk.start_offset, "end": chunk.end_offset,
+            }
+            assert len(meta["document_version"]) == 64
+            assert len(meta["chunk_version"]) == 64
+            assert meta["heading_path"] == []
+
     def test_source_ref_points_to_parent_doc(self, chunker, doc_with_text):
         chunks = chunker.split_document(doc_with_text)
         for c in chunks:

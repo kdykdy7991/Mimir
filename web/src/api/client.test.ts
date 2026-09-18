@@ -181,4 +181,26 @@ describe("ApiClient", () => {
     expect(init?.method).toBe("POST");
     expect(init?.body).toBe(JSON.stringify({ api_key: "skdy_mcp_secret" }));
   });
+
+  it("keeps datasource credentials in the create body and out of later requests", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ id: "source/1" }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ data_source: { id: "source/1" }, last_run: null }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, failures: [] }));
+    const client = new ApiClient({ baseUrl: "http://api.test", fetch: fetcher });
+
+    await client.createDataSource({
+      name: "release feed", connector_type: "rss", collection_id: "manuals",
+      policy: { url: "https://example.com/feed.xml" }, credentials: { token: "write-only" },
+    });
+    await client.getDataSourceSyncStatus("source/1");
+    await client.listDataSourceFailures("source/1", 25);
+
+    expect(fetcher.mock.calls[0]![0]).toBe("http://api.test/api/v1/data-sources");
+    expect(fetcher.mock.calls[0]![1]?.body).toContain('"token":"write-only"');
+    expect(fetcher.mock.calls[1]![0]).toBe("http://api.test/api/v1/data-sources/source%2F1/status");
+    expect(fetcher.mock.calls[2]![0]).toBe("http://api.test/api/v1/data-sources/source%2F1/failures?limit=25");
+    expect(String(fetcher.mock.calls[1]![1]?.body)).not.toContain("write-only");
+    expect(String(fetcher.mock.calls[2]![1]?.body)).not.toContain("write-only");
+  });
 });

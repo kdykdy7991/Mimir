@@ -128,6 +128,9 @@ def build_pipeline(
         db_path=str(db / "image_index.db"),
         base_dir=str(img),
     )
+    from src.ingestion.chunking import ParentChunkBuilder
+    from src.ingestion.storage import ParentChunkStore
+    parent_chunk_store = ParentChunkStore(db / "parent_chunks.db")
     if document_parser is not None:
         # M5: a unified DocumentParser behind the feature flag fronts the same
         # single ``loader`` slot the pipeline always had.
@@ -200,6 +203,8 @@ def build_pipeline(
         bm25_indexer=bm25,
         file_integrity=integrity,
         image_storage=image_storage,
+        parent_chunk_store=parent_chunk_store,
+        parent_chunk_builder=ParentChunkBuilder(),
         bm25_index_name=collection,
         # ``collection`` drives the per-run scoping of the integrity /
         # image writes (BM25 already carries the name above). Without it

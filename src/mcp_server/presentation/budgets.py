@@ -61,6 +61,8 @@ def budget_from_settings(settings: Settings) -> ResponseBudget:
         max_preview_chars=limits.max_preview_chars,
         alternate_query_max_count=limits.alternate_query_max_count,
         alternate_query_total_max_chars=limits.alternate_query_total_max_chars,
+        collection_max_count=limits.collection_max_count,
+        search_candidate_work_max=limits.search_candidate_work_max,
     )
 
 

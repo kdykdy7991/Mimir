@@ -92,6 +92,9 @@ class WebApiDB:
                     progress_json  TEXT,
                     error_json     TEXT,
                     attempt        INTEGER NOT NULL DEFAULT 0,
+                    execution_stage TEXT,
+                    stage_started_at REAL,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0,
                     created_at     REAL NOT NULL,
                     updated_at     REAL NOT NULL,
                     finished_at    REAL
@@ -210,6 +213,13 @@ class WebApiDB:
                 conn.execute("ALTER TABLE query_results ADD COLUMN source TEXT NOT NULL DEFAULT \"web_api\"")
             if "api_key_id" not in columns:
                 conn.execute("ALTER TABLE query_results ADD COLUMN api_key_id TEXT")
+            task_columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+            if "execution_stage" not in task_columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN execution_stage TEXT")
+            if "stage_started_at" not in task_columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN stage_started_at REAL")
+            if "cancel_requested" not in task_columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_query_results_source_created ON query_results(source, created_at)")
             conn.commit()
         finally:
@@ -425,6 +435,14 @@ class WebApiDB:
                         nxt.append(cid)
             frontier = nxt
         return descendants
+
+    def descendant_folder_ids(self, folder_id: str) -> list[str]:
+        """Return a stable list of folder ids strictly below ``folder_id``."""
+        conn = self._connect()
+        try:
+            return sorted(self._descendant_folder_ids(conn, folder_id))
+        finally:
+            conn.close()
 
     def _subtree_relative_depth(self, conn, folder_id: str, folder_depth: int) -> int:
         """Max depth of ``folder_id``'s subtree relative to the folder itself.
@@ -761,9 +779,25 @@ class WebApiDB:
                 [(document_id, tid, now) for tid in ids],
             )
             conn.commit()
-            return len(ids)
         finally:
             conn.close()
+        return len(ids)
+
+    def add_document_tag(self, document_id: str, tag_id: str) -> bool:
+        """Add one reviewed tag without replacing any manual bindings."""
+        import time
+
+        with self._connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM document_tags WHERE tag_id = ?", (tag_id,),
+            ).fetchone() is None:
+                raise ValueError("tag does not exist")
+            before = conn.total_changes
+            conn.execute(
+                "INSERT OR IGNORE INTO document_tag_links (document_id, tag_id, created_at) VALUES (?,?,?)",
+                (document_id, tag_id, time.time()),
+            )
+            return conn.total_changes > before
 
     def document_tag_ids(self, document_id: str) -> list[str]:
         conn = self._connect()
@@ -851,9 +885,9 @@ class WebApiDB:
                 INSERT INTO tasks
                     (task_id, task_type, document_id, collection_id,
                      source_path, filename, status, progress_json,
-                     error_json, attempt, created_at, updated_at,
-                     finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     error_json, attempt, execution_stage, stage_started_at,
+                     cancel_requested, created_at, updated_at, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     task_type     = excluded.task_type,
                     document_id   = excluded.document_id,
@@ -864,6 +898,9 @@ class WebApiDB:
                     progress_json = excluded.progress_json,
                     error_json    = excluded.error_json,
                     attempt       = excluded.attempt,
+                    execution_stage = excluded.execution_stage,
+                    stage_started_at = excluded.stage_started_at,
+                    cancel_requested = excluded.cancel_requested,
                     updated_at    = excluded.updated_at,
                     finished_at   = excluded.finished_at
                 """,
@@ -873,6 +910,8 @@ class WebApiDB:
                     row.get("source_path", ""), row.get("filename", ""),
                     row["status"], row.get("progress_json"),
                     row.get("error_json"), row.get("attempt", 0),
+                    row.get("execution_stage"), row.get("stage_started_at"),
+                    int(bool(row.get("cancel_requested", False))),
                     row.get("created_at", 0.0), row.get("updated_at", 0.0),
                     row.get("finished_at"),
                 ),

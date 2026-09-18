@@ -20,11 +20,27 @@ cannot bypass the read-only boundary through this client.
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
 from typing import Any
+from urllib.parse import quote
 
 import httpx
+
+from src.application.contracts import (
+    ChunkContextRequest,
+    ChunkContextResult,
+    ContextChunkV1,
+    AssetContent,
+    AssetV1,
+    EvidenceV1,
+    SearchDiagnostics,
+    SearchMode,
+    SearchRequest,
+    SearchResult,
+    WarningV1,
+)
 
 from src.mcp_server.clients.base import RagReadOnlyClient
 from src.mcp_server.clients.errors import (
@@ -38,13 +54,19 @@ from src.mcp_server.clients.errors import (
 )
 from src.mcp_server.clients.models import (
     CollectionInfo,
+    ChunkDetail,
     Diagnostics,
     DocumentChunk,
     DocumentChunkPage,
     DocumentInfo,
+    DocumentListRequest,
+    DocumentPage,
+    DocumentSummary,
     EvidenceItem,
     KnowledgeQueryResult,
     QueryRequest,
+    DataSourceInfo,
+    SyncStatusInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -245,6 +267,34 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
             for item in data.get("collections", [])
         ]
 
+    @staticmethod
+    def _source_info(item: dict[str, Any]) -> DataSourceInfo:
+        return DataSourceInfo(
+            id=str(item["id"]), name=str(item["name"]),
+            connector_type=str(item["connector_type"]),
+            collection_id=str(item["collection_id"]), enabled=bool(item["enabled"]),
+            checkpoint_revision=int(item.get("checkpoint_revision", 0)),
+            updated_at=float(item["updated_at"]),
+        )
+
+    def list_data_sources(self, principal) -> list[DataSourceInfo]:
+        data = self._get("/internal/mcp/v1/data-sources", headers=self._scope_headers(principal))
+        return [self._source_info(item) for item in data.get("data_sources", [])]
+
+    def get_sync_status(self, source_id: str, principal) -> SyncStatusInfo:
+        data = self._get(
+            f"/internal/mcp/v1/data-sources/{quote(source_id, safe='')}/status",
+            headers=self._scope_headers(principal),
+        )
+        return SyncStatusInfo(self._source_info(data["data_source"]), data.get("last_run"))
+
+    def list_sync_failures(self, source_id: str, limit: int, principal) -> list[dict[str, object]]:
+        data = self._get(
+            f"/internal/mcp/v1/data-sources/{quote(source_id, safe='')}/failures",
+            params={"limit": limit}, headers=self._scope_headers(principal),
+        )
+        return list(data.get("failures", []))
+
     def query_knowledge(
         self, request: QueryRequest, principal,
     ) -> KnowledgeQueryResult:
@@ -279,9 +329,91 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
             ),
         )
 
-    def get_document(self, document_id: str, principal) -> DocumentInfo:
+    def search(self, request: SearchRequest, principal) -> SearchResult:
+        payload: dict[str, Any] = {
+            "query": request.query, "collection": request.collection,
+            "alternate_queries": list(request.alternate_queries),
+            "collection_ids": list(request.collection_ids),
+            "failure_policy": request.failure_policy.value,
+            "mode": request.mode.value, "top_k": request.top_k,
+            "rerank": request.rerank, "threshold": request.threshold,
+            "include_content": request.include_content,
+        }
+        if request.filters is not None:
+            payload["filters"] = request.filters.to_dict()
+        data = self._post(
+            "/internal/mcp/v1/search", payload,
+            headers=self._scope_headers(principal),
+        )
+        diag = data.get("diagnostics") or {}
+        return SearchResult(
+            query=str(data.get("query", request.query)),
+            collection=(str(data["collection"]) if data.get("collection") else None),
+            collections=tuple(data.get("collections") or request.collections),
+            mode=SearchMode.coerce(data.get("mode", request.mode.value)),
+            evidence=tuple(EvidenceV1.from_mapping(e) for e in data.get("evidence", [])),
+            warnings=tuple(WarningV1.from_mapping(w) for w in data.get("warnings", [])),
+            diagnostics=SearchDiagnostics(
+                trace_id=diag.get("trace_id"), degraded=bool(diag.get("degraded", False)),
+                dense_candidates=diag.get("dense_candidates"),
+                sparse_candidates=diag.get("sparse_candidates"),
+                fused_candidates=diag.get("fused_candidates"),
+                executed_queries=tuple(diag.get("executed_queries") or ()),
+                successful_collections=tuple(diag.get("successful_collections") or ()),
+                failed_collections=tuple(diag.get("failed_collections") or ()),
+            ),
+            truncated=bool(data.get("truncated", False)),
+        )
+
+    def get_chunk_context(self, request: ChunkContextRequest, principal) -> ChunkContextResult:
+        document_id = quote(request.document_id, safe="")
+        chunk_id = quote(request.chunk_id, safe="")
+        data = self._post(
+            f"/internal/mcp/v1/documents/{document_id}/chunks/{chunk_id}/context",
+            {
+                "include": request.include.value, "before": request.before,
+                "after": request.after, "max_chars": request.max_chars,
+            },
+            headers=self._scope_headers(principal),
+        )
+
+        def row(value: dict[str, Any]) -> ContextChunkV1:
+            return ContextChunkV1(
+                chunk_id=str(value.get("chunk_id", "")),
+                relation=str(value.get("relation", "")),
+                text=str(value.get("text", "")),
+                content_type=str(value.get("content_type", "text")),
+                source_locator=value.get("source_locator"),
+            )
+
+        return ChunkContextResult(
+            document_id=str(data.get("document_id", request.document_id)),
+            hit=row(data["hit"]),
+            parent=row(data["parent"]) if data.get("parent") else None,
+            neighbors=tuple(row(item) for item in data.get("neighbors", [])),
+            truncated=bool(data.get("truncated", False)),
+        )
+
+    def get_asset(self, document_id: str, asset_id: str, principal) -> AssetContent:
+        encoded_document = quote(document_id, safe="")
+        encoded_asset = quote(asset_id, safe="")
         data = self._get(
-            f"/internal/mcp/v1/documents/{document_id}",
+            f"/internal/mcp/v1/documents/{encoded_document}/assets/{encoded_asset}",
+            headers=self._scope_headers(principal),
+        )
+        try:
+            raw = base64.b64decode(data.get("data_base64", ""), validate=True)
+        except Exception as exc:
+            raise UpstreamUnavailableError("invalid asset payload") from exc
+        return AssetContent(
+            metadata=AssetV1(**data["metadata"]),
+            data=raw,
+        )
+
+    def get_document(self, document_id: str, principal) -> DocumentInfo:
+        encoded_document_id = quote(document_id, safe="")
+        data = self._get(
+            f"/internal/mcp/v1/documents/{encoded_document_id}",
             headers=self._scope_headers(principal),
         )
         return DocumentInfo(
@@ -293,13 +425,17 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
             summary=data.get("summary", ""),
             tags=list(data.get("tags", [])),
             chunk_count=int(data.get("chunk_count", 0)),
+            version=data.get("version"), folder_id=data.get("folder_id"),
+            parser=data.get("parser"), index_status=data.get("index_status"),
+            content_type=data.get("content_type"), updated_at=data.get("updated_at"),
         )
 
     def get_document_chunks(
         self, document_id: str, page: int, page_size: int, principal,
     ) -> DocumentChunkPage:
+        encoded_document_id = quote(document_id, safe="")
         data = self._get(
-            f"/internal/mcp/v1/documents/{document_id}/chunks",
+            f"/internal/mcp/v1/documents/{encoded_document_id}/chunks",
             {"page": int(page), "page_size": int(page_size)},
             headers=self._scope_headers(principal),
         )
@@ -318,6 +454,64 @@ class HttpRagReadOnlyClient(RagReadOnlyClient):
                 )
                 for c in data.get("chunks", [])
             ],
+        )
+
+    def list_documents(self, request: DocumentListRequest, principal) -> DocumentPage:
+        params: dict[str, Any] = {
+            "collection": request.collection, "page": request.page,
+            "page_size": request.page_size, "sort": request.sort,
+            "tag_operator": request.tag_operator,
+        }
+        for key in ("q", "status", "file_type", "folder_id",
+                    "updated_after", "updated_before"):
+            value = getattr(request, key)
+            if value is not None:
+                params[key] = value
+        if request.tag_ids:
+            params["tag_id"] = list(request.tag_ids)
+        data = self._get(
+            "/internal/mcp/v1/documents", params,
+            headers=self._scope_headers(principal),
+        )
+        return DocumentPage(
+            collection=str(data.get("collection", request.collection)),
+            page=int(data.get("page", request.page)),
+            page_size=int(data.get("page_size", request.page_size)),
+            total=int(data.get("total", 0)),
+            documents=[DocumentSummary(
+                document_id=str(d.get("document_id", "")),
+                collection=str(d.get("collection", request.collection)),
+                title=str(d.get("title", "")),
+                document_type=str(d.get("document_type", "")),
+                source=str(d.get("source", "")), status=str(d.get("status", "")),
+                chunk_count=int(d.get("chunk_count", 0)),
+                image_count=int(d.get("image_count", 0)),
+                tags=[str(t) for t in d.get("tags", [])],
+                folder_id=d.get("folder_id"), created_at=d.get("created_at"),
+                updated_at=d.get("updated_at"),
+            ) for d in data.get("documents", [])],
+        )
+
+    def get_chunk(self, document_id: str, chunk_id: str, principal) -> ChunkDetail:
+        encoded_document_id = quote(document_id, safe="")
+        encoded_chunk_id = quote(chunk_id, safe="")
+        data = self._get(
+            f"/internal/mcp/v1/documents/{encoded_document_id}/chunks/{encoded_chunk_id}",
+            headers=self._scope_headers(principal),
+        )
+        return ChunkDetail(
+            document_id=str(data.get("document_id", document_id)),
+            chunk_id=str(data.get("chunk_id", chunk_id)),
+            index=int(data.get("index", 0)), text=str(data.get("text", "")),
+            heading=data.get("heading"), page=data.get("page"),
+            content_type=str(data.get("content_type", "text")),
+            previous_chunk_id=data.get("previous_chunk_id"),
+            next_chunk_id=data.get("next_chunk_id"), parent_id=data.get("parent_id"),
+            source_locator=dict(data.get("source_locator") or {}),
+            asset_ids=[str(x) for x in data.get("asset_ids", [])],
+            document_version=data.get("document_version"),
+            chunk_version=data.get("chunk_version"),
+            is_current=bool(data.get("is_current", True)),
         )
 
 

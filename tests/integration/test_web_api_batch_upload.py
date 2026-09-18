@@ -184,7 +184,7 @@ class TestBatchUpload:
             f"/api/v1/collections/{cid}/documents",
             files=[
                 ("files", ("a.pdf", b"%PDF-1.4", "application/pdf")),
-                ("files", ("bad.txt", b"nope", "text/plain")),
+                ("files", ("bad.exe", b"nope", "application/octet-stream")),
                 ("files", ("b.md", b"# T", "text/markdown")),
             ],
         )
@@ -193,7 +193,7 @@ class TestBatchUpload:
         assert body["total"] == 3
         assert body["accepted"] == 2 and body["rejected"] == 1
         rejected = next(f for f in body["files"] if f["status"] == "rejected")
-        assert rejected["filename"] == "bad.txt"
+        assert rejected["filename"] == "bad.exe"
         assert rejected["task_id"] is None
         assert rejected["document_id"] is None
         assert rejected["error"]["code"] == "UNSUPPORTED_FILE_TYPE"
@@ -269,7 +269,7 @@ class TestBatchLimits:
         client = TestClient(create_app(services=services))
         cid = collection_uuid("default")
 
-        many = [("files", (f"f{i}.pdf", b"%PDF", "application/pdf")) for i in range(51)]
+        many = [("files", (f"f{i}.pdf", b"%PDF", "application/pdf")) for i in range(101)]
         resp = client.post(f"/api/v1/collections/{cid}/documents", files=many)
         assert resp.status_code == 413
         assert resp.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
@@ -344,7 +344,7 @@ class TestSingleFileCompat:
 
         resp = client.post(
             f"/api/v1/collections/{cid}/documents",
-            files={"file": ("data.txt", b"hello", "text/plain")},
+            files={"file": ("data.exe", b"hello", "application/octet-stream")},
         )
         assert resp.status_code == 415
         assert resp.json()["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"

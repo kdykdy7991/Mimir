@@ -101,10 +101,19 @@ def _register_default_tools(handler: ProtocolHandler) -> None:
     from src.mcp_server.tools.get_document_chunks import (
         register as register_chunks,
     )
+    from src.mcp_server.tools.list_documents import register as register_documents
+    from src.mcp_server.tools.get_chunk import register as register_chunk
+    from src.mcp_server.tools.search_chunks import register as register_search
+    from src.mcp_server.tools.get_chunk_context import register as register_context
+    from src.mcp_server.tools.data_sources import register as register_data_sources
 
     for register_fn in (
         register_query, register_list, register_document,
         register_summary, register_chunks,
+        register_documents, register_chunk,
+        register_search,
+        register_context,
+        register_data_sources,
     ):
         try:
             register_fn(handler)
@@ -207,6 +216,8 @@ async def run_server(
         budget_from_settings,
         set_active_budget,
     )
+    from src.application.services.resource_limits import default_workload_limiter
+    from src.application.services.audit_store import AuditStore
 
     set_active_budget(budget_from_settings(settings))
 
@@ -215,6 +226,13 @@ async def run_server(
         server_title=settings.mcp.server_title,
         server_description=settings.mcp.server_description,
         instructions=settings.mcp.instructions,
+        limiter=default_workload_limiter(
+            mcp_concurrency=settings.mcp_limits.per_key_concurrency,
+            mcp_requests_per_minute=settings.mcp_limits.per_key_requests_per_minute,
+        ),
+        # Audit is application state, deliberately separate from the MCP
+        # credential directory (deployments may mount that directory read-only).
+        audit_store=AuditStore(Path("./data/db/audit.db")),
     )
     _register_default_tools(handler)
     logger.info(

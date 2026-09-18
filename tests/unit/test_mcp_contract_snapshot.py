@@ -146,8 +146,10 @@ def test_registered_tool_names_are_stable_and_readonly():
     handler = _build_handler()
     names = sorted(handler.list_names())
     assert names == [
-        "get_document", "get_document_chunks", "get_document_summary",
-        "list_collections", "query_knowledge_hub",
+        "get_chunk", "get_chunk_context", "get_document", "get_document_chunks",
+        "get_document_summary", "get_sync_status", "list_collections",
+        "list_data_sources", "list_documents", "list_sync_failures",
+        "query_knowledge_hub", "search_chunks",
     ]
     lowered = " ".join(names).lower()
     for word in _FORBIDDEN_WORDS:

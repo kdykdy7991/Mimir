@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import pytest
 
 from src.mcp_server.auth.context import TrustedLocalPrincipal
-from src.mcp_server.clients.errors import AccessDeniedError
+from src.mcp_server.clients.errors import AccessDeniedError, ResourceNotFoundError
 from src.mcp_server.clients.http_client import HttpRagReadOnlyClient
 from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
 
@@ -108,8 +108,8 @@ def test_limited_principal_sees_only_its_collections(chain):
     assert {c.name for c in hr} == {"hr"}
 
 
-def test_doc_in_unauthorized_collection_is_denied(chain):
-    with pytest.raises(AccessDeniedError):
+def test_doc_in_unauthorized_collection_is_indistinguishable_from_missing(chain):
+    with pytest.raises(ResourceNotFoundError):
         chain.get_document("fin-doc", _hr())
     info = chain.get_document("fin-doc", _finance())
     assert info.document_id == "fin-doc"
@@ -117,7 +117,7 @@ def test_doc_in_unauthorized_collection_is_denied(chain):
 
 def test_trusted_local_cannot_leak_over_http(chain):
     # TrustedLocal sends no scope header → the internal API denies all.
-    with pytest.raises(AccessDeniedError):
+    with pytest.raises(ResourceNotFoundError):
         chain.get_document("fin-doc", TrustedLocalPrincipal())
     assert chain.list_collections(TrustedLocalPrincipal()) == []
 

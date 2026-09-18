@@ -3,8 +3,306 @@
   "contract_version": "v1",
   "generated_from": "src.mcp_server.server._register_default_tools (live MCP tools/list registry; shared by stdio and streamable-http)",
   "read_only": true,
-  "tool_count": 5,
+  "tool_count": 12,
   "tools": {
+    "get_chunk": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "document_id",
+        "chunk_id"
+      ],
+      "collection_authorization": "Document ownership and collection access are resolved before exact chunk ownership is checked.",
+      "compat_aliases": [
+        {
+          "alias": "doc_id",
+          "canonical": "document_id",
+          "phase_out": "compatibility window",
+          "surface": "input"
+        }
+      ],
+      "description": "Read one exact chunk after verifying its document, collection authorization, and chunk ownership.",
+      "errors": [
+        {
+          "condition": "missing ids",
+          "message": "'document_id' and 'chunk_id' are required and must be non-empty strings",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown, unauthorized, or wrong-document chunk",
+          "message": "chunk not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "document_id",
+              "chunk_id"
+            ]
+          },
+          {
+            "required": [
+              "doc_id",
+              "chunk_id"
+            ]
+          }
+        ],
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "doc_id": {
+            "description": "Deprecated alias for document_id.",
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "expected_chunk_version": {
+            "description": "Optional version assertion; mismatch returns stale_reference.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "kind": "exact_chunk_read",
+      "lifecycle": "long_term",
+      "limits": "Both document id and chunk id are required; additionalProperties rejected.",
+      "name": "get_chunk",
+      "output_schema": {
+        "properties": {
+          "asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "chunk_id": {
+            "type": "string"
+          },
+          "chunk_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "heading": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": "integer"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "next_chunk_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_chunk_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_locator": {
+            "type": "object"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunk_id",
+          "index",
+          "text",
+          "content_type",
+          "previous_chunk_id",
+          "next_chunk_id",
+          "parent_id",
+          "source_locator",
+          "asset_ids",
+          "document_version",
+          "chunk_version",
+          "is_current"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "One full chunk with stable neighbors, source locator, parent id and asset ids."
+    },
+    "get_chunk_context": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "document_id",
+        "chunk_id",
+        "include",
+        "before",
+        "after",
+        "max_chars"
+      ],
+      "collection_authorization": "Document scope and chunk ownership are checked before parent or neighbor reads.",
+      "compat_aliases": [],
+      "description": "Read bounded parent and neighboring context for one authorized chunk.",
+      "errors": [
+        {
+          "condition": "invalid bounds",
+          "message": "stable validation message",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown or unauthorized document/chunk",
+          "message": "chunk not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunk_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "document_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "include": {
+            "default": "both",
+            "enum": [
+              "parent",
+              "neighbors",
+              "both"
+            ],
+            "type": "string"
+          },
+          "max_chars": {
+            "default": 12000,
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunk_id"
+        ],
+        "type": "object"
+      },
+      "kind": "bounded_chunk_context",
+      "lifecycle": "long_term",
+      "limits": "before/after 0..10; max_chars 1..100000; truncation is explicit.",
+      "name": "get_chunk_context",
+      "output_schema": {
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "hit": {
+            "type": "object"
+          },
+          "neighbors": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "parent": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "hit",
+          "parent",
+          "neighbors",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "The authorized hit chunk plus optional active parent and ordered neighbors under one explicit character budget."
+    },
     "get_document": {
       "backends": {
         "in_process_client": true,
@@ -108,6 +406,12 @@
           "collection": {
             "type": "string"
           },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "doc_id": {
             "type": "string"
           },
@@ -119,6 +423,24 @@
           },
           "document_type": {
             "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parser": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"
@@ -137,6 +459,18 @@
           },
           "title": {
             "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -396,6 +730,12 @@
           "collection": {
             "type": "string"
           },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "doc_id": {
             "type": "string"
           },
@@ -407,6 +747,24 @@
           },
           "document_type": {
             "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parser": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"
@@ -425,6 +783,18 @@
           },
           "title": {
             "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -440,6 +810,73 @@
       },
       "pagination": null,
       "returns": "Same handler, schema and output as get_document."
+    },
+    "get_sync_status": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "source_id"
+      ],
+      "collection_authorization": "Datasource collection access is rechecked before status is returned.",
+      "compat_aliases": [],
+      "description": "Read the latest status for one authorized datasource.",
+      "errors": [
+        {
+          "condition": "unknown or unauthorized datasource",
+          "message": "data source not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "kind": "datasource_status",
+      "lifecycle": "long_term",
+      "limits": "One datasource per call.",
+      "name": "get_sync_status",
+      "output_schema": {
+        "properties": {
+          "data_source": {
+            "type": "object"
+          },
+          "last_run": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data_source",
+          "last_run"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "Latest secret-free sync state and bounded counters for one datasource."
     },
     "list_collections": {
       "backends": {
@@ -540,6 +977,289 @@
       },
       "pagination": null,
       "returns": "Authorized collections as name/description/document_count/chunk_count entries. Counts may be null when backing storage is unavailable — zero is never fabricated. No disk paths."
+    },
+    "list_data_sources": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [],
+      "collection_authorization": "Only sources whose collection is authorized are returned.",
+      "compat_aliases": [],
+      "description": "List datasource metadata authorized for the current key.",
+      "errors": [
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "kind": "datasource_discovery",
+      "lifecycle": "long_term",
+      "limits": "Collection whitelist filtering is always applied.",
+      "name": "list_data_sources",
+      "output_schema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "data_sources": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "data_sources"
+        ],
+        "type": "object"
+      },
+      "pagination": null,
+      "returns": "Secret-free datasource metadata authorized for the current MCP key."
+    },
+    "list_documents": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "collection",
+        "page",
+        "page_size",
+        "q",
+        "status",
+        "file_type",
+        "folder_id",
+        "tag_ids",
+        "tag_operator",
+        "updated_after",
+        "updated_before",
+        "sort"
+      ],
+      "collection_authorization": "Collection access is checked before discovery; only scoped records are returned.",
+      "compat_aliases": [],
+      "description": "Discover authorized documents with bounded filters, stable sorting and pagination. Chunk bodies are never included.",
+      "errors": [
+        {
+          "condition": "unknown or unauthorized collection",
+          "message": "collection not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "invalid filter or pagination",
+          "message": "client InvalidRequestError text",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "file_type": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 20,
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "q": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "sort": {
+            "default": "updated_desc",
+            "enum": [
+              "updated_desc",
+              "updated_asc",
+              "name_asc",
+              "name_desc",
+              "size_desc"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "tag_operator": {
+            "default": "and",
+            "enum": [
+              "and",
+              "or"
+            ],
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "number"
+          },
+          "updated_before": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "kind": "document_discovery",
+      "lifecycle": "long_term",
+      "limits": "q <= 200 chars; at most 20 tag ids; bounded page size.",
+      "name": "list_documents",
+      "output_schema": {
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collection",
+          "page",
+          "page_size",
+          "total",
+          "has_next",
+          "documents"
+        ],
+        "type": "object"
+      },
+      "pagination": "1-based page pagination; page_size 1..50 (default 20).",
+      "returns": "A bounded page of authorized document summaries without chunk bodies or host paths."
+    },
+    "list_sync_failures": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "source_id",
+        "limit"
+      ],
+      "collection_authorization": "Datasource collection access is rechecked before failures are returned.",
+      "compat_aliases": [],
+      "description": "List bounded failures for one authorized datasource.",
+      "errors": [
+        {
+          "condition": "unknown or unauthorized datasource",
+          "message": "data source not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "kind": "datasource_failures",
+      "lifecycle": "long_term",
+      "limits": "limit 1..100, default 20.",
+      "name": "list_sync_failures",
+      "output_schema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "failures": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "failures"
+        ],
+        "type": "object"
+      },
+      "pagination": "At most 100 most-recent failures.",
+      "returns": "A bounded list of stable sync failure/conflict codes without credentials or remote content."
     },
     "query_knowledge_hub": {
       "backends": {
@@ -754,6 +1474,247 @@
       },
       "pagination": "Single top-k window (no cursor); 1..50, default 10.",
       "returns": "Ranked raw evidence chunks (chunk_id, document_id, title, source, page, score, text excerpt) plus diagnostics. Returns NO synthesized answer."
+    },
+    "search_chunks": {
+      "backends": {
+        "in_process_client": true,
+        "standalone_http_client": true,
+        "stdio_mcp": true,
+        "streamable_http_mcp": true
+      },
+      "canonical_params": [
+        "query",
+        "alternate_queries",
+        "collection",
+        "collection_ids",
+        "failure_policy",
+        "mode",
+        "filters",
+        "top_k",
+        "rerank",
+        "threshold",
+        "include_content"
+      ],
+      "collection_authorization": "Every requested collection is checked before any retrieval; one denial rejects the whole request. Governance filters only narrow that scope.",
+      "compat_aliases": [],
+      "description": "Search one authorized collection using dense, sparse, or hybrid retrieval with governance filters. Returns evidence, never an answer.",
+      "errors": [
+        {
+          "condition": "invalid request or filter",
+          "message": "stable validation message",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "unknown or unauthorized collection",
+          "message": "collection not found or not accessible",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream 429 / rate budget (backend=http; no limiter implemented in Task 02)",
+          "message": "rate_limited: rate limit exceeded",
+          "surface": "tool result is_error=true"
+        },
+        {
+          "condition": "upstream explicit 'overloaded' code",
+          "message": "overloaded: service is overloaded, retry later",
+          "surface": "tool result is_error=true"
+        }
+      ],
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "alternate_queries": {
+            "items": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "collection_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "failure_policy": {
+            "default": "fail_fast",
+            "enum": [
+              "fail_fast",
+              "allow_partial"
+            ],
+            "type": "string"
+          },
+          "filters": {
+            "additionalProperties": false,
+            "properties": {
+              "content_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "document_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "file_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "folder_id": {
+                "type": "string"
+              },
+              "include_descendants": {
+                "default": false,
+                "type": "boolean"
+              },
+              "source_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "tag_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "tag_operator": {
+                "default": "and",
+                "enum": [
+                  "and",
+                  "or"
+                ],
+                "type": "string"
+              },
+              "updated_after": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "updated_before": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "include_content": {
+            "default": true,
+            "type": "boolean"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "dense",
+              "sparse",
+              "hybrid"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "rerank": {
+            "default": true,
+            "type": "boolean"
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "top_k": {
+            "default": 10,
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "kind": "unified_evidence_search",
+      "lifecycle": "long_term",
+      "limits": "query 1..2000; at most 3 alternate queries; top_k 1..50; at most 20 collections or values per filter dimension.",
+      "name": "search_chunks",
+      "output_schema": {
+        "properties": {
+          "collection": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "collections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "diagnostics": {
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "collection",
+          "collections",
+          "mode",
+          "count",
+          "evidence",
+          "warnings",
+          "diagnostics",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "pagination": "Bounded top-k response; response budget emits explicit truncation warnings.",
+      "returns": "Governance-filtered Evidence v1 from one or more authorized collections with deterministic multi-query fusion."
     }
   }
 }

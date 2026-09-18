@@ -324,9 +324,13 @@ class McpLimitsSettings(BaseModel):
     max_structured_chars: int = 200_000
     max_content_chars: int = 8_000
     max_preview_chars: int = 200
-    # Reserved for Task 05 (multi-query); no tool accepts this input yet.
+    # Task 05 multi-query / multi-collection request limits.
     alternate_query_max_count: int = 3
     alternate_query_total_max_chars: int = 3_000
+    collection_max_count: int = 20
+    search_candidate_work_max: int = 1_000
+    per_key_concurrency: int = 4
+    per_key_requests_per_minute: int = 600
 
     @model_validator(mode="after")
     def _validate_budget(self) -> McpLimitsSettings:
@@ -335,6 +339,8 @@ class McpLimitsSettings(BaseModel):
             "page_size_default", "page_size_max", "max_evidence_count",
             "max_structured_chars", "max_content_chars", "max_preview_chars",
             "alternate_query_max_count", "alternate_query_total_max_chars",
+            "collection_max_count", "search_candidate_work_max",
+            "per_key_concurrency", "per_key_requests_per_minute",
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"mcp_limits.{name} must be >= 1")
@@ -389,6 +395,8 @@ class Settings(BaseModel):
     mcp: McpPresentationSettings = Field(default_factory=McpPresentationSettings)
     mcp_server: McpServerSettings = Field(default_factory=McpServerSettings)
     mcp_limits: McpLimitsSettings = Field(default_factory=McpLimitsSettings)
+    tag_enrichment_enabled: bool = False
+    derived_content_enabled: bool = False
 
 
 # ---------------------------------------------------------------------------

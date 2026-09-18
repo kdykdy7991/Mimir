@@ -78,6 +78,26 @@ export type DocumentListFilters = {
     | "size_desc";
 };
 
+export type RevisionSummary = {
+  revision_id: string; base_revision_id: string | null;
+  source: "initial" | "edit" | "rollback";
+  status: "pending_index" | "active" | "retired" | "index_failed";
+  reason: string; actor: string; created_at: string;
+  checksum_sha256: string; is_current: boolean;
+};
+export type TagSuggestion = {
+  suggestion_id: string; document_id: string; revision_id: string;
+  suggested_name: string; existing_tag_id: string | null;
+  model: string; prompt_version: string; confidence: number;
+  status: "pending" | "approved" | "rejected";
+  reviewer: string | null; reviewed_at: string | null;
+};
+export type DerivedArtifact = {
+  artifact_id: string; kind: "summary" | "synthetic_question";
+  revision_id: string; text: string; model: string; prompt_version: string;
+  weight: number; enabled: boolean;
+};
+
 export type BatchDocumentAction = "add" | "remove" | "replace";
 export type BatchDocumentResult = {
   document_id: string;

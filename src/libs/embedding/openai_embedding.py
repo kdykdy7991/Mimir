@@ -37,9 +37,10 @@ from src.libs.embedding.base_embedding import (
 )
 
 try:
-    from openai import OpenAI
+    from openai import DefaultHttpxClient, OpenAI
 except ImportError:
     OpenAI = None  # type: ignore
+    DefaultHttpxClient = None  # type: ignore
 
 _logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class OpenAIEmbedding(BaseEmbedding):
         self.client = OpenAI(
             api_key=settings.api_key,
             base_url=settings.base_url or "https://api.openai.com/v1",
+            http_client=DefaultHttpxClient(trust_env=False),
         )
         self._dimensions = settings.dimensions
 

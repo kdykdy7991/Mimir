@@ -1,6 +1,6 @@
 # 任务 03：文档与 Chunk 读取原语
 
-> 状态：待实施  
+> 状态：已完成
 > 前置：任务 02 Gate 通过  
 > 后继：任务 04
 
@@ -86,3 +86,17 @@ Gate：Agent 可完成 collection → document → chunk 的只读钻取；旧�
 
 回滚：注销两只新工具并回退 Client 扩展；共享应用服务可以保留，因为 Web 行为已由回归测试锁定。
 
+## 7. 实施记录（2026-09-16）
+
+- 复用 `DocumentService` 的 SQL 分页查询，并补充轻量 document key 入口，形成 transport-neutral 文档发现服务；Web 既有行为不变。
+- 两种 `RagReadOnlyClient` 实现和版本化内部 API 均增加 `list_documents`、`get_chunk`；HTTP 继续透传编码后的 collection scope header。
+- `list_documents` 提供 collection、文本、状态、文件类型、文件夹、tag AND/OR、更新时间、稳定排序和有界分页；不返回 Chunk 正文或绝对路径。
+- `get_chunk` 依次校验 document 归属、collection 权限和 chunk 归属，返回全文、稳定邻居、parent、source locator 与 asset IDs。
+- `get_document` 可选追加 version/folder/parser/index status/content type/updated time；保留 `doc_id` 和 `get_document_summary`。
+- 真实注册表现为 7 个只读工具；契约清单、Schema 快照和 capabilities 已同步，两个新 feature flag 为 true。
+
+### Gate 结果
+
+- Task 03 定向单元与契约测试通过；`python -m compileall -q src` 通过；`scripts/mcp_contract_inventory.py --check` 通过。
+- 双传输测试改为使用临时配置与临时认证数据库，并显式禁用 localhost 请求的环境代理；stdio/HTTP capabilities 一致性与 Web 分页性能 Gate 合计 8 项通过。
+- 全量单测另有与本任务无关的既存失败（LLM 消息格式、代理 URL、MCP SDK `mime_type` 字段）；定向 Gate 不受影响。

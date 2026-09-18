@@ -39,6 +39,8 @@ ALLOWED_TOP_LEVEL = frozenset({
     "__init__.py",
     "__pycache__",
     "application",
+    # Transport-neutral, non-agent external datasource adapters (Task 08).
+    "connectors",
     "core",
     "document_parser",
     "ingestion",

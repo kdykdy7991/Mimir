@@ -1,11 +1,11 @@
 # 任务 05：多查询与多知识库检索
 
-> 状态：待实施；前置：任务 04 Gate；后继：任务 06
+> 状态：已完成；前置：任务 04 Gate 已通过；后继：任务 06
 
 ## 目标与边界
 
 允许外部 Agent 显式提交多个查询并跨多个已授权 collection 检索。SKDY 仅执行、融合和溯源，不生成替代查询，
-不做查询规划或父子展开。扩展 `search_chunks`：必填 `query`，可选 `alternate_queries`（默认最多 4 条）、
+不做查询规划或父子展开。扩展 `search_chunks`：必填 `query`，可选 `alternate_queries`（最多 3 条，连同主查询总计 4 条）、
 `collection_ids`、`failure_policy=fail_fast|allow_partial`；Evidence 增加 `matched_queries`。
 
 ## 原子任务
@@ -30,3 +30,10 @@ Gate：结果确定且可溯源、权限 fail-closed、单库行为兼容、评�
 
 回滚：capabilities 关闭多查询/多库并把上限降为 1；保留字段解析，避免 Schema 回退破坏客户端。
 
+## 完成记录（2026-09-16）
+
+- `SearchRequest` 已支持规范化 `alternate_queries`、互斥的 `collection/collection_ids`、`failure_policy` 与 query × collection × top-k 工作量预算；
+- 多查询使用固定参数 RRF，以 collection/document/chunk 稳定身份融合并记录 `matched_queries`；跨库先做等额独立召回，再全局融合，rerank 仅执行一次；
+- 所有 collection 在检索前完成授权预检；`fail_fast` 和 `allow_partial` 已实现，全部 collection 失败仍返回上游错误；
+- 双 Client、内部 HTTP API、MCP Schema、capabilities 和三份冻结契约快照已同步；Task 04 单库调用保持兼容；
+- Gate：Task 04/05 相关单元与契约测试分组 137 passed；双传输、真实 CLI、capabilities 与 Golden Set 46 passed、1 个不可用外部 embedding Provider 用例 skipped；inventory、compileall 与 diff check 通过。

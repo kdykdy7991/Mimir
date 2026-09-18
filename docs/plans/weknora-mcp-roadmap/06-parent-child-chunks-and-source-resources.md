@@ -1,6 +1,6 @@
 # 任务 06：父子分块、上下文与来源资源
 
-> 状态：待实施；前置：任务 05 Gate；后继：任务 07
+> 状态：已完成；前置：任务 05 Gate 已通过；后继：任务 07
 
 ## 目标与模型
 
@@ -32,3 +32,11 @@ Gate：迁移失败不影响查询，父子收益获批准，资源无泄漏，�
 
 回滚：停止新格式写入并切回上一 active version；确认稳定前不得删除任何已生成版本。
 
+## 完成记录（2026-09-16）
+
+- 已冻结 `index_format_version=2`、parent/child/source span/version/asset 契约，并兼容读取 v1 `parent_id/image_ids`；
+- 已实现 Markdown/DOCX heading、PDF 页组、PPT 页、整表及无结构窗口的一层确定性 parent，parent 不进入默认召回；
+- 已新增 SQLite sidecar staging/active/retired 版本仓库，摄取成功后原子切 active，失败清 staging，旧 active 保留；
+- 已贯通 `get_chunk_context`、双 Client、内部 API，以及 chunk/asset MCP Resource templates；动态读取逐次鉴权并拒绝路径遍历、越权、危险 MIME 和超大资产；
+- 已提供 `scripts/rebuild_parent_chunks.py` 单文档 dry-run/apply 迁移入口；旧数据不在启动时全量迁移；
+- 最终 Gate：核心单元/契约 148 passed；摄取/存储回归 74 passed；内部 API 18 passed；真实双传输、CLI 与 Golden Set 31 passed、2 skipped；其余鉴权/Web/分页性能集成 57 passed。契约库存为 9 工具，compileall 与 `git diff --check` 通过。检索仍只召回 child，因此 Golden Set 指标无变化。

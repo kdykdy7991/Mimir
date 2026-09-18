@@ -39,6 +39,7 @@ from uuid import UUID, uuid4, uuid5
 
 from src.application.identifiers import collection_uuid, document_uuid
 from src.application.services.task_tracker import TaskRecord, TaskTracker
+from src.application.services.task_state_machine import TERMINAL_TASK_STATUSES
 from src.application.services.task_types import TaskError, TaskStage
 from src.application.services.upload_types import (
     BatchFileResult,
@@ -64,6 +65,10 @@ class TaskCancelledError(Exception):
     records a terminal ``canceled`` trace without rolling back any already
     completed atomic writes (existing documents / old indexes are kept).
     """
+
+
+class TaskAlreadyTerminalError(Exception):
+    """Stop a stale worker after another actor has settled its task."""
 
 
 class RetrySourceMissingError(LookupError):
@@ -735,10 +740,17 @@ class IngestionService:
         """
         # First transition: pending → running. We mark stage="load" so
         # the very first poll shows motion instead of a stuck "pending".
-        self._tracker.update(
-            task_id,
-            lambda rec: rec.mark_running("load"),
-        )
+        def _mark_running(rec: TaskRecord) -> None:
+            if rec.status in TERMINAL_TASK_STATUSES:
+                raise TaskAlreadyTerminalError(task_id)
+            rec.mark_running("load")
+
+        try:
+            self._tracker.update(task_id, _mark_running)
+        except TaskAlreadyTerminalError:
+            self._cleanup_temp(ingest_path)
+            self._invoke_on_complete(task_id)
+            return
 
         # Guard against a cancel that queued while this task waited for a
         # worker slot: the task is already terminal ``cancelled`` → clean up
@@ -790,12 +802,12 @@ class IngestionService:
                 raise TaskCancelledError(task_id)
             public_stage = _canonical_stage(stage)
             percent = _percent_from_counts(current, total)
-            self._tracker.update(
-                task_id,
-                lambda rec: rec.update_progress(
-                    public_stage, current, total, percent,
-                ),
-            )
+            def _update(rec: TaskRecord) -> None:
+                if rec.status in TERMINAL_TASK_STATUSES:
+                    raise TaskAlreadyTerminalError(task_id)
+                rec.update_progress(public_stage, current, total, percent)
+
+            self._tracker.update(task_id, _update)
             # Keep the in-memory trace fresh so ``GET /ingestions/{id}/trace``
             # can report completed stages + the current stage mid-flight.
             if self._trace_store is not None and trace is not None:
@@ -838,6 +850,11 @@ class IngestionService:
                     canonical = Path(canonical_source)
                     canonical.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(ingest_path, canonical)
+            except TaskAlreadyTerminalError:
+                # A concurrent completion/reconciliation won the race. The
+                # stale worker must stop without attempting a second terminal
+                # transition or rewriting the winning result.
+                pass
             except TaskCancelledError:
                 # Cooperative cancel: stop here, do not roll back completed
                 # writes, mark the task terminal ``cancelled`` and record a
@@ -871,14 +888,16 @@ class IngestionService:
                 else:
                     if trace is not None:
                         trace.status = "success"
+                    # Terminal success means every required side effect is
+                    # visible. Invalidate warmed readers before publishing
+                    # ``succeeded`` so pollers cannot race a stale cache.
+                    self._invalidate_collection(collection)
+                    if self._on_ingested is not None:
+                        self._on_ingested()
                     self._tracker.update(
                         task_id,
                         lambda rec: rec.mark_succeeded(),
                     )
-                    # A NEW document was written (integrity record included).
-                    # Invalidate caches now so it is immediately resolvable.
-                    if self._on_ingested is not None:
-                        self._on_ingested()
                 if trace is not None:
                     trace.finish()
                     self._trace_store.record(trace)  # type: ignore[union-attr]

@@ -31,6 +31,7 @@ from src.application.composition import ApplicationServices
 from src.web_api.exception_handlers import register_exception_handlers
 from src.web_api.middleware.request_id import RequestIDMiddleware
 from src.web_api.middleware.request_timing import RequestTimingMiddleware
+from src.web_api.middleware.audit import AuditMiddleware
 from src.web_api.routers import (
     batch,
     collections,
@@ -45,6 +46,9 @@ from src.web_api.routers import (
     tags,
     traces,
     mcp_keys,
+    revisions,
+    enrichment,
+    data_sources,
 )
 from src.web_api.internal_mcp import router as internal_mcp_router
 
@@ -93,6 +97,7 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
 
     # Request-ID wraps timing so upload timing logs carry the same correlation id.
     app.add_middleware(RequestTimingMiddleware)
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(RequestIDMiddleware)
 
     register_exception_handlers(app)
@@ -114,6 +119,9 @@ def create_app(services: ApplicationServices | None = None) -> FastAPI:
     app.include_router(folders.router, prefix=API_PREFIX)
     app.include_router(batch.router, prefix=API_PREFIX)
     app.include_router(mcp_server.router, prefix=API_PREFIX)
+    app.include_router(revisions.router, prefix=API_PREFIX)
+    app.include_router(enrichment.router, prefix=API_PREFIX)
+    app.include_router(data_sources.router, prefix=API_PREFIX)
 
     # Internal read-only MCP surface (Phase 4 §P4.1) — mounted WITHOUT the
     # public API_PREFIX so it is never exposed as an ordinary public route.

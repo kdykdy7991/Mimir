@@ -80,6 +80,7 @@ class ApplicationServices:
     engines: Any  # EngineCache — multi-collection routing
     db: Any | None = None  # WebApiDB — durable Web API metadata
     usage: Any | None = None  # EmbeddingUsageStore — embedding token accounting
+    audit: Any | None = None  # AuditStore — append-only security ledger
 
 
 def _load_settings(config_path: str | None) -> "Settings":
@@ -201,6 +202,14 @@ def build_application_services(
             settings.vector_store,
         )
 
+    from src.application.services.provider_limits import LimitedEmbedding, LimitedLLM
+    from src.application.services.resource_limits import default_workload_limiter
+
+    workload_limiter = default_workload_limiter()
+    embedding = LimitedEmbedding(embedding, workload_limiter)
+    if llm is not None:
+        llm = LimitedLLM(llm, workload_limiter)
+
     manager = build_document_manager(
         data_dir=data_dir,
         settings=settings,
@@ -223,6 +232,7 @@ def build_application_services(
         vector_store=vector_store,
         splitter=splitter,
         llm=llm,
+        workload_limiter=workload_limiter,
     )
     # Prime the boot collection eagerly so a misconfigured index
     # raises at startup rather than on the first request. Other
@@ -248,6 +258,8 @@ def build_application_services(
         add_listener(usage_store.record)
 
     document_service = DocumentService(manager)
+    from src.application.services.audit_store import AuditStore
+    audit_store = AuditStore(Path(data_dir) / "db" / "audit.db")
 
     return ApplicationServices(
         query=QueryService(
@@ -280,4 +292,5 @@ def build_application_services(
         engines=engines,
         db=web_db,
         usage=usage_store,
+        audit=audit_store,
     )

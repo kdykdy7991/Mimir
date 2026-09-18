@@ -164,7 +164,7 @@ class TestEnabledMode:
             }],
         )
         c.transform([chunk])
-        sent = mock_llm.chat.call_args[0][0]
+        sent = mock_llm.chat.call_args[0][0][0]["content"]
         assert "/data/images/doc/img1.png" in sent
         assert "the surrounding paragraph" in sent
         # The {text} alias is also substituted

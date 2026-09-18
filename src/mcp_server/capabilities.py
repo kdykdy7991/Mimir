@@ -28,8 +28,10 @@ be frozen as a test fixture.
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
+from urllib.parse import unquote, urlsplit
 from typing import TYPE_CHECKING, Any
 
 from src.application.contracts import (
@@ -62,32 +64,12 @@ CONTENT_TYPES = ("text",)
 # exception; every new long-term tool is "long_term".
 _COMPAT_ALIAS_TOOLS = frozenset({"get_document_summary"})
 
-# Roadmap catalogue of deliberately-unsupported capabilities (Task 03+).
+# Roadmap catalogue of deliberately-unsupported capabilities after Task 03.
 # Hand-curated on purpose; "enabled" facts for real tools come from the
 # registry above, never from this list. This single table is also the
 # source of the explicit ``features`` false-flags below, so a capability
 # cannot be advertised as both implemented and planned.
 UNSUPPORTED: tuple[dict[str, str | None], ...] = (
-    {"id": "list_documents", "planned_in": "task-03",
-     "status": "planned"},
-    {"id": "get_chunk", "planned_in": "task-03",
-     "status": "planned"},
-    {"id": "search_chunks", "planned_in": "task-04",
-     "status": "planned"},
-    {"id": "governance_filters", "planned_in": "task-04",
-     "status": "contract_defined_only"},
-    {"id": "multi_query", "planned_in": "task-05",
-     "status": "contract_defined_only"},
-    {"id": "alternate_queries", "planned_in": "task-05",
-     "status": "contract_defined_only"},
-    {"id": "multi_collection_search", "planned_in": "task-05",
-     "status": "planned"},
-    {"id": "parent_child_chunks", "planned_in": "task-06",
-     "status": "planned"},
-    {"id": "source_assets", "planned_in": "task-06",
-     "status": "planned"},
-    {"id": "chunk_context_resources", "planned_in": "task-06",
-     "status": "planned"},
     {"id": "write_tools", "planned_in": None,
      "status": "excluded_by_architecture"},
     {"id": "answer_generation", "planned_in": None,
@@ -135,14 +117,27 @@ def _filter_dimensions_defined() -> list[str]:
     return dimensions
 
 
-def _features_section() -> dict[str, bool]:
+def _features_section(handler: ProtocolHandler) -> dict[str, bool]:
     """Explicit ``false`` flags for every capability that is absent.
 
     Derived from :data:`UNSUPPORTED` so "not implemented" is declared
     exactly once; implemented features are visible in ``tools`` instead
     of a second hand-maintained boolean list.
     """
-    return {str(item["id"]): False for item in UNSUPPORTED}
+    features = {str(item["id"]): False for item in UNSUPPORTED}
+    registered = set(handler.list_names())
+    features["list_documents"] = "list_documents" in registered
+    features["get_chunk"] = "get_chunk" in registered
+    features["search_chunks"] = "search_chunks" in registered
+    features["governance_filters"] = "search_chunks" in registered
+    features["multi_query"] = "search_chunks" in registered
+    features["alternate_queries"] = "search_chunks" in registered
+    features["multi_collection_search"] = "search_chunks" in registered
+    features["chunk_context"] = "get_chunk_context" in registered
+    features["parent_child_chunks"] = "get_chunk_context" in registered
+    features["source_assets"] = "get_chunk_context" in registered
+    features["chunk_context_resources"] = "get_chunk_context" in registered
+    return features
 
 
 def build_capabilities(
@@ -162,9 +157,13 @@ def build_capabilities(
         "evidence_contract": CONTRACT_VERSION,
         "read_only": True,
         "capability_resource": CAPABILITIES_URI,
+        "resource_templates": [
+            "rag://documents/{document_id}/chunks/{chunk_id}",
+            "rag://documents/{document_id}/assets/{asset_id}",
+        ],
         "transports": list(transports or SUPPORTED_TRANSPORTS),
         "tools": _tools_section(handler),
-        "features": _features_section(),
+        "features": _features_section(handler),
         "retrieval": {
             "modes": list(RETRIEVAL_MODES),
             "rerank": {
@@ -178,14 +177,14 @@ def build_capabilities(
                 f.name for f in dataclasses.fields(EvidenceScores)
             ],
             "matched_queries": {
-                "current_max": 1,
-                "reserved_max": budget.alternate_query_max_count,
+                "current_max": 1 + budget.alternate_query_max_count,
+                "alternate_max": budget.alternate_query_max_count,
             },
         },
         "filters": {
             "tag_operators": [op.value for op in TagOperator],
             "dimensions_defined": _filter_dimensions_defined(),
-            "enforced_by_tools": False,
+            "enforced_by_tools": "search_chunks" in set(handler.list_names()),
         },
         "pagination": {
             "top_k": {
@@ -236,9 +235,12 @@ def capability_handlers(document: dict[str, Any]) -> dict[str, Any]:
     """
     from mcp.types import (
         ListResourcesResult,
+        ListResourceTemplatesResult,
         ReadResourceRequestParams,
         ReadResourceResult,
+        BlobResourceContents,
         Resource,
+        ResourceTemplate,
         TextResourceContents,
     )
 
@@ -256,20 +258,90 @@ def capability_handlers(document: dict[str, Any]) -> dict[str, Any]:
             mimeType=CAPABILITIES_MIME_TYPE,
         )])
 
+    async def on_list_resource_templates(
+        ctx: Any, params: Any,
+    ) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(resourceTemplates=[
+            ResourceTemplate(
+                uriTemplate="rag://documents/{document_id}/chunks/{chunk_id}",
+                name="Authorized document chunk",
+                description="One exact authorized chunk as provenance-bearing JSON.",
+                mimeType="application/json",
+            ),
+            ResourceTemplate(
+                uriTemplate="rag://documents/{document_id}/assets/{asset_id}",
+                name="Authorized source asset",
+                description="One bounded source asset after document ownership checks.",
+            ),
+        ])
+
+    def _chunk_ids(uri: str) -> tuple[str, str] | None:
+        parsed = urlsplit(uri)
+        if parsed.query or parsed.fragment:
+            raise ValueError("resource URI must not contain query or fragment")
+        parts = parsed.path.strip("/").split("/")
+        if parsed.scheme != "rag" or parsed.netloc != "documents" or len(parts) != 3 or parts[1] != "chunks":
+            return None
+        raw_ids = (parts[0], parts[2])
+        if any(
+            not raw or raw in {".", ".."} or "/" in unquote(raw) or "\\" in unquote(raw)
+            for raw in raw_ids
+        ):
+            raise ValueError("invalid resource identifier")
+        return unquote(raw_ids[0]), unquote(raw_ids[1])
+
+    def _asset_ids(uri: str) -> tuple[str, str] | None:
+        parsed = urlsplit(uri)
+        if parsed.query or parsed.fragment:
+            raise ValueError("resource URI must not contain query or fragment")
+        parts = parsed.path.strip("/").split("/")
+        if parsed.scheme != "rag" or parsed.netloc != "documents" or len(parts) != 3 or parts[1] != "assets":
+            return None
+        raw_ids = (parts[0], parts[2])
+        if any(
+            not raw or raw in {".", ".."} or "/" in unquote(raw) or "\\" in unquote(raw)
+            for raw in raw_ids
+        ):
+            raise ValueError("invalid resource identifier")
+        return unquote(raw_ids[0]), unquote(raw_ids[1])
+
     async def on_read_resource(
         ctx: Any, params: ReadResourceRequestParams,
     ) -> ReadResourceResult:
-        if str(params.uri).rstrip("/") != CAPABILITIES_URI:
-            # Raised, not returned: the library turns it into a
-            # protocol-level error (unknown resource is not a payload).
+        uri = str(params.uri)
+        if uri.rstrip("/") == CAPABILITIES_URI:
+            return ReadResourceResult(contents=[TextResourceContents(
+                uri=CAPABILITIES_URI, text=body,
+                mimeType=CAPABILITIES_MIME_TYPE,
+            )])
+        ids = _chunk_ids(uri)
+        asset_ids = _asset_ids(uri)
+        if ids is None and asset_ids is None:
             raise ValueError(f"unknown resource: {params.uri}")
+        from src.mcp_server.auth.context import principal_from_server_context
+        from src.mcp_server.clients.errors import AccessDeniedError, ResourceNotFoundError
+        from src.mcp_server.tools.common import client_for
+
+        try:
+            principal = principal_from_server_context(ctx)
+            if asset_ids is not None:
+                asset = client_for().get_asset(asset_ids[0], asset_ids[1], principal)
+                return ReadResourceResult(contents=[BlobResourceContents(
+                    uri=uri, blob=base64.b64encode(asset.data).decode("ascii"),
+                    mimeType=asset.metadata.mime_type,
+                )])
+            chunk = client_for().get_chunk(ids[0], ids[1], principal)
+        except (AccessDeniedError, ResourceNotFoundError) as exc:
+            raise ValueError("resource not found or not accessible") from exc
         return ReadResourceResult(contents=[TextResourceContents(
-            uri=CAPABILITIES_URI, text=body,
-            mimeType=CAPABILITIES_MIME_TYPE,
+            uri=uri,
+            text=json.dumps(to_jsonable(chunk), ensure_ascii=False, sort_keys=True),
+            mimeType="application/json",
         )])
 
     return {
         "on_list_resources": on_list_resources,
+        "on_list_resource_templates": on_list_resource_templates,
         "on_read_resource": on_read_resource,
     }
 

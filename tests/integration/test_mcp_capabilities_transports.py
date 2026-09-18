@@ -13,8 +13,8 @@ the *real* CLI as a subprocess:
 - ``python -m main --transport stdio``        → resources/list + resources/read
 - ``python -m main --transport streamable-http`` → same, byte-identical body
 
-Both must also expose the same five tools, and neither may expose a
-sixth (the Resource is additive, not a tool).
+Both must also expose the same twelve tools, while the Resource remains
+additive rather than appearing as a tool.
 """
 
 from __future__ import annotations
@@ -34,11 +34,18 @@ from mcp.client.streamable_http import streamable_http_client
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CAPABILITIES_URI = "rag://server/capabilities"
 EXPECTED_TOOLS = [
+    "get_chunk",
+    "get_chunk_context",
     "get_document",
     "get_document_chunks",
     "get_document_summary",
+    "get_sync_status",
     "list_collections",
+    "list_data_sources",
+    "list_documents",
+    "list_sync_failures",
     "query_knowledge_hub",
+    "search_chunks",
 ]
 
 
@@ -59,7 +66,7 @@ def _free_port() -> int:
     return port
 
 
-def _wait_for_health(proc: subprocess.Popen, url: str, *, timeout: float = 20.0) -> bool:
+def _wait_for_health(proc: subprocess.Popen, url: str, *, timeout: float = 60.0) -> bool:
     import httpx
 
     deadline = time.time() + timeout
@@ -67,7 +74,7 @@ def _wait_for_health(proc: subprocess.Popen, url: str, *, timeout: float = 20.0)
         if proc.poll() is not None:
             return False
         try:
-            if httpx.get(url, timeout=1.0).status_code == 200:
+            if httpx.get(url, timeout=1.0, trust_env=False).status_code == 200:
                 return True
         except Exception:  # noqa: BLE001 - retry until the deadline
             pass
@@ -76,12 +83,19 @@ def _wait_for_health(proc: subprocess.Popen, url: str, *, timeout: float = 20.0)
 
 
 @pytest.fixture
-def http_server():
+def http_server(tmp_path):
     """Boot the CLI over streamable-http, with a Bearer key when auth is
     enabled (the shipped default) so the client can reach ``/mcp``."""
     from src.core.settings import load_settings
 
-    settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
+    config_path = tmp_path / "settings.yaml"
+    config_text = (REPO_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8")
+    config_text = config_text.replace(
+        "database_path: ./data/mcp/db/mcp_access.db",
+        f"database_path: {tmp_path / 'mcp_access.db'}",
+    )
+    config_path.write_text(config_text, encoding="utf-8")
+    settings = load_settings(config_path)
     raw = None
     service = None
     if settings.mcp_access.enabled:
@@ -100,7 +114,7 @@ def http_server():
             "--transport", "streamable-http",
             "--host", "127.0.0.1",
             "--port", str(port),
-            "--config", "./config/settings.yaml",
+            "--config", str(config_path),
             "--log-level", "WARNING",
         ],
         cwd=str(REPO_ROOT),
@@ -154,18 +168,23 @@ async def _read_over_http(base: str, key: str | None) -> tuple[str, list[str], d
 
         http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {key}"},
+            trust_env=False,
         )
-    async with streamable_http_client(
-        f"{base}/mcp", http_client=http_client,
-    ) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            resources = await session.list_resources()
-            body = (await session.read_resource(CAPABILITIES_URI)).contents[0].text
-            tools = sorted(t.name for t in (await session.list_tools()).tools)
-            return body, tools, {
-                str(r.uri): r.mime_type for r in resources.resources
-            }
+    try:
+        async with streamable_http_client(
+            f"{base}/mcp", http_client=http_client,
+        ) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                resources = await session.list_resources()
+                body = (await session.read_resource(CAPABILITIES_URI)).contents[0].text
+                tools = sorted(t.name for t in (await session.list_tools()).tools)
+                return body, tools, {
+                    str(r.uri): r.mime_type for r in resources.resources
+                }
+    finally:
+        if http_client is not None:
+            await http_client.aclose()
 
 
 @pytest.mark.asyncio

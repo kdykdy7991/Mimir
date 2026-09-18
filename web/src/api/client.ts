@@ -31,6 +31,20 @@ import type {
   MCPServerStatus,
   TraceListParams,
   TraceListResponse,
+  RevisionSummary,
+  TagSuggestion,
+  DerivedArtifact,
+  DataSourceCreateRequest,
+  DataSourceInfo,
+  DataSourceListResponse,
+  SyncFailuresResponse,
+  SyncConflict,
+  SyncConflictListResponse,
+  DataSourceConnectionTestResponse,
+  DataSourceSyncEnqueueResponse,
+  SyncDeadLetterListResponse,
+  SyncDeadLetterReplayResponse,
+  SyncStatusResponse,
 } from "@/types";
 
 // Keep browser requests on the Web UI origin. Next.js proxies /api/* to the
@@ -222,6 +236,54 @@ export class ApiClient {
 
   deleteMCPKey(name: string, signal?: AbortSignal) { return this.request<void>(`/api/v1/mcp-keys/${encodeURIComponent(name)}`, { method: "DELETE", signal }); }
 
+  listDataSources(collectionId?: string, signal?: AbortSignal) {
+    return this.request<DataSourceListResponse>(appendQuery("/api/v1/data-sources", { collection_id: collectionId }), { signal });
+  }
+
+  createDataSource(body: DataSourceCreateRequest, signal?: AbortSignal) {
+    return this.request<DataSourceInfo>("/api/v1/data-sources", { method: "POST", body, signal });
+  }
+
+  getDataSourceSyncStatus(sourceId: string, signal?: AbortSignal) {
+    return this.request<SyncStatusResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/status`, { signal });
+  }
+
+  listDataSourceFailures(sourceId: string, limit = 50, signal?: AbortSignal) {
+    return this.request<SyncFailuresResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/failures?limit=${limit}`, { signal });
+  }
+
+  listDataSourceConflicts(sourceId: string, signal?: AbortSignal) {
+    return this.request<SyncConflictListResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/conflicts`, { signal });
+  }
+
+  acknowledgeDataSourceConflict(sourceId: string, conflictId: string, signal?: AbortSignal) {
+    return this.request<SyncConflict>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/conflicts/${encodeURIComponent(conflictId)}/acknowledge`, { method: "POST", signal });
+  }
+
+  pauseDataSource(sourceId: string, signal?: AbortSignal) {
+    return this.request<DataSourceInfo>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/pause`, { method: "POST", signal });
+  }
+
+  resumeDataSource(sourceId: string, signal?: AbortSignal) {
+    return this.request<DataSourceInfo>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/resume`, { method: "POST", signal });
+  }
+
+  testDataSourceConnection(sourceId: string, signal?: AbortSignal) {
+    return this.request<DataSourceConnectionTestResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/test`, { method: "POST", signal });
+  }
+
+  enqueueDataSourceSync(sourceId: string, signal?: AbortSignal) {
+    return this.request<DataSourceSyncEnqueueResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/sync`, { method: "POST", signal });
+  }
+
+  listDataSourceDeadLetters(sourceId: string, signal?: AbortSignal) {
+    return this.request<SyncDeadLetterListResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/dead-letters`, { signal });
+  }
+
+  replayDataSourceDeadLetter(sourceId: string, taskId: string, signal?: AbortSignal) {
+    return this.request<SyncDeadLetterReplayResponse>(`/api/v1/data-sources/${encodeURIComponent(sourceId)}/dead-letters/${encodeURIComponent(taskId)}/replay`, { method: "POST", signal });
+  }
+
   listDocuments(collectionId: string, params?: CursorParams, signal?: AbortSignal) {
     const path = `/api/v1/collections/${encodeURIComponent(collectionId)}/documents`;
     return this.request<DocumentListResponse>(appendCursorParams(path, params), { signal });
@@ -288,6 +350,25 @@ export class ApiClient {
 
   getDocumentChunk(documentId: string, chunkId: string, signal?: AbortSignal) {
     return this.request<DocumentChunkDetail>(`/api/v1/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`, { signal });
+  }
+
+  listChunkRevisions(documentId: string, chunkId: string, signal?: AbortSignal) {
+    return this.request<{ count: number; revisions: RevisionSummary[] }>(`/api/v1/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}/revisions`, { signal });
+  }
+
+  listTagSuggestions(documentId: string, signal?: AbortSignal) {
+    return this.request<{ count: number; suggestions: TagSuggestion[] }>(`/api/v1/documents/${encodeURIComponent(documentId)}/tag-suggestions`, { signal });
+  }
+
+  reviewTagSuggestion(suggestionId: string, approve: boolean, resolvedTagId?: string, signal?: AbortSignal) {
+    return this.request<{ suggestion: TagSuggestion }>(`/api/v1/tag-suggestions/${encodeURIComponent(suggestionId)}/review`, {
+      method: "POST", headers: { "X-Actor-ID": "web-admin" },
+      body: { approve, ...(resolvedTagId ? { resolved_tag_id: resolvedTagId } : {}) }, signal,
+    });
+  }
+
+  listDerivedArtifacts(revisionId: string, signal?: AbortSignal) {
+    return this.request<{ count: number; artifacts: DerivedArtifact[] }>(`/api/v1/revisions/${encodeURIComponent(revisionId)}/derived-artifacts`, { signal });
   }
 
   listDocumentTags(collectionId: string, signal?: AbortSignal) {

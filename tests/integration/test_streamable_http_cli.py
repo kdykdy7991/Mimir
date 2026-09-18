@@ -55,7 +55,7 @@ def _wait_for_health(
         if proc.poll() is not None:
             return False  # process died before health came up
         try:
-            r = httpx.get(url, timeout=1.0)
+            r = httpx.get(url, timeout=1.0, trust_env=False)
             if r.status_code == 200:
                 return True
         except Exception:
@@ -73,27 +73,20 @@ def _embedding_base_url() -> str:
 
 
 def _embedding_endpoint_reachable() -> bool:
-    """True when the configured remote embedding endpoint answers TCP.
+    """True when the configured embedding backend can actually initialize.
 
-    Local providers (``sentence_transformers`` / ``huggingface``) have no
-    endpoint to probe and are treated as reachable — the call itself then
-    decides.
+    A listening TCP socket is insufficient: an incompatible OpenAI-style
+    ``/models`` response still makes real retrieval unusable.  Exercise the
+    same factory as production so this optional live-provider test only runs
+    when the provider is genuinely ready.
     """
-    import urllib.parse
-
-    base_url = _embedding_base_url()
-    if not base_url:
-        return True
-    host = urllib.parse.urlparse(base_url).hostname
-    if not host:
-        return True
-    port = urllib.parse.urlparse(base_url).port or (
-        443 if base_url.startswith("https") else 80
-    )
     try:
-        with socket.create_connection((host, port), timeout=1.0):
-            return True
-    except OSError:
+        from src.libs.embedding import EmbeddingFactory
+
+        settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
+        EmbeddingFactory.create(settings.embedding)
+        return True
+    except Exception:
         return False
 
 
@@ -117,7 +110,7 @@ def _read_bm25_collections() -> list[str]:
 
 
 @pytest.fixture
-def http_server():
+def http_server(tmp_path):
     """Launch ``python main.py --transport streamable-http`` as a
     subprocess and yield its base URL. Teardown kills the process.
 
@@ -126,16 +119,46 @@ def http_server():
     discovered collection so the test can talk to the real tools, and
     pass it to the MCP client via the standard header.
     """
+    config_path = tmp_path / "settings.yaml"
+    config_text = (REPO_ROOT / "config" / "settings.yaml").read_text(
+        encoding="utf-8",
+    )
+    config_text = config_text.replace(
+        "database_path: ./data/mcp/db/mcp_access.db",
+        f"database_path: {tmp_path / 'mcp_access.db'}",
+    )
+    config_path.write_text(config_text, encoding="utf-8")
+    settings = load_settings(config_path)
+    raw = None
+    service = None
+    key_name = f"cli-it-{os.getpid()}-{id(tmp_path)}"
+    if settings.mcp_access.enabled:
+        from src.mcp_server.auth import ApiKeyService
+
+        service = ApiKeyService(db_path=settings.mcp_access.database_path)
+        raw, _meta = service.create_key(
+            name=key_name,
+            allowed_collections=set(_read_bm25_collections()),
+        )
+
     port = _free_port()
+    subprocess_env = os.environ.copy()
+    for name in (
+        "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy",
+        "HTTPS_PROXY", "https_proxy",
+    ):
+        subprocess_env.pop(name, None)
     proc = subprocess.Popen(
         [
             sys.executable, "-m", "main",
             "--transport", "streamable-http",
             "--host", "127.0.0.1",
             "--port", str(port),
+            "--config", str(config_path),
             "--log-level", "WARNING",
         ],
         cwd=str(REPO_ROOT),
+        env=subprocess_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -148,26 +171,7 @@ def http_server():
                 f"server failed to come up on {base}/health "
                 f"(exit={proc.poll()}):\n{stderr}",
             )
-        # Issue a key for this test run, in the DB the CLI opens
-        # (settings.mcp_access.database_path). If auth is disabled the
-        # key is harmless.
-        from src.mcp_server.auth import ApiKeyService
-
-        settings = load_settings(REPO_ROOT / "config" / "settings.yaml")
-        if settings.mcp_access.enabled:
-            service = ApiKeyService(db_path=settings.mcp_access.database_path)
-            raw, _meta = service.create_key(
-                name=f"cli-it-{os.getpid()}",
-                allowed_collections=set(_read_bm25_collections()),
-            )
-        else:
-            raw = None
         yield base, raw
-        if raw is not None:
-            try:
-                service.revoke_key(name=f"cli-it-{os.getpid()}")
-            except Exception:
-                pass
     finally:
         proc.terminate()
         try:
@@ -175,6 +179,11 @@ def http_server():
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+        if service is not None and raw is not None:
+            try:
+                service.revoke_key(name=key_name)
+            except Exception:
+                pass
 
 
 @pytest.mark.asyncio
@@ -185,9 +194,8 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
     Verifies:
     - The CLI actually boots under the new transport (no
       'Server has no attribute list_tools' regressions).
-    - The five tools registered by ``_register_default_tools``
-      (query_knowledge_hub, list_collections, get_document,
-      get_document_summary, get_document_chunks) are exposed.
+    - The nine read-only tools registered by ``_register_default_tools``
+      are exposed, including ``search_chunks``.
     - ``tools/list`` and at least one ``tools/call`` roundtrip
       successfully — proving the v2 on_call_tool wiring works
       through the full stack.
@@ -199,6 +207,7 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
         import httpx
         http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {http_server[1]}"},
+            trust_env=False,
         )
     async with streamable_http_client(
         f"{http_server[0]}/mcp", http_client=http_client,
@@ -210,11 +219,18 @@ async def test_real_cli_serves_real_protocol_handler_over_http(http_server):
             tools = await session.list_tools()
             names = sorted(t.name for t in tools.tools)
             assert names == [
+                "get_chunk",
+                "get_chunk_context",
                 "get_document",
                 "get_document_chunks",
                 "get_document_summary",
+                "get_sync_status",
                 "list_collections",
+                "list_data_sources",
+                "list_documents",
+                "list_sync_failures",
                 "query_knowledge_hub",
+                "search_chunks",
             ]
 
             # ---- REAL RAG tools over HTTP (no external dependency) ----
@@ -269,6 +285,7 @@ async def test_query_knowledge_hub_over_http_with_live_embedding(http_server):
         import httpx
         http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {http_server[1]}"},
+            trust_env=False,
         )
     async with streamable_http_client(
         f"{http_server[0]}/mcp", http_client=http_client,

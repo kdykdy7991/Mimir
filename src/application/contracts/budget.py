@@ -6,9 +6,8 @@ schemas, runtime validation and output truncation:
 * request bounds — query length, top-k, page size;
 * response bounds — maximum evidence rows, single-evidence body/preview
   length and total structured-content characters;
-* reserved Task 05 bounds — alternate-query count / total characters.
-  The fields exist (and are validated) now but no tool accepts
-  ``alternate_queries`` input in Task 02.
+* Task 05 bounds — alternate-query count / total characters, collection
+  count and aggregate candidate work.
 
 The defaults are frozen to the exact limits the five legacy tools
 already expose (query 1..2000, top_k 1..50 default 10, page_size
@@ -44,9 +43,11 @@ class ResponseBudget:
     max_structured_chars: int = 200_000
     max_content_chars: int = 8_000
     max_preview_chars: int = 200
-    # Reserved for Task 05 (multi-query); not accepted as input yet.
+    # Task 05 multi-query / multi-collection request limits.
     alternate_query_max_count: int = 3
     alternate_query_total_max_chars: int = 3_000
+    collection_max_count: int = 20
+    search_candidate_work_max: int = 1_000
 
     def __post_init__(self) -> None:
         def positive(name: str) -> None:
@@ -59,6 +60,7 @@ class ResponseBudget:
             "page_size_default", "page_size_max", "max_evidence_count",
             "max_structured_chars", "max_content_chars", "max_preview_chars",
             "alternate_query_max_count", "alternate_query_total_max_chars",
+            "collection_max_count", "search_candidate_work_max",
         ):
             positive(name)
         if self.top_k_default > self.top_k_max:

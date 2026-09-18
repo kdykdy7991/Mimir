@@ -8,6 +8,10 @@
 - 生成器：[`scripts/mcp_contract_inventory.py`](../../scripts/mcp_contract_inventory.py)
 - 漂移门禁：[`tests/unit/test_mcp_contract_v1_snapshot.py`](../../tests/unit/test_mcp_contract_v1_snapshot.py)
 
+Task 03–06（2026-09-16）在保持 v1 兼容字段的前提下追加了
+`list_documents`、`get_chunk`、`search_chunks` 与 `get_chunk_context`；当前冻结工具数为 9。
+新增读取都要求显式文档/collection 归属检查，动态 Resource 在每次读取时重新鉴权。
+
 > 本文档是**面向集成方的说明书**；工具的 `input_schema` / `output_schema`
 > 以机器快照为唯一事实源，快照由服务器真实注册结果
 > （`src.mcp_server.server._register_default_tools`，stdio 与
@@ -47,7 +51,7 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
   `'collection' is required when this credential can access multiple knowledge bases`；
 - 授权在构造 embedding / 向量库 / BM25 / reranker **之前**执行。
 
-## 3. 工具清单（5 只）
+## 3. 工具清单（9 只）
 
 | 工具 | 类别 | 生命周期 | 分页 |
 | --- | --- | --- | --- |
@@ -56,6 +60,10 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
 | `get_document` | 文档元数据 | long_term | — |
 | `get_document_summary` | 文档元数据（**兼容别名工具**） | compat_alias | — |
 | `get_document_chunks` | chunk 分页读取（有界正文） | long_term | page≥1，page_size 1..50（默认 20） |
+| `list_documents` | 授权文档发现 | long_term | cursor 分页，page_size 1..50 |
+| `get_chunk` | 精确 chunk 读取 | long_term | — |
+| `search_chunks` | 统一多查询/多库检索与治理过滤 | long_term | top_k 1..50 |
+| `get_chunk_context` | 父块/相邻块上下文读取 | long_term | before/after 0..10，max_chars≤100000 |
 
 所有工具同时在 stdio 与 streamable-http 上可用，并在两种只读客户端上有对应方法。
 每只工具的完整 JSON Schema、错误表与授权说明见机器快照。
@@ -116,6 +124,19 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
   `page_size must be between 1 and 50`、`page must be >= 1`、
   未知/越权文档同形 not-found。
 
+### 3.6 Task 03–06 新增读取工具
+
+- `list_documents`：仅枚举当前 principal 可访问 collection 内的有界文档摘要，
+  使用不透明 cursor 分页。
+- `get_chunk`：必须同时提供 `document_id` 与 `chunk_id`；先验证 collection、
+  document、chunk 三层归属，再返回精确正文及版本/来源定位。Task 07 起可传
+  `expected_chunk_version`；与当前版本不一致时返回 `stale_reference`，绝不静默
+  用新正文替代旧引用。
+- `search_chunks`：统一 dense/sparse/hybrid、治理过滤、多查询与多 collection；
+  固定 RRF 合并、一次 rerank，并显式报告部分失败。
+- `get_chunk_context`：命中 chunk 优先占用字符预算，再按请求加入 parent 和
+  相邻 child；`truncated` 明示预算截断，不会静默换成其他版本。
+
 ## 4. 兼容别名与保留策略
 
 | 别名 | 规范名 | 位置 | 保留计划 |
@@ -141,14 +162,14 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
 - 答案生成、追问、查询改写/扩展、多步规划、工具循环（ADR §3.1）；
 - 任何写操作与管理操作（上传、删除、配置、任务治理）；
 - 会话、对话历史、长期记忆；
-- 大正文/图片的无界内联（未来通过 MCP Resources 按需读取，见路线图 Phase 8）。
+- 大正文/图片的无界内联；Task 06 起仅通过有界、逐次鉴权的 MCP Resources 按需读取。
 
 ## 5.1 能力发现 Resource（Task 02.4 起）
 
 服务器注册一个只读静态 MCP Resource：
 
 - URI：`rag://server/capabilities`（`mimeType: application/json`）；
-- 内容由**真实注册表**（5 工具）、活动 `ResponseBudget`、检索配置
+- 内容由**真实注册表**（当前 9 工具）、活动 `ResponseBudget`、检索配置
   （modes/rerank backend）与 application 契约枚举生成，不存在第二套手编
   工具名单；transport 清单读自 `src/mcp_server/transports/__init__.py` 的
   `SUPPORTED_TRANSPORTS`，与 `--transport` 的 argparse choices 同源；
@@ -157,7 +178,7 @@ Collection 授权规则（详见 `docs/prd-mcp-api-key-collection-access.md`）�
   `transports[]`、`tools[]`（name/version/lifecycle/structured_output）、
   `features`（未实现能力显式为 `false`，与 `unsupported[]` 同表派生）、
   `retrieval`、`evidence`（score stages、content types、matched_queries）、
-  `filters`（dimension 已定义、Task 04 前 `enforced_by_tools=false`）、
+  `filters`（dimension 已定义，Task 04 起 `enforced_by_tools=true`）、
   `pagination`、`limits`、`warnings`、`errors`、`unsupported[]`；
 - 不含 API Key、内部 URL、数据库路径或 Provider Secret；
 - 注册方式（SDK 事实）：仓库钉 `mcp==2.2.0`，其低层 `Server` **没有**
@@ -199,6 +220,15 @@ Schema 由同一 `ResponseBudget` 构建，运行时校验与之同源；请求�
 稳定 invalid_request，响应超预算在输出层显式 `truncated` warning。
 数值支持 `${ENV_VAR}` 环境替换；非法组合启动期 fail-fast。
 
+Task 05 起，预算还包含最多 3 条 `alternate_queries`、20 个 `collection_ids`
+和 1000 的 `query_count × collection_count × top_k` 聚合工作量上限。
+`collection` 与 `collection_ids` 互斥；多库请求必须全部位于调用方授权 scope，
+任一越权整单拒绝。`allow_partial` 仅适用于已授权集合的基础设施故障。
+
+Task 06 新增 `get_chunk_context`，并注册 chunk/asset Resource templates。
+上下文正文使用单一 `max_chars` 预算且显式报告 truncation；动态 Resource 每次读取重新鉴权，
+asset 只允许安全图片 MIME、最大 10 MiB，并验证文档—chunk—asset 归属和相对 locator。
+
 ## 6. 快照与漂移门禁
 
 ```bash
@@ -216,7 +246,7 @@ MCP_REGENERATE_V1=1 .venv/bin/python -m pytest tests/unit/test_mcp_contract_v1_s
 
 1. **整体快照深比较**（工具名、描述、完整 input/output Schema 与策展元数据）；
 2. **定点漂移断言**：工具集合、必填字段、`oneOf` 分支、兼容别名属性、
-   数值上下界/默认值、枚举/常量集合（当前为空）——即使生成器与快照被同时
+   数值上下界/默认值、枚举/常量集合——即使生成器与快照被同时
    修改，针对真实注册表的断言仍会失败。
 
 快照重复生成必须无 diff（排序键固定、`ensure_ascii=False`、末尾换行）。

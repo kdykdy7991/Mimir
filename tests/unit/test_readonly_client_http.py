@@ -9,6 +9,7 @@ escape hatch.
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import httpx
@@ -23,7 +24,8 @@ from src.mcp_server.clients.errors import (
     UpstreamUnavailableError,
 )
 from src.mcp_server.clients.http_client import HttpRagReadOnlyClient
-from src.mcp_server.clients.models import QueryRequest
+from src.application.contracts import ChunkContextRequest, SearchRequest
+from src.mcp_server.clients.models import DocumentListRequest, QueryRequest
 
 
 def _client(handler, *, api_key="skdy_1"):
@@ -124,6 +126,130 @@ def test_get_document_chunks_pagination():
     assert page.chunks[1].section == "s"
 
 
+def test_list_documents_and_get_exact_chunk():
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path)
+        if request.url.path.endswith("/documents"):
+            assert request.url.params["collection"] == "finance,legal"
+            return _json(200, {
+                "collection": "finance,legal", "page": 1, "page_size": 20,
+                "total": 1, "documents": [{
+                    "document_id": "d1", "collection": "finance,legal",
+                    "title": "a.pdf", "source": "a.pdf", "chunk_count": 2,
+                }],
+            })
+        return _json(200, {
+            "document_id": "d1", "chunk_id": "c1", "index": 0,
+            "text": "body", "content_type": "text",
+            "source_locator": {"kind": "none", "page": None},
+            "asset_ids": [],
+        })
+
+    c = _client(handler)
+    page = c.list_documents(
+        DocumentListRequest(collection="finance,legal"), _principal(),
+    )
+    chunk = c.get_chunk("d1", "c1", _principal())
+    assert page.documents[0].source == "a.pdf"
+    assert chunk.text == "body"
+    assert seen == [
+        "/internal/mcp/v1/documents",
+        "/internal/mcp/v1/documents/d1/chunks/c1",
+    ]
+
+
+def test_unified_search_round_trip():
+    def handler(request):
+        body = json.loads(request.content.decode())
+        assert body["mode"] == "dense"
+        assert body["filters"]["content_types"] == ["table"]
+        return _json(200, {
+            "query": "q", "collection": "kb", "mode": "dense",
+            "evidence": [{
+                "collection_id": "cid", "document_id": "did", "chunk_id": "c1",
+                "content_type": "table", "source_locator": {"kind": "chunk"},
+                "scores": {"dense": .8, "sparse": None, "fusion": None, "rerank": None},
+                "matched_queries": ["q"], "content": "body",
+            }],
+            "warnings": [], "diagnostics": {"degraded": False},
+            "truncated": False,
+        })
+
+    from src.application.contracts import EvidenceFilterV1
+    result = _client(handler).search(SearchRequest(
+        query="q", collection="kb", mode="dense",
+        filters=EvidenceFilterV1(content_types=["table"]), rerank=False,
+    ), _principal())
+    assert result.evidence[0].scores.dense == .8
+    assert result.evidence[0].content == "body"
+
+
+def test_multi_search_fields_round_trip():
+    def handler(request):
+        body = json.loads(request.content.decode())
+        assert body["alternate_queries"] == ["q2"]
+        assert body["collection_ids"] == ["a", "b"]
+        assert body["failure_policy"] == "allow_partial"
+        return _json(200, {
+            "query": "q", "collection": None, "collections": ["a", "b"],
+            "mode": "hybrid", "evidence": [], "warnings": [],
+            "diagnostics": {
+                "executed_queries": ["q", "q2"],
+                "successful_collections": ["a"],
+                "failed_collections": ["b"],
+            }, "truncated": False,
+        })
+
+    result = _client(handler).search(SearchRequest(
+        query="q", alternate_queries=("q2",), collection_ids=("a", "b"),
+        failure_policy="allow_partial",
+    ), _principal())
+    assert result.collection is None
+    assert result.collections == ("a", "b")
+    assert result.diagnostics.failed_collections == ("b",)
+
+
+def test_chunk_context_round_trip():
+    def handler(request):
+        assert request.url.path == "/internal/mcp/v1/documents/d/chunks/c/context"
+        body = json.loads(request.content.decode())
+        assert body == {"include": "both", "before": 2, "after": 1, "max_chars": 50}
+        return _json(200, {
+            "document_id": "d",
+            "hit": {"chunk_id": "c", "relation": "hit", "text": "body"},
+            "parent": None,
+            "neighbors": [{"chunk_id": "n", "relation": "after", "text": "next"}],
+            "truncated": False,
+        })
+
+    result = _client(handler).get_chunk_context(ChunkContextRequest(
+        document_id="d", chunk_id="c", before=2, after=1, max_chars=50,
+    ), _principal())
+    assert result.hit.text == "body"
+    assert result.neighbors[0].relation == "after"
+
+
+def test_asset_round_trip():
+    def handler(request):
+        assert request.url.path == "/internal/mcp/v1/documents/d/assets/a"
+        return _json(200, {
+            "metadata": {
+                "asset_id": "a", "document_id": "d", "chunk_id": "c",
+                "document_version": "v", "mime_type": "image/png",
+                "byte_size": 3,
+                "checksum_sha256": hashlib.sha256(b"png").hexdigest(),
+                "locator": "kb/a.png",
+            },
+            "data_base64": "cG5n",
+        })
+
+    result = _client(handler).get_asset("d", "a", _principal())
+    assert result.data == b"png"
+    assert result.metadata.mime_type == "image/png"
+
+
 @pytest.mark.parametrize("status,code,expected", [
     (404, "not_found", ResourceNotFoundError),
     (403, "access_denied", AccessDeniedError),
@@ -167,7 +293,9 @@ def test_no_generic_request_escape_hatch():
     assert not hasattr(c, "_get") or True  # private helpers only, not public
     public = {m for m in dir(c) if not m.startswith("_")}
     assert public <= {"list_collections", "query_knowledge", "get_document",
-                      "get_document_chunks", "close"}
+                      "get_document_chunks", "list_documents", "get_chunk",
+                      "get_chunk_context", "get_asset", "search", "close",
+                      "list_data_sources", "get_sync_status", "list_sync_failures"}
 
 
 def test_bounded_pool_is_configured():

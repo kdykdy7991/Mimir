@@ -219,7 +219,7 @@ class TestLlmMode:
         refiner.transform([make_chunk("raw text")])
         # The prompt sent to the LLM must contain the chunk's text
         call_args = mock_llm.chat.call_args
-        prompt_sent = call_args[0][0]
+        prompt_sent = call_args[0][0][0]["content"]
         assert "raw text" in prompt_sent
         assert "Clean:" in prompt_sent
 
@@ -383,7 +383,7 @@ class TestPromptLoading:
         mock_llm.chat.return_value = "out"
         refiner = ChunkRefiner(settings, llm=mock_llm)
         refiner.transform([make_chunk("input")])
-        call_prompt = mock_llm.chat.call_args[0][0]
+        call_prompt = mock_llm.chat.call_args[0][0][0]["content"]
         assert "CUSTOM: input" == call_prompt
 
     def test_missing_prompt_file_uses_builtin(self, tmp_path):
@@ -395,7 +395,7 @@ class TestPromptLoading:
         refiner = ChunkRefiner(settings, llm=mock_llm)
         refiner.transform([make_chunk("input")])
         # Built-in template contains "输入片段"
-        prompt = mock_llm.chat.call_args[0][0]
+        prompt = mock_llm.chat.call_args[0][0][0]["content"]
         assert "input" in prompt
 
     def test_malformed_prompt_raises_at_init(self, tmp_path):
@@ -418,7 +418,9 @@ class TestPromptLoading:
         mock_llm.chat.return_value = "out"
         refiner = ChunkRefiner(settings, llm=mock_llm)
         refiner.transform([make_chunk("hello")])
-        assert mock_llm.chat.call_args[0][0] == "Prompt: hello"
+        assert mock_llm.chat.call_args[0][0] == [
+            {"role": "user", "content": "Prompt: hello"},
+        ]
 
 
 # ---------------------------------------------------------------------------

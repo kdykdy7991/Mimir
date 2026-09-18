@@ -119,6 +119,61 @@ class DocumentInfo:
     summary: str = ""
     tags: list[str] = field(default_factory=list)
     chunk_count: int = 0
+    version: str | None = None
+    folder_id: str | None = None
+    parser: str | None = None
+    index_status: str | None = None
+    content_type: str | None = None
+    updated_at: float | None = None
+
+
+@dataclass(frozen=True)
+class DocumentListRequest:
+    """Bounded, transport-neutral document discovery query."""
+
+    collection: str
+    page: int = 1
+    page_size: int = 20
+    q: str | None = None
+    status: str | None = None
+    file_type: str | None = None
+    folder_id: str | None = None
+    tag_ids: tuple[str, ...] = ()
+    tag_operator: str = "and"
+    updated_after: float | None = None
+    updated_before: float | None = None
+    sort: str = "updated_desc"
+
+
+@dataclass(frozen=True)
+class DocumentSummary:
+    """One bounded discovery row; never contains chunk bodies or host paths."""
+
+    document_id: str
+    collection: str
+    title: str
+    document_type: str = ""
+    source: str = ""
+    status: str = ""
+    chunk_count: int = 0
+    image_count: int = 0
+    tags: list[str] = field(default_factory=list)
+    folder_id: str | None = None
+    created_at: float | None = None
+    updated_at: float | None = None
+
+
+@dataclass(frozen=True)
+class DocumentPage:
+    collection: str
+    page: int
+    page_size: int
+    total: int
+    documents: list[DocumentSummary] = field(default_factory=list)
+
+    @property
+    def has_next(self) -> bool:
+        return self.page * self.page_size < self.total
 
 
 @dataclass(frozen=True)
@@ -147,6 +202,44 @@ class DocumentChunkPage:
         return (self.page * self.page_size) < self.total
 
 
+@dataclass(frozen=True)
+class ChunkDetail:
+    """Exact chunk read scoped by both its owning document and chunk id."""
+
+    document_id: str
+    chunk_id: str
+    index: int
+    text: str
+    heading: str | None = None
+    page: int | None = None
+    content_type: str = "text"
+    previous_chunk_id: str | None = None
+    next_chunk_id: str | None = None
+    parent_id: str | None = None
+    source_locator: dict[str, object] = field(default_factory=dict)
+    asset_ids: list[str] = field(default_factory=list)
+    document_version: str | None = None
+    chunk_version: str | None = None
+    is_current: bool = True
+
+
+@dataclass(frozen=True)
+class DataSourceInfo:
+    id: str
+    name: str
+    connector_type: str
+    collection_id: str
+    enabled: bool
+    checkpoint_revision: int
+    updated_at: float
+
+
+@dataclass(frozen=True)
+class SyncStatusInfo:
+    data_source: DataSourceInfo
+    last_run: dict[str, object] | None = None
+
+
 __all__ = [
     "CollectionInfo",
     "QueryRequest",
@@ -154,6 +247,12 @@ __all__ = [
     "Diagnostics",
     "KnowledgeQueryResult",
     "DocumentInfo",
+    "DocumentListRequest",
+    "DocumentSummary",
+    "DocumentPage",
     "DocumentChunk",
     "DocumentChunkPage",
+    "ChunkDetail",
+    "DataSourceInfo",
+    "SyncStatusInfo",
 ]

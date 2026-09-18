@@ -5,6 +5,7 @@ import {
   KeyRound,
   BookOpenText,
   Boxes,
+  DatabaseZap,
   ChevronRight,
   Gauge,
   Menu,
@@ -42,7 +43,10 @@ const navigation: NavigationGroup[] = [
   },
   {
     label: "接入管理",
-    items: [{ href: "/mcp-keys", icon: KeyRound, label: "API Key 管理" }],
+    items: [
+      { href: "/mcp-keys", icon: KeyRound, label: "API Key 管理" },
+      { href: "/data-sources", icon: DatabaseZap, label: "数据源管理" },
+    ],
   },
   {
     label: "检索实验",

@@ -24,6 +24,7 @@ def build_document_parser(
     *,
     loader: BaseLoader | None = None,
     transport: DocReaderTransport | None = None,
+    limiter=None,
 ) -> DocumentParser:
     """Return the parser selected by ``settings.backend``.
 
@@ -44,7 +45,7 @@ def build_document_parser(
                 "DocReader transport (gRPC stubs / service not wired yet).",
             )
         client = DocReaderClient(
-            transport, timeout=float(settings.request_timeout_seconds),
+            transport, timeout=float(settings.request_timeout_seconds), limiter=limiter,
         )
         return DocReaderClientParser(client)
 
@@ -66,6 +67,7 @@ def build_document_parser_from_settings(
     *,
     loader: BaseLoader | None = None,
     grpc_transport=None,
+    limiter=None,
 ) -> DocumentParser:
     """Build the parser selected by ``settings.backend`` end-to-end.
 
@@ -83,7 +85,9 @@ def build_document_parser_from_settings(
             # Startup fail-fast (not a lazy channel): perform a real readiness
             # probe so a down/misconfigured DocReader surfaces at boot.
             transport.probe(timeout=float(settings.request_timeout_seconds))
-        client = DocReaderClient(transport, timeout=float(settings.request_timeout_seconds))
+        client = DocReaderClient(
+            transport, timeout=float(settings.request_timeout_seconds), limiter=limiter,
+        )
         return DocReaderClientParser(client)
     return _legacy(loader)
 
@@ -98,6 +102,7 @@ def resolve_document_parser(
     *,
     loader: BaseLoader | None = None,
     grpc_transport=None,
+    limiter=None,
 ) -> DocumentParser | None:
     """Return the parser the ingestion entry should bridge into the pipeline.
 
@@ -112,5 +117,5 @@ def resolve_document_parser(
     if not settings.enabled or settings.backend != "docreader":
         return None
     return build_document_parser_from_settings(
-        settings, loader=loader, grpc_transport=grpc_transport,
+        settings, loader=loader, grpc_transport=grpc_transport, limiter=limiter,
     )

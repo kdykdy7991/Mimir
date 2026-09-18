@@ -18,6 +18,215 @@
     }
   },
   "tool_schemas": {
+    "get_chunk": {
+      "description": "Read one exact chunk after verifying its document, collection authorization, and chunk ownership.",
+      "input_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "document_id",
+              "chunk_id"
+            ]
+          },
+          {
+            "required": [
+              "doc_id",
+              "chunk_id"
+            ]
+          }
+        ],
+        "properties": {
+          "chunk_id": {
+            "type": "string"
+          },
+          "doc_id": {
+            "description": "Deprecated alias for document_id.",
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "expected_chunk_version": {
+            "description": "Optional version assertion; mismatch returns stale_reference.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_chunk",
+      "output_schema": {
+        "properties": {
+          "asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "chunk_id": {
+            "type": "string"
+          },
+          "chunk_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "heading": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": "integer"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "next_chunk_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_chunk_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_locator": {
+            "type": "object"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunk_id",
+          "index",
+          "text",
+          "content_type",
+          "previous_chunk_id",
+          "next_chunk_id",
+          "parent_id",
+          "source_locator",
+          "asset_ids",
+          "document_version",
+          "chunk_version",
+          "is_current"
+        ],
+        "type": "object"
+      }
+    },
+    "get_chunk_context": {
+      "description": "Read bounded parent and neighboring context for one authorized chunk.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chunk_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "document_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "include": {
+            "default": "both",
+            "enum": [
+              "parent",
+              "neighbors",
+              "both"
+            ],
+            "type": "string"
+          },
+          "max_chars": {
+            "default": 12000,
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunk_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_chunk_context",
+      "output_schema": {
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "hit": {
+            "type": "object"
+          },
+          "neighbors": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "parent": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "hit",
+          "parent",
+          "neighbors",
+          "truncated"
+        ],
+        "type": "object"
+      }
+    },
     "get_document": {
       "description": "Return read-only metadata for a document (by its document_id) from an authorized SKDY knowledge base, including its title, summary, tags, source and chunk count.",
       "input_schema": {
@@ -55,6 +264,12 @@
           "collection": {
             "type": "string"
           },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "doc_id": {
             "type": "string"
           },
@@ -66,6 +281,24 @@
           },
           "document_type": {
             "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parser": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"
@@ -84,6 +317,18 @@
           },
           "title": {
             "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -223,6 +468,12 @@
           "collection": {
             "type": "string"
           },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "doc_id": {
             "type": "string"
           },
@@ -234,6 +485,24 @@
           },
           "document_type": {
             "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parser": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"
@@ -252,6 +521,18 @@
           },
           "title": {
             "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -262,6 +543,40 @@
           "source",
           "doc_type",
           "chunk_count"
+        ],
+        "type": "object"
+      }
+    },
+    "get_sync_status": {
+      "description": "Read the latest status for one authorized datasource.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_sync_status",
+      "output_schema": {
+        "properties": {
+          "data_source": {
+            "type": "object"
+          },
+          "last_run": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data_source",
+          "last_run"
         ],
         "type": "object"
       }
@@ -319,6 +634,180 @@
         "required": [
           "count",
           "collections"
+        ],
+        "type": "object"
+      }
+    },
+    "list_data_sources": {
+      "description": "List datasource metadata authorized for the current key.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_data_sources",
+      "output_schema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "data_sources": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "data_sources"
+        ],
+        "type": "object"
+      }
+    },
+    "list_documents": {
+      "description": "Discover authorized documents with bounded filters, stable sorting and pagination. Chunk bodies are never included.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "file_type": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 20,
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "q": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "sort": {
+            "default": "updated_desc",
+            "enum": [
+              "updated_desc",
+              "updated_asc",
+              "name_asc",
+              "name_desc",
+              "size_desc"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "tag_operator": {
+            "default": "and",
+            "enum": [
+              "and",
+              "or"
+            ],
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "number"
+          },
+          "updated_before": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_documents",
+      "output_schema": {
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collection",
+          "page",
+          "page_size",
+          "total",
+          "has_next",
+          "documents"
+        ],
+        "type": "object"
+      }
+    },
+    "list_sync_failures": {
+      "description": "List bounded failures for one authorized datasource.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_sync_failures",
+      "output_schema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "failures": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "failures"
         ],
         "type": "object"
       }
@@ -458,6 +947,199 @@
           "count",
           "evidence",
           "diagnostics"
+        ],
+        "type": "object"
+      }
+    },
+    "search_chunks": {
+      "description": "Search one authorized collection using dense, sparse, or hybrid retrieval with governance filters. Returns evidence, never an answer.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "alternate_queries": {
+            "items": {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "collection_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "failure_policy": {
+            "default": "fail_fast",
+            "enum": [
+              "fail_fast",
+              "allow_partial"
+            ],
+            "type": "string"
+          },
+          "filters": {
+            "additionalProperties": false,
+            "properties": {
+              "content_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "document_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "file_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "folder_id": {
+                "type": "string"
+              },
+              "include_descendants": {
+                "default": false,
+                "type": "boolean"
+              },
+              "source_types": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "tag_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              "tag_operator": {
+                "default": "and",
+                "enum": [
+                  "and",
+                  "or"
+                ],
+                "type": "string"
+              },
+              "updated_after": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "updated_before": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "include_content": {
+            "default": true,
+            "type": "boolean"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "dense",
+              "sparse",
+              "hybrid"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "rerank": {
+            "default": true,
+            "type": "boolean"
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "top_k": {
+            "default": 10,
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_chunks",
+      "output_schema": {
+        "properties": {
+          "collection": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "collections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "diagnostics": {
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "collection",
+          "collections",
+          "mode",
+          "count",
+          "evidence",
+          "warnings",
+          "diagnostics",
+          "truncated"
         ],
         "type": "object"
       }

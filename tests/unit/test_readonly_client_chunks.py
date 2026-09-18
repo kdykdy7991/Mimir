@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from src.application.contracts import ChunkContextRequest, content_version
+from src.core.types import Chunk
+from src.ingestion.chunking import ParentChunkBuilder
+from src.ingestion.storage import ImageStorage, ParentChunkStore
 from src.mcp_server.auth.context import TrustedLocalPrincipal
 from src.mcp_server.clients.in_process import InProcessRagReadOnlyClient
 from src.mcp_server.clients.errors import (
@@ -139,3 +143,74 @@ def test_chunk_fields_populated():
     assert c.text == "hello"
     assert c.page == 2
     assert c.section == "intro"
+
+
+def test_chunk_context_returns_bounded_neighbors_and_legacy_without_parent():
+    chunks = [
+        _hit(cid="c0", meta={"chunk_index": 0}, text="before"),
+        _hit(cid="c1", meta={"chunk_index": 1}, text="hit-body"),
+        _hit(cid="c2", meta={"chunk_index": 2}, text="after"),
+    ]
+    result = _client(chunks).get_chunk_context(
+        ChunkContextRequest(
+            document_id="u", chunk_id="c1", include="both",
+            before=1, after=1, max_chars=11,
+        ), TrustedLocalPrincipal(),
+    )
+    assert result.hit.text == "hit-body"
+    assert result.parent is None  # legacy index remains readable
+    assert [row.relation for row in result.neighbors] == ["before"]
+    assert result.neighbors[0].text == "bef"
+    assert result.truncated is True
+
+
+def test_chunk_context_reads_active_parent_sidecar(tmp_path):
+    version = content_version("u", "body")
+    children = [Chunk(
+        id="c1", text="hit", source_ref="u",
+        metadata={"document_version": version, "chunk_index": 0},
+        start_offset=0, end_offset=3,
+    )]
+    built = ParentChunkBuilder().build(children)
+    store = ParentChunkStore(tmp_path / "db" / "parent_chunks.db")
+    store.stage(collection="kb", document_id="u", version=version,
+                children=built.children, parents=built.parents)
+    store.activate(collection="kb", document_id="u", version=version)
+    client = InProcessRagReadOnlyClient(data_dir=str(tmp_path))
+    client._resolve_store_access = lambda doc_id, principal: ("kb", "/x.pdf")
+    client._read_document_chunks = lambda collection, source_path: [
+        _hit(cid="c1", meta={"chunk_index": 0}, text="hit"),
+    ]
+    result = client.get_chunk_context(
+        ChunkContextRequest(document_id="u", chunk_id="c1", include="parent"),
+        TrustedLocalPrincipal(),
+    )
+    assert result.parent is not None
+    assert result.parent.text == "hit"
+    assert result.parent.relation == "parent"
+
+
+def test_asset_read_checks_chunk_ownership_and_returns_safe_metadata(tmp_path):
+    storage = ImageStorage(
+        db_path=str(tmp_path / "db" / "image_index.db"),
+        base_dir=str(tmp_path / "images"),
+    )
+    storage.save("a1", b"png", ext="png", collection="kb", doc_hash="legacy")
+    client = InProcessRagReadOnlyClient(data_dir=str(tmp_path))
+    client._resolve_store_access = lambda doc_id, principal: ("kb", "/x.pdf")
+    client._read_document_chunks = lambda collection, source_path: [
+        _hit(cid="c1", meta={
+            "chunk_index": 0, "asset_ids": ["a1"], "document_version": "v",
+        }),
+    ]
+    asset = client.get_asset("d", "a1", TrustedLocalPrincipal())
+    assert asset.data == b"png"
+    assert asset.metadata.locator == "kb/a1.png"
+    assert asset.metadata.chunk_id == "c1"
+    assert len(asset.metadata.checksum_sha256) == 64
+
+    try:
+        client.get_asset("d", "other", TrustedLocalPrincipal())
+        assert False
+    except ResourceNotFoundError:
+        pass

@@ -140,6 +140,8 @@ class IngestionPipeline:
         bm25_indexer: "BM25Indexer",
         file_integrity: FileIntegrityChecker,
         image_storage: "ImageStorage | None" = None,
+        parent_chunk_store: Any | None = None,
+        parent_chunk_builder: Any | None = None,
         bm25_index_name: str = "corpus",
         collection: str = "default",
     ) -> None:
@@ -151,6 +153,8 @@ class IngestionPipeline:
         self.bm25_indexer = bm25_indexer
         self.file_integrity = file_integrity
         self.image_storage = image_storage
+        self.parent_chunk_store = parent_chunk_store
+        self.parent_chunk_builder = parent_chunk_builder
         self.bm25_index_name = bm25_index_name
         self.collection = collection
 
@@ -413,6 +417,28 @@ class IngestionPipeline:
                 )
             return result
 
+        parent_version: str | None = None
+        parent_document_id: str | None = None
+        parent_staged = False
+        if self.parent_chunk_store is not None and self.parent_chunk_builder is not None:
+            try:
+                from src.application.identifiers import document_uuid
+
+                parent_child = self.parent_chunk_builder.build(chunks)
+                chunks = list(parent_child.children)
+                if chunks:
+                    parent_version = str(chunks[0].metadata["document_version"])
+                    parent_document_id = str(document_uuid(
+                        run_collection, canonical_source,
+                    ))
+                    parent_staged = self.parent_chunk_store.stage(
+                        collection=run_collection, document_id=parent_document_id,
+                        version=parent_version, children=chunks,
+                        parents=parent_child.parents,
+                    )
+            except Exception as exc:
+                raise PipelineStageError("parent_chunk_stage", str(exc)) from exc
+
         # ---- Stage 5: embed (dense + sparse) ----------------------
         # ``on_progress`` is forwarded to BatchProcessor so the
         # embed stage reports per-batch (the only stage where the
@@ -428,6 +454,10 @@ class IngestionPipeline:
                 chunks, trace=trace, on_progress=on_progress,
             ))()
         except Exception as exc:
+            if parent_staged:
+                self.parent_chunk_store.delete_staging(
+                    run_collection, parent_document_id, parent_version,
+                )
             if trace is not None:
                 trace.record_stage(
                     "embed", event="error",
@@ -448,6 +478,10 @@ class IngestionPipeline:
                 n_in=len(records),
             )(lambda: self._do_upsert(records, trace=trace))()
         except PipelineStageError as exc:
+            if parent_staged:
+                self.parent_chunk_store.delete_staging(
+                    run_collection, parent_document_id, parent_version,
+                )
             # Propagate the inner stage label (vector_store /
             # bm25_store) so existing error-contract tests still
             # see the original ``stage`` attribute. We only add the
@@ -461,6 +495,10 @@ class IngestionPipeline:
                 )
             raise
         except Exception as exc:
+            if parent_staged:
+                self.parent_chunk_store.delete_staging(
+                    run_collection, parent_document_id, parent_version,
+                )
             if trace is not None:
                 trace.record_stage(
                     "upsert", event="error",
@@ -472,6 +510,18 @@ class IngestionPipeline:
             on_progress("upsert", 1, 1)
         result.n_records_upserted = n_upserted
         result.bm25_n_docs = index.n_docs
+
+        if parent_staged:
+            try:
+                self.parent_chunk_store.activate(
+                    collection=run_collection, document_id=parent_document_id,
+                    version=parent_version,
+                )
+            except Exception as exc:
+                self.parent_chunk_store.delete_staging(
+                    run_collection, parent_document_id, parent_version,
+                )
+                raise PipelineStageError("parent_chunk_activate", str(exc)) from exc
 
         # ---- Stage 7: mark success ---------------------------------
         try:

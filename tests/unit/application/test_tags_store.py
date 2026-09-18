@@ -96,6 +96,17 @@ def test_set_document_tags_replaces_and_cascades(db: WebApiDB) -> None:
     assert db.document_tag_ids("doc1") == []
 
 
+def test_add_document_tag_is_additive_and_idempotent(db: WebApiDB) -> None:
+    manual = db.create_tag(collection_id="c1", name="manual")
+    reviewed = db.create_tag(collection_id="c1", name="reviewed")
+    db.set_document_tags("doc1", [manual["tag_id"]])
+    assert db.add_document_tag("doc1", reviewed["tag_id"]) is True
+    assert db.add_document_tag("doc1", reviewed["tag_id"]) is False
+    assert set(db.document_tag_ids("doc1")) == {
+        manual["tag_id"], reviewed["tag_id"],
+    }
+
+
 def test_delete_tag_returns_false_for_unknown(db: WebApiDB) -> None:
     assert db.delete_tag("nope") is False
 

@@ -309,11 +309,14 @@ def bound_evidence_page(
 
     # Pass 1 — per-field configured caps (also redacts).
     initially_capped: list[EvidenceV1] = []
+    truncated_characters = False
     for ev in rows:
+        content = _trim_to(ev.content, budget.max_content_chars)
+        preview = _trim_to(ev.content_preview, budget.max_preview_chars)
+        if content != ev.content or preview != ev.content_preview:
+            truncated_characters = True
         initially_capped.append(dataclasses.replace(
-            ev,
-            content=_trim_to(ev.content, budget.max_content_chars),
-            content_preview=_trim_to(ev.content_preview, budget.max_preview_chars),
+            ev, content=content, content_preview=preview,
         ))
     rows = initially_capped
 
@@ -336,7 +339,6 @@ def bound_evidence_page(
             warnings=tuple(warnings),
         )
 
-    truncated_characters = False
     kwargs = dict(
         page=page, page_size=page_size, cursor=cursor,
         next_cursor=next_cursor, has_next=has_next,

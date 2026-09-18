@@ -16,6 +16,19 @@ from src.ingestion.storage.image_storage import (
     ImageStorage,
 )
 from src.ingestion.storage.vector_upserter import VectorUpserter
+from src.ingestion.storage.parent_chunk_store import (
+    ParentChunkStore,
+    ParentChunkStoreError,
+    StoredChunk,
+)
+from src.ingestion.storage.revision_store import (
+    RevisionConflictError,
+    RevisionStore,
+    RevisionStoreError,
+)
+from src.ingestion.storage.enrichment_store import EnrichmentStore
+from src.ingestion.storage.derived_content_store import DerivedContentStore
+from src.ingestion.storage.enrichment_metrics_store import EnrichmentMetricsStore
 
 __all__ = [
     # C11 — BM25
@@ -33,4 +46,13 @@ __all__ = [
     "DEFAULT_COLLECTION",
     "ImageRecord",
     "ImageStorage",
+    "ParentChunkStore",
+    "ParentChunkStoreError",
+    "StoredChunk",
+    "RevisionConflictError",
+    "RevisionStore",
+    "RevisionStoreError",
+    "EnrichmentStore",
+    "DerivedContentStore",
+    "EnrichmentMetricsStore",
 ]

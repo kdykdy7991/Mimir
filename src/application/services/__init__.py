@@ -17,6 +17,7 @@ from src.application.services.task_types import (
     TaskStatus,
 )
 from src.application.services.task_tracker import TaskRecord, TaskTracker
+from src.application.services.worker_pool import DurableWorkerPool, DurableWorkerStore
 from src.application.services.upload_types import (
     BatchFileResult,
     BatchFileStatus,
@@ -61,4 +62,6 @@ __all__ = [
     # task tracking (M2 batch 2)
     "TaskRecord",
     "TaskTracker",
+    "DurableWorkerPool",
+    "DurableWorkerStore",
 ]

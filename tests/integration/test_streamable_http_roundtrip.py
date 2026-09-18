@@ -53,6 +53,20 @@ from src.mcp_server.transports.streamable_http import build_asgi_app
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _ignore_environment_proxies_for_loopback(monkeypatch):
+    """Keep local transport tests independent from developer proxy settings."""
+    for name in (
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _free_port() -> int:
     """Ask the OS for an unused TCP port. Race-prone in theory but
     fine in practice — the port is released as soon as we close

@@ -82,6 +82,12 @@ class DocumentService:
     ) -> list["DocumentInfo"]:
         return self._manager.list_documents(collection=collection)
 
+    def list_document_keys(
+        self, collection: str | None = None,
+    ) -> list[tuple[str, str]]:
+        """Return lightweight ``(collection, source_path)`` discovery keys."""
+        return self._manager.list_document_keys(collection=collection)
+
     def list_documents_paged(
         self, collection: str | None = None, offset: int = 0,
         limit: int = 20,

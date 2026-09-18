@@ -21,13 +21,26 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from src.application.contracts import (
+    ChunkContextRequest,
+    ChunkContextResult,
+    AssetContent,
+    SearchRequest,
+    SearchResult,
+)
+
 from src.mcp_server.auth.context import AccessPrincipalLike
 from src.mcp_server.clients.models import (
     CollectionInfo,
+    ChunkDetail,
     DocumentChunkPage,
     DocumentInfo,
+    DocumentListRequest,
+    DocumentPage,
     KnowledgeQueryResult,
     QueryRequest,
+    DataSourceInfo,
+    SyncStatusInfo,
 )
 
 
@@ -53,6 +66,12 @@ class RagReadOnlyClient(Protocol):
         """Return raw retrieval evidence for ``request.query`` (no answer)."""
         ...
 
+    def search(
+        self, request: SearchRequest, principal: AccessPrincipalLike,
+    ) -> SearchResult:
+        """Run unified governance-filtered retrieval."""
+        ...
+
     def get_document(
         self, document_id: str, principal: AccessPrincipalLike,
     ) -> DocumentInfo:
@@ -68,6 +87,40 @@ class RagReadOnlyClient(Protocol):
     ) -> DocumentChunkPage:
         """Return one stable-ordered page of ``document_id``'s chunks."""
         ...
+
+    def list_documents(
+        self, request: DocumentListRequest, principal: AccessPrincipalLike,
+    ) -> DocumentPage:
+        """Discover authorized documents through bounded filters/pagination."""
+        ...
+
+    def get_chunk(
+        self, document_id: str, chunk_id: str, principal: AccessPrincipalLike,
+    ) -> ChunkDetail:
+        """Read one exact chunk after document and chunk ownership checks."""
+        ...
+
+    def get_chunk_context(
+        self, request: ChunkContextRequest, principal: AccessPrincipalLike,
+    ) -> ChunkContextResult:
+        """Read bounded parent/neighbor context for one authorized chunk."""
+        ...
+
+    def get_asset(
+        self, document_id: str, asset_id: str, principal: AccessPrincipalLike,
+    ) -> AssetContent:
+        """Read one bounded asset after document ownership checks."""
+        ...
+
+    def list_data_sources(self, principal: AccessPrincipalLike) -> list[DataSourceInfo]: ...
+
+    def get_sync_status(
+        self, source_id: str, principal: AccessPrincipalLike,
+    ) -> SyncStatusInfo: ...
+
+    def list_sync_failures(
+        self, source_id: str, limit: int, principal: AccessPrincipalLike,
+    ) -> list[dict[str, object]]: ...
 
 
 __all__ = ["RagReadOnlyClient"]

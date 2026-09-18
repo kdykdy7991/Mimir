@@ -241,6 +241,13 @@ mcp_server:
   request_timeout_seconds: 30
   api_key: "${MCP_INTERNAL_API_KEY}"    # 内部只读 API 共享凭证（backend=http 时用于鉴权；未设置即失败关闭）
 
+# Task 07.6：模型标签建议默认关闭；开启后仍只生成待审核 suggestion，
+# 不会自动创建标签或覆盖人工绑定。
+tag_enrichment_enabled: false
+
+# Task 07.7：派生摘要/合成问题默认关闭；独立 namespace 可随时清理重建。
+derived_content_enabled: false
+
 # ----------------------------------------------------------------
 # MCP 请求/响应预算（Task 02.3 唯一上限配置源）
 # ----------------------------------------------------------------
@@ -256,8 +263,12 @@ mcp_server:
 #   max_structured_chars: 200000        # structured content 总字符预算
 #   max_content_chars: 8000             # 单条 Evidence 正文最大字符数
 #   max_preview_chars: 200              # 单条 Evidence 预览最大字符数
-#   alternate_query_max_count: 3        # 预留 Task 05（本任务不开放输入）
+#   alternate_query_max_count: 3        # Task 05：候选 query 最大条数
 #   alternate_query_total_max_chars: 3000
+#   collection_max_count: 20            # Task 05：单次检索 collection 上限
+#   search_candidate_work_max: 1000     # query × collection × top_k 上限
+#   per_key_concurrency: 4              # 每个 MCP Key 同时执行的工具数
+#   per_key_requests_per_minute: 600    # 每个 MCP Key 的滚动一分钟请求预算
 # Task 02.4 能力发现开关（默认 true）：关闭后不再注册
 # rag://server/capabilities 只读 Resource，回到纯工具服务器（回滚开关）。
 # mcp_server:

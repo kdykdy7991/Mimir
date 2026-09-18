@@ -27,10 +27,13 @@ from src.mcp_server.clients.models import (
 )
 
 
-def test_protocol_exposes_exactly_the_four_read_methods():
-    """The interface must have exactly the 4 read methods, no writes."""
+def test_protocol_exposes_exactly_the_nine_read_methods():
+    """The interface has only the nine approved read methods, no writes."""
     expected = {"list_collections", "query_knowledge", "get_document",
-                "get_document_chunks"}
+                "get_document_chunks", "list_documents", "get_chunk",
+                "get_chunk_context", "search"}
+    expected.add("get_asset")
+    expected.update({"list_data_sources", "get_sync_status", "list_sync_failures"})
     methods = {
         name for name in getattr(RagReadOnlyClient, "__dict__", {})
         if not name.startswith("_") and isinstance(

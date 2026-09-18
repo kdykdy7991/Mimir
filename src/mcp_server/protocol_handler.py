@@ -73,6 +73,12 @@ from mcp.types import (
 )
 
 from src.mcp_server.auth.context import _current_principal, principal_from_server_context
+from src.application.services.resource_limits import (
+    CapacityExceeded,
+    RateLimitExceeded,
+    WorkloadLimiter,
+)
+from src.application.services.audit_store import AuditStore
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +129,15 @@ class ProtocolHandler:
         server_title: str | None = None,
         server_description: str | None = None,
         instructions: str | None = None,
+        limiter: WorkloadLimiter | None = None,
+        audit_store: AuditStore | None = None,
     ) -> None:
         self._server_name = server_name
         self._server_title = server_title
         self._server_description = server_description
         self._instructions = instructions
+        self._limiter = limiter
+        self._audit_store = audit_store
         self._tools: dict[str, ToolRegistration] = {}
 
     # ------------------------------------------------------------------
@@ -205,10 +215,43 @@ class ProtocolHandler:
             principal = TrustedLocalPrincipal()
         token = _current_principal.set(principal)
         try:
-            result = await registration.handler(arguments)
+            if self._limiter is None:
+                result = await registration.handler(arguments)
+            else:
+                try:
+                    with self._limiter.acquire("mcp", subject=principal.key_id):
+                        result = await registration.handler(arguments)
+                except RateLimitExceeded as exc:
+                    rejected = tool_error(
+                        "rate_limited: rate limit exceeded "
+                        f"(retry after {exc.retry_after_seconds:g} seconds)",
+                    )
+                    self._audit(name, principal.key_id, "rate_limited")
+                    return rejected
+                except CapacityExceeded:
+                    rejected = tool_error(
+                        "overloaded: service is overloaded, retry later",
+                    )
+                    self._audit(name, principal.key_id, "overloaded")
+                    return rejected
+        except Exception:
+            self._audit(name, principal.key_id, "error")
+            raise
         finally:
             _current_principal.reset(token)
+        self._audit(
+            name, principal.key_id,
+            "denied" if getattr(result, "is_error", False) else "success",
+        )
         return _normalize_result(name, result)
+
+    def _audit(self, tool_name: str, actor_id: str, outcome: str) -> None:
+        if self._audit_store is None:
+            return
+        self._audit_store.append(
+            actor_type="mcp_key", actor_id=actor_id, action="mcp.tool.call",
+            resource_type="mcp_tool", resource_id=tool_name, outcome=outcome,
+        )
 
     # ------------------------------------------------------------------
     # MCP server construction

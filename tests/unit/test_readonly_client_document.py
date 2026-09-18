@@ -45,7 +45,8 @@ def test_get_document_maps_metadata():
     assert info.title == "My Doc"
     assert info.summary == "sum"
     assert info.tags == ["t"]
-    assert info.source == "/x/y.pdf"
+    # Public DTOs expose a display-safe source, never an absolute host path.
+    assert info.source == "y.pdf"
     assert info.document_type == "pdf"
     assert info.chunk_count == 2
 
@@ -61,12 +62,12 @@ def test_get_document_unresolved_raises() -> None:
 
 
 def test_get_document_forbidden_is_denied() -> None:
-    from src.mcp_server.clients.errors import AccessDeniedError
+    from src.mcp_server.clients.errors import ResourceNotFoundError
     import pytest
 
     client = _client()
     with patch.object(client, "_resolve_doc", return_value=("secret", "/x.pdf")):
-        with pytest.raises(AccessDeniedError):
+        with pytest.raises(ResourceNotFoundError):
             client.get_document("d-uuid", _principal("other"))
 
 

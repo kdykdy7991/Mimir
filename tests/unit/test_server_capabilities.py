@@ -11,6 +11,7 @@ client/server session (mcp 2.x), and rollback (no Resource) is one flag.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -68,6 +69,13 @@ def test_capabilities_lists_exactly_the_registered_tools(document):
         "get_document",
         "get_document_summary",
         "get_document_chunks",
+        "list_documents",
+        "get_chunk",
+        "search_chunks",
+            "get_chunk_context",
+            "list_data_sources",
+            "get_sync_status",
+            "list_sync_failures",
     ]
     by_name = {t["name"]: t for t in document["tools"]}
     assert by_name["get_document_summary"]["lifecycle"] == "compat_alias"
@@ -110,7 +118,7 @@ def test_capabilities_vocabulary_comes_from_contracts(document):
         "collection", "document", "tag", "folder",
         "file", "content", "source", "time",
     }.issubset(set(document["filters"]["dimensions_defined"]))
-    assert document["filters"]["enforced_by_tools"] is False
+    assert document["filters"]["enforced_by_tools"] is True
 
 
 def test_capabilities_retrieval_and_identity_fields(document):
@@ -123,7 +131,8 @@ def test_capabilities_retrieval_and_identity_fields(document):
     assert document["retrieval"]["rerank"] == {
         "enabled": False, "backend": "none",
     }
-    assert document["evidence"]["matched_queries"]["current_max"] == 1
+    assert document["evidence"]["matched_queries"]["current_max"] == 4
+    assert document["evidence"]["matched_queries"]["alternate_max"] == 3
 
 
 def test_capabilities_transports_track_cli_support(document):
@@ -140,14 +149,40 @@ def test_capabilities_declare_absent_features_false(document):
     """Every roadmap-absent capability is an explicit, machine-readable
     ``false`` — never missing, never implied."""
     features = document["features"]
-    for absent in (
-        "parent_child_chunks", "source_assets", "multi_collection_search",
-        "alternate_queries", "write_tools",
-    ):
+    for absent in ("write_tools",):
         assert features[absent] is False, absent
-    assert all(value is False for value in features.values())
+    assert features["multi_query"] is True
+    assert features["alternate_queries"] is True
+    assert features["multi_collection_search"] is True
+    assert features["chunk_context"] is True
+    assert features["source_assets"] is True
+    assert features["chunk_context_resources"] is True
+    assert features["parent_child_chunks"] is True
+    assert features["list_documents"] is True
+    assert features["get_chunk"] is True
+    assert features["search_chunks"] is True
+    assert features["governance_filters"] is True
+    assert all(
+        value is False for key, value in features.items()
+        if key not in {
+            "list_documents", "get_chunk", "search_chunks",
+            "governance_filters", "multi_query", "alternate_queries",
+            "multi_collection_search",
+            "chunk_context", "source_assets", "chunk_context_resources",
+            "parent_child_chunks",
+        }
+    )
     # A capability cannot be advertised as both planned and registered.
-    assert set(features) == {str(item["id"]) for item in UNSUPPORTED}
+    assert set(features) == (
+        {str(item["id"]) for item in UNSUPPORTED}
+            | {
+                "list_documents", "get_chunk", "search_chunks",
+                "governance_filters", "multi_query", "alternate_queries",
+                "multi_collection_search",
+                "chunk_context", "source_assets", "chunk_context_resources",
+                "parent_child_chunks",
+            }
+    )
 
 
 def test_capabilities_leak_no_secret_or_host_path(document):
@@ -276,6 +311,61 @@ async def test_unknown_resource_uri_is_rejected():
 
 
 @_NEEDS_MCP_V2
+async def test_chunk_resource_template_round_trip_and_rejects_traversal():
+    from src.application.contracts import AssetContent, AssetV1
+    from src.mcp_server.clients.models import ChunkDetail
+    from src.mcp_server.tools.common import reset_client_cache, set_default_client
+
+    class Client:
+        def get_chunk(self, document_id, chunk_id, principal):
+            assert (document_id, chunk_id) == ("doc-1", "chunk-1")
+            return ChunkDetail(
+                document_id=document_id, chunk_id=chunk_id,
+                index=0, text="safe body",
+            )
+
+        def get_asset(self, document_id, asset_id, principal):
+            return AssetContent(
+                metadata=AssetV1(
+                    asset_id=asset_id, document_id=document_id, chunk_id="chunk-1",
+                    document_version="v", mime_type="image/png", byte_size=3,
+                    checksum_sha256=hashlib.sha256(b"png").hexdigest(),
+                    locator="kb/a.png",
+                ),
+                data=b"png",
+            )
+
+    handler = _registry()
+    server = handler.build_server(capabilities=build_capabilities(handler))
+    set_default_client(Client())
+    try:
+        async with _client(server) as client:
+            templates = await client.list_resource_templates()
+            assert [t.uri_template for t in templates.resource_templates] == [
+                "rag://documents/{document_id}/chunks/{chunk_id}",
+                "rag://documents/{document_id}/assets/{asset_id}",
+            ]
+            read = await client.read_resource(
+                "rag://documents/doc-1/chunks/chunk-1",
+            )
+            assert json.loads(read.contents[0].text)["text"] == "safe body"
+            asset = await client.read_resource(
+                "rag://documents/doc-1/assets/asset-1",
+            )
+            assert asset.contents[0].mime_type == "image/png"
+            with pytest.raises(Exception):
+                await client.read_resource(
+                    "rag://documents/%2E%2E/chunks/chunk-1",
+                )
+            with pytest.raises(Exception):
+                await client.read_resource(
+                    "rag://documents/doc-1/chunks/chunk-1?raw=true",
+                )
+    finally:
+        reset_client_cache()
+
+
+@_NEEDS_MCP_V2
 async def test_build_server_without_capabilities_registers_no_resource():
     """Rollback shape: no capabilities document → no Resource at all."""
     server = _registry().build_server()
@@ -285,5 +375,5 @@ async def test_build_server_without_capabilities_registers_no_resource():
         assert client.server_capabilities.resources is None
         with pytest.raises(Exception):  # protocol-level METHOD_NOT_FOUND
             await client.list_resources()
-        # ... and the 5 tools are still served.
-        assert len((await client.list_tools()).tools) == 5
+        # ... and the read tools are still served.
+        assert len((await client.list_tools()).tools) == 12

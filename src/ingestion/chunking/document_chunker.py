@@ -34,6 +34,7 @@ import hashlib
 import re
 from typing import Any
 
+from src.application.contracts import INDEX_FORMAT_VERSION, content_version
 from src.core.types import Chunk, Document, ImageRef
 from src.libs.loader.pdf_loader import extract_image_mentions
 from src.libs.splitter.base_splitter import BaseSplitter
@@ -252,6 +253,8 @@ class DocumentChunker:
             document=document,
             chunk_index=index,
             chunk_text=text,
+            start_offset=start_offset,
+            end_offset=end_offset,
             doc_images=doc_images,
             extra_meta=extra_meta,
         )
@@ -289,6 +292,8 @@ class DocumentChunker:
         document: Document,
         chunk_index: int,
         chunk_text: str,
+        start_offset: int,
+        end_offset: int,
         doc_images: list[ImageRef],
         extra_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -310,6 +315,31 @@ class DocumentChunker:
         chunk_meta: dict[str, Any] = dict(document.metadata)
         chunk_meta.pop("images", None)
         chunk_meta["chunk_index"] = chunk_index
+        document_version = str(
+            chunk_meta.get("document_version")
+            or content_version(document.id, document.text)
+        )
+        chunk_meta.update({
+            "index_format_version": INDEX_FORMAT_VERSION,
+            "chunk_level": "child",
+            "source_span": {"start": start_offset, "end": end_offset},
+            "document_version": document_version,
+            "chunk_version": content_version(
+                document_version, str(chunk_index), chunk_text,
+            ),
+        })
+        parent_id = chunk_meta.get("parent_chunk_id") or chunk_meta.get("parent_id")
+        if parent_id:
+            chunk_meta["parent_chunk_id"] = str(parent_id)
+        heading_path = chunk_meta.get("heading_path")
+        if heading_path is None:
+            heading = chunk_meta.get("heading") or chunk_meta.get("section")
+            heading_path = [str(heading)] if heading else []
+        elif isinstance(heading_path, str):
+            heading_path = [heading_path]
+        chunk_meta["heading_path"] = list(dict.fromkeys(
+            str(item).strip() for item in heading_path if str(item).strip()
+        ))
         if extra_meta:
             chunk_meta.update(extra_meta)
 
@@ -337,6 +367,7 @@ class DocumentChunker:
                         copy.deepcopy(img.to_dict()) for img in matched
                     ]
                     chunk_meta["image_refs"] = [img.id for img in matched]
+                    chunk_meta["asset_ids"] = [img.id for img in matched]
 
         return chunk_meta
 

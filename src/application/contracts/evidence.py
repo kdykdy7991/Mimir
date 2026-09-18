@@ -127,7 +127,7 @@ class SourceLocator:
 # Optional string fields (None unless genuinely known).
 _OPTIONAL_ID_FIELDS = (
     "document_version", "chunk_version", "parent_chunk_id",
-    "title", "content", "content_preview",
+    "title", "source_name", "content", "content_preview",
 )
 
 
@@ -147,6 +147,7 @@ class EvidenceV1:
     chunk_version: str | None = None
     parent_chunk_id: str | None = None
     title: str | None = None
+    source_name: str | None = None
     content: str | None = None
     content_preview: str | None = None
     heading_path: tuple[str, ...] | None = None

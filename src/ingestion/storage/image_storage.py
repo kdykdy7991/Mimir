@@ -243,6 +243,26 @@ class ImageStorage:
             return None
         return self._row_to_record(row)
 
+    def get_readonly(self, image_id: str) -> ImageRecord | None:
+        """Lookup without schema creation, WAL changes, or any disk write."""
+        path = Path(self.db_path)
+        if not path.is_file():
+            return None
+        conn = sqlite3.connect(
+            f"file:{path.resolve()}?mode=ro", uri=True,
+            timeout=30.0, check_same_thread=False,
+        )
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT * FROM image_index WHERE image_id = ?", (image_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        finally:
+            conn.close()
+        return self._row_to_record(row) if row is not None else None
+
     def get_path(self, image_id: str) -> str | None:
         """Convenience — just the file path (or None)."""
         rec = self.get(image_id)

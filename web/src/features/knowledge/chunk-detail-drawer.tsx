@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Copy, FileSearch, LocateFixed, X } from "lucide-react";
 import { Button, ErrorState, LoadingState } from "@/components";
 import type { DocumentChunkDetail } from "@/types";
+import { KnowledgeGovernancePanel } from "./knowledge-governance-panel";
 
 type Props = {
   chunk?: DocumentChunkDetail | undefined;
@@ -93,6 +94,7 @@ export function ChunkDetailDrawer({ chunk, error, loading = false, onClose, onNa
           <section><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">完整内容</h3><Button onClick={() => void copy("text")} size="sm" variant="ghost"><Copy className="size-3.5" />复制正文</Button></div><pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-border bg-surface p-4 font-sans text-sm leading-7 selection:bg-primary/20">{chunk.text}</pre></section>
           <section><h3 className="text-xs font-semibold text-muted-foreground">Chunk ID</h3><div className="mt-2 flex items-center gap-2 rounded-md bg-surface-muted px-3 py-2"><code className="min-w-0 flex-1 break-all text-xs">{chunk.chunk_id}</code><button aria-label="复制 Chunk ID" className="grid size-8 shrink-0 place-items-center rounded text-muted-foreground hover:bg-surface hover:text-foreground" onClick={() => void copy("id")} title="复制 Chunk ID" type="button"><Copy className="size-3.5" /></button></div></section>
           {copyState === "text" ? <p aria-live="polite" className="text-sm text-success">Chunk 正文已复制。</p> : copyState === "id" ? <p aria-live="polite" className="text-sm text-success">Chunk ID 已复制。</p> : copyState === "failed" ? <p aria-live="polite" className="text-sm text-danger">浏览器阻止了复制，请手动选择内容。</p> : null}
+          <KnowledgeGovernancePanel chunkId={chunk.chunk_id} documentId={chunk.document_id} />
         </div> : <div className="grid min-h-64 place-items-center text-center"><div><FileSearch className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">请选择一个文档片段。</p></div></div>}
       </div>
 

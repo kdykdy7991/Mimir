@@ -166,6 +166,17 @@ class TestOpenAICompatibleLLM:
         _, kwargs = mock_openai_cls.call_args
         assert kwargs["api_key"] == "sk-abc-123"
 
+    @patch("src.libs.llm.providers.openai_compatible.OpenAI")
+    def test_client_does_not_inherit_ambient_proxy(self, mock_openai_cls):
+        settings = LLMSettings(
+            provider="openai", api_key="test-key", model="gpt-4",
+        )
+
+        OpenAICompatibleLLM(settings)
+
+        _, kwargs = mock_openai_cls.call_args
+        assert kwargs["http_client"]._trust_env is False
+
     @pytest.mark.parametrize("provider", PROVIDER_NAMES)
     @patch("src.libs.llm.providers.openai_compatible.OpenAI")
     def test_per_provider_base_url_passthrough(

@@ -44,8 +44,15 @@ EXPECTED_TOOLS = frozenset({
     "get_document",
     "get_document_chunks",
     "get_document_summary",
+    "get_chunk",
+    "get_chunk_context",
     "list_collections",
+    "list_data_sources",
+    "list_documents",
+    "list_sync_failures",
+    "get_sync_status",
     "query_knowledge_hub",
+    "search_chunks",
 })
 
 REGENERATE = os.environ.get("MCP_REGENERATE_V1") == "1"
@@ -190,9 +197,7 @@ def test_get_document_chunks_oneof_pagination_and_ordering_contract(handler):
     assert set(item.get("required", [])) >= {"chunk_id", "index"}
 
 
-def test_no_enum_or_const_constraints_exist_v1(handler):
-    """Contract v1 has zero enum/const constraints. Introducing one is a
-    deliberate, reviewed contract event — it must update docs/contracts."""
+def test_only_reviewed_enum_constraints_exist_v1(handler):
     found: list[str] = []
 
     def walk(node, path):
@@ -209,7 +214,15 @@ def test_no_enum_or_const_constraints_exist_v1(handler):
         inp, out = _schema(handler, name)
         walk(inp, f"{name}.input")
         walk(out, f"{name}.output")
-    assert found == [], f"new enum/const constraints require contract review: {found}"
+    assert found == [
+        "get_chunk_context.input.properties.include.enum",
+        "list_documents.input.properties.status.enum",
+        "list_documents.input.properties.tag_operator.enum",
+        "list_documents.input.properties.sort.enum",
+        "search_chunks.input.properties.failure_policy.enum",
+        "search_chunks.input.properties.mode.enum",
+        "search_chunks.input.properties.filters.properties.tag_operator.enum",
+    ], f"new enum/const constraints require contract review: {found}"
 
 
 # --------------------------------------------------------------------------

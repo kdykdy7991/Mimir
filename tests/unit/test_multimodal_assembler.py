@@ -7,7 +7,7 @@ Covers the assembler's contract:
 * chunk without image_refs → only TextContent
 * missing image_id → ImageNotFoundError (no silent skip)
 * ImageContent.data is valid base64
-* ImageContent.mimeType is derived from the file extension
+* ImageContent.mime_type is derived from the file extension
 * response_builder wires the assembler through correctly
 
 The assembler delegates IO to :class:`ImageStorage`; the
@@ -109,7 +109,7 @@ class TestContentBlockTypes:
         )
         assert block.type == "image"
         assert block.data == "aGVsbG8="
-        assert block.mimeType == "image/png"
+        assert block.mime_type == "image/png"
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ class TestAssembleWithImage:
         assert blocks[0].text == "see below"
         assert isinstance(blocks[1], ImageContent)
         assert blocks[1].type == "image"
-        assert blocks[1].mimeType == "image/png"
+        assert blocks[1].mime_type == "image/png"
         # data is base64
         assert blocks[1].data == base64.b64encode(_PNG_1X1).decode("ascii")
         # base64 roundtrips back to the original bytes
@@ -197,8 +197,8 @@ class TestAssembleWithImage:
         assert isinstance(blocks[1], ImageContent)
         assert isinstance(blocks[2], ImageContent)
         # order preserved
-        assert blocks[1].mimeType == "image/png"
-        assert blocks[2].mimeType == "image/jpeg"
+        assert blocks[1].mime_type == "image/png"
+        assert blocks[2].mime_type == "image/jpeg"
 
     def test_multiple_chunks_emit_text_then_images_in_order(
         self, assembler, image_storage,
@@ -234,7 +234,7 @@ class TestAssembleWithImage:
         blocks = assembler.assemble([result])
 
         assert len(blocks) == 2
-        assert blocks[1].mimeType == "image/png"
+        assert blocks[1].mime_type == "image/png"
 
 
 # ---------------------------------------------------------------------------

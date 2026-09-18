@@ -11,6 +11,8 @@ from fastapi import APIRouter, Response, status
 
 from src.core.settings import load_settings
 from src.mcp_server.auth import ApiKeyService
+from src.application.services.audit_store import AuditStore
+from pathlib import Path
 from src.mcp_server.auth.models import (
     DuplicateKeyNameError, InvalidCollectionWhitelistError, KeyNotFoundError,
 )
@@ -25,7 +27,10 @@ router = APIRouter(prefix="/mcp-keys", tags=["mcp-keys"])
 
 def _service() -> ApiKeyService:
     settings = load_settings("./config/settings.yaml")
-    return ApiKeyService(db_path=settings.mcp_access.database_path)
+    return ApiKeyService(
+        db_path=settings.mcp_access.database_path,
+        audit_store=AuditStore(Path("./data/db/audit.db")),
+    )
 
 
 def _metadata(value) -> MCPKeyMetadata:

@@ -37,6 +37,11 @@ from src.application.services.task_types import (
     TaskStage,
     TaskStatus,
 )
+from src.application.services.task_state_machine import (
+    ExecutionStage,
+    ensure_transition,
+    execution_stage_for_public,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,8 @@ class TaskRecord:
     # at stage boundaries.
     parent_task_id: UUID | None = None
     cancel_requested: bool = False
+    execution_stage: ExecutionStage | None = None
+    stage_started_at: datetime | None = None
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
     finished_at: datetime | None = None
@@ -84,12 +91,15 @@ class TaskRecord:
         no ingestion stages, so they flip to ``running`` with a bare
         status (M3 batch 2 async queries).
         """
+        ensure_transition(self.status, "running")
         self.status = "running"
         self.updated_at = _utcnow()
 
     def mark_running(self, stage: TaskStage) -> None:
         """Transition pending → running with the first stage."""
+        ensure_transition(self.status, "running")
         self.status = "running"
+        self._set_execution_stage(execution_stage_for_public(stage))
         self.progress = TaskProgress(stage=stage, current=0, total=None, percent=0)
         self.updated_at = _utcnow()
 
@@ -102,6 +112,9 @@ class TaskRecord:
         message: str | None = None,
     ) -> None:
         """Refresh the in-flight ``progress`` block."""
+        ensure_transition(self.status, "running")
+        self.status = "running"
+        self._set_execution_stage(execution_stage_for_public(stage))
         self.progress = TaskProgress(
             stage=stage,
             current=current,
@@ -113,6 +126,8 @@ class TaskRecord:
 
     def mark_succeeded(self) -> None:
         """Transition running → succeeded and freeze the timestamp."""
+        ensure_transition(self.status, "succeeded")
+        self._set_execution_stage("finalize")
         self.status = "succeeded"
         self.finished_at = _utcnow()
         self.updated_at = self.finished_at
@@ -120,6 +135,7 @@ class TaskRecord:
 
     def mark_failed(self, error: TaskError) -> None:
         """Transition running → failed with a structured ``TaskError``."""
+        ensure_transition(self.status, "failed")
         self.status = "failed"
         self.error = error
         self.finished_at = _utcnow()
@@ -133,6 +149,7 @@ class TaskRecord:
         terminal state — the polling endpoint returns it like
         ``succeeded``/``failed`` so the frontend stops polling.
         """
+        ensure_transition(self.status, "skipped")
         self.status = "skipped"
         self.progress = None
         self.finished_at = _utcnow()
@@ -146,11 +163,18 @@ class TaskRecord:
         """
         if self.status in ("cancelled", "succeeded", "failed", "skipped"):
             return
+        ensure_transition(self.status, "cancelled")
         self.status = "cancelled"
         self.progress = None
         self.cancel_requested = True
         self.finished_at = _utcnow()
         self.updated_at = self.finished_at
+
+    def _set_execution_stage(self, stage: ExecutionStage) -> None:
+        """Advance the internal stage clock without exposing it in v0.2 DTOs."""
+        if self.execution_stage != stage:
+            self.execution_stage = stage
+            self.stage_started_at = _utcnow()
 
 
 class TaskTracker:
@@ -377,6 +401,10 @@ def _row_from_record(rec: TaskRecord) -> dict:
         "progress_json": rec.progress.model_dump_json() if rec.progress else None,
         "error_json": rec.error.model_dump_json() if rec.error else None,
         "attempt": rec.attempt,
+        "execution_stage": rec.execution_stage,
+        "stage_started_at": rec.stage_started_at.timestamp()
+        if rec.stage_started_at else None,
+        "cancel_requested": rec.cancel_requested,
         "created_at": rec.created_at.timestamp(),
         "updated_at": rec.updated_at.timestamp(),
         "finished_at": rec.finished_at.timestamp() if rec.finished_at else None,
@@ -396,6 +424,10 @@ def _record_from_row(row: dict) -> TaskRecord:
         progress=TaskProgress.model_validate_json(row["progress_json"])
         if row.get("progress_json") else None,
         attempt=row.get("attempt", 0),
+        execution_stage=row.get("execution_stage"),
+        stage_started_at=datetime.fromtimestamp(row["stage_started_at"], tz=timezone.utc)
+        if row.get("stage_started_at") else None,
+        cancel_requested=bool(row.get("cancel_requested", False)),
         error=TaskError.model_validate_json(row["error_json"])
         if row.get("error_json") else None,
         created_at=datetime.fromtimestamp(row["created_at"], tz=timezone.utc),
@@ -425,6 +457,8 @@ def _snapshot(rec: TaskRecord) -> TaskRecord:
         error=rec.error,
         parent_task_id=rec.parent_task_id,
         cancel_requested=rec.cancel_requested,
+        execution_stage=rec.execution_stage,
+        stage_started_at=rec.stage_started_at,
         created_at=rec.created_at,
         updated_at=rec.updated_at,
         finished_at=rec.finished_at,

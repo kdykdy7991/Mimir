@@ -1,6 +1,6 @@
 # 任务 04：统一检索与治理过滤
 
-> 状态：待实施  
+> 状态：已完成
 > 前置：任务 03 Gate 通过  
 > 后继：任务 05
 
@@ -82,3 +82,9 @@ Gate：`search_chunks` 成为唯一新检索原语；旧工具委托且兼容；
 
 回滚：旧工具适配器可临时切回旧实现，但必须保留评测证据并登记原因；不得静默维持双实现。
 
+## 7. 完成记录（2026-09-16）
+
+- `search_chunks` 已成为统一新检索原语，三种 mode、治理过滤、阈值、去重、稳定排序与 rerank 降级均由应用层统一服务处理；
+- 旧 `query_knowledge_hub` 已改为兼容适配器；双 Client、内部 HTTP API、stdio 与 Streamable HTTP 均已贯通；
+- capabilities、工具 Schema 与只读契约清单已冻结为 8 工具，`governance_filters` 和 `filters.enforced_by_tools` 已启用；
+- Gate：相关单元/契约测试 97 passed；双传输、capabilities 与 Golden Set 集成测试 45 passed；inventory、compileall、diff check 通过。

@@ -15,8 +15,8 @@
       "text"
     ],
     "matched_queries": {
-      "current_max": 1,
-      "reserved_max": 3
+      "alternate_max": 3,
+      "current_max": 4
     },
     "score_stages": [
       "dense",
@@ -27,17 +27,18 @@
   },
   "evidence_contract": "evidence-v1",
   "features": {
-    "alternate_queries": false,
+    "alternate_queries": true,
     "answer_generation": false,
-    "chunk_context_resources": false,
-    "get_chunk": false,
-    "governance_filters": false,
-    "list_documents": false,
-    "multi_collection_search": false,
-    "multi_query": false,
-    "parent_child_chunks": false,
-    "search_chunks": false,
-    "source_assets": false,
+    "chunk_context": true,
+    "chunk_context_resources": true,
+    "get_chunk": true,
+    "governance_filters": true,
+    "list_documents": true,
+    "multi_collection_search": true,
+    "multi_query": true,
+    "parent_child_chunks": true,
+    "search_chunks": true,
+    "source_assets": true,
     "write_tools": false
   },
   "filters": {
@@ -51,7 +52,7 @@
       "source",
       "time"
     ],
-    "enforced_by_tools": false,
+    "enforced_by_tools": true,
     "tag_operators": [
       "and",
       "or"
@@ -60,6 +61,7 @@
   "limits": {
     "alternate_query_max_count": 3,
     "alternate_query_total_max_chars": 3000,
+    "collection_max_count": 20,
     "max_content_chars": 8000,
     "max_evidence_count": 50,
     "max_preview_chars": 200,
@@ -67,6 +69,7 @@
     "page_size_default": 20,
     "page_size_max": 50,
     "query_max_length": 2000,
+    "search_candidate_work_max": 1000,
     "top_k_default": 10,
     "top_k_max": 50
   },
@@ -83,6 +86,10 @@
     }
   },
   "read_only": true,
+  "resource_templates": [
+    "rag://documents/{document_id}/chunks/{chunk_id}",
+    "rag://documents/{document_id}/assets/{asset_id}"
+  ],
   "retrieval": {
     "modes": [
       "hybrid",
@@ -124,6 +131,48 @@
       "name": "get_document_chunks",
       "structured_output": true,
       "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "list_documents",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "get_chunk",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "search_chunks",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "get_chunk_context",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "list_data_sources",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "get_sync_status",
+      "structured_output": true,
+      "version": "v1"
+    },
+    {
+      "lifecycle": "long_term",
+      "name": "list_sync_failures",
+      "structured_output": true,
+      "version": "v1"
     }
   ],
   "transports": [
@@ -131,56 +180,6 @@
     "streamable-http"
   ],
   "unsupported": [
-    {
-      "id": "list_documents",
-      "planned_in": "task-03",
-      "status": "planned"
-    },
-    {
-      "id": "get_chunk",
-      "planned_in": "task-03",
-      "status": "planned"
-    },
-    {
-      "id": "search_chunks",
-      "planned_in": "task-04",
-      "status": "planned"
-    },
-    {
-      "id": "governance_filters",
-      "planned_in": "task-04",
-      "status": "contract_defined_only"
-    },
-    {
-      "id": "multi_query",
-      "planned_in": "task-05",
-      "status": "contract_defined_only"
-    },
-    {
-      "id": "alternate_queries",
-      "planned_in": "task-05",
-      "status": "contract_defined_only"
-    },
-    {
-      "id": "multi_collection_search",
-      "planned_in": "task-05",
-      "status": "planned"
-    },
-    {
-      "id": "parent_child_chunks",
-      "planned_in": "task-06",
-      "status": "planned"
-    },
-    {
-      "id": "source_assets",
-      "planned_in": "task-06",
-      "status": "planned"
-    },
-    {
-      "id": "chunk_context_resources",
-      "planned_in": "task-06",
-      "status": "planned"
-    },
     {
       "id": "write_tools",
       "planned_in": null,

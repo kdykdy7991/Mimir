@@ -73,7 +73,7 @@ class _NoOpIngestion:
 
 
 @pytest.fixture
-def client(tmp_path) -> TestClient:
+def client(tmp_path):
     services = ApplicationServices(
         query=object(),
         ingestion=_NoOpIngestion(),
@@ -83,7 +83,10 @@ def client(tmp_path) -> TestClient:
         engines=None,
         db=None,
     )
-    return TestClient(create_app(services=services))
+    # Enter/exit the client explicitly so AnyIO's blocking portal lifecycle
+    # cannot leak across integration tests or stall the first request.
+    with TestClient(create_app(services=services)) as test_client:
+        yield test_client
 
 
 class TestListAllDocuments:

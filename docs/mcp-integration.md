@@ -7,18 +7,27 @@
 > 命令：stdio（桌面客户端路径）与 streamable-http（远程 / HTTP 路径），
 > 以及自动化的集成测试入口。
 >
-> 五只只读工具：`query_knowledge_hub`、`list_collections`、`get_document`、
-> `get_document_summary`（兼容别名）、`get_document_chunks`；另有只读
+> 九只只读工具：`query_knowledge_hub`、`search_chunks`、`get_chunk_context`、`list_collections`、`list_documents`、
+> `get_document`、`get_document_summary`（兼容别名）、`get_document_chunks`、
+> `get_chunk`；另有只读
 > 能力发现 Resource `rag://server/capabilities`（Task 02.4 起）。
 
 ## 多集合路由（M3）
 
-`query_knowledge_hub`、`list_collections`、`get_document`（含兼容别名
-`get_document_summary`）与 `get_document_chunks` 均使用与 Web API 相同的
+`query_knowledge_hub`、`search_chunks`、`list_collections`、`get_document`（含兼容别名
+`get_document_summary`）、`get_document_chunks`、`list_documents` 与
+`get_chunk` 均使用与 Web API 相同的
 多集合数据模型，不再只读取 `settings.yaml` 中配置的默认 Chroma collection：
 
 - `query_knowledge_hub` 按 `collection` 参数同时路由到该集合的 Chroma
   向量存储和 BM25 索引；不传时仍使用 `default`。
+- `search_chunks` 是统一检索原语，显式支持 `dense`、`sparse`、`hybrid`，
+  并在 collection scope 内执行文档、标签、目录、类型和更新时间过滤。Task 05 起可传
+  `alternate_queries`（最多 3 条）和 `collection_ids`（最多 20 个）；`collection`
+  与 `collection_ids` 互斥。所有集合先整体授权，再按库等额召回和 RRF 融合。
+  `failure_policy=allow_partial` 只容忍已授权集合的基础设施失败，权限错误始终整单拒绝。
+- `get_chunk_context` 在命中 child 不变的前提下按需补充 active parent 和前后邻居，
+  整体受 `max_chars` 约束，裁剪会返回 `truncated=true`。
 - `list_collections` 以 `data/db/bm25/*.json` 和配置中的默认集合为已知集合，
   并逐个查询对应 Chroma collection 的真实向量数。该调用只读，不会为了
   统计而创建不存在的 Chroma collection。
@@ -30,6 +39,14 @@
 > `get_document_summary.doc_id` 不是 chunk ID，也不是文件路径。应使用 Web API
 > 文档列表/详情中的 `id`。旧数据若没有成功摄取记录，需重新摄取后才能通过 UUID
 > 跨集合解析。
+
+Task 06 还注册两个动态只读 Resource 模板：
+
+- `rag://documents/{document_id}/chunks/{chunk_id}`：返回授权后的精确 chunk JSON；
+- `rag://documents/{document_id}/assets/{asset_id}`：返回授权且确属该文档的有界图片资产。
+
+每次 Resource 读取都会重新校验 principal、document scope 与资源归属；URI 不接受路径、
+`.`/`..` 或编码斜杠，asset 还受 MIME 白名单和 10 MiB 上限约束。
 
 ## 0. 错误约定（MCP 2.0）
 

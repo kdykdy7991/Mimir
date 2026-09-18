@@ -16,7 +16,10 @@ Error semantics (plan §5 fault handling):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Protocol
+from typing import TYPE_CHECKING, Iterable, Protocol
+
+if TYPE_CHECKING:
+    from src.application.services.resource_limits import WorkloadLimiter
 
 from src.document_parser.base import ParserEngineInfo
 from src.document_parser.errors import ParseFailedError
@@ -78,13 +81,18 @@ class DocReaderClient:
         transport: DocReaderTransport,
         *,
         timeout: float = 300.0,
+        limiter: WorkloadLimiter | None = None,
     ) -> None:
         self._transport = transport
         self._timeout = timeout
+        self._limiter = limiter
 
     # -- public API ----------------------------------------------------------
     def parse(self, request: ParseRequest) -> ParsedDocument:
-        return self._collect(request, self._timeout)
+        if self._limiter is None:
+            return self._collect(request, self._timeout)
+        with self._limiter.acquire("docreader"):
+            return self._collect(request, self._timeout)
 
     def list_engines(self, timeout: float | None = None) -> list[ParserEngineInfo]:
         return self._transport.list_engines(timeout if timeout is not None else self._timeout)
