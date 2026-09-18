@@ -9,8 +9,9 @@ import { useApiResource } from "@/api/use-api-resource";
 import { Button, ErrorState, LoadingState, StatusBadge } from "@/components";
 import type { CollectionDetail, DocumentChunkDetail, DocumentDetail, TraceResponse } from "@/types";
 import { DOCUMENT_ACCEPT, documentExtension, parsingMethod } from "./document-presentation";
-import { traceStageDescription, traceStageLabel } from "../traces/trace-presentation";
+import { normalizeTraceStatus, traceStageDescription, traceStageLabel } from "../traces/trace-presentation";
 import { DocumentChunksPanel } from "./document-chunks-panel";
+import { DocumentTraceDrawer } from "../traces/document-trace-drawer";
 
 type DetailData = { collection: CollectionDetail; document: DocumentDetail; trace?: TraceResponse };
 
@@ -103,6 +104,8 @@ export function DocumentDetailView({ id }: { id: string }) {
   const [sourceMessage, setSourceMessage] = useState<string>();
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string>();
+  const [traceOpen, setTraceOpen] = useState(false);
+  const [liveTrace, setLiveTrace] = useState<TraceResponse>();
   const load = useCallback(async (signal: AbortSignal): Promise<DetailData> => {
     const document = await apiClient.getDocument(id, signal);
     const [collection, trace] = await Promise.all([
@@ -112,6 +115,27 @@ export function DocumentDetailView({ id }: { id: string }) {
     return { collection, document, ...(trace ? { trace } : {}) };
   }, [id]);
   const { data, error, loading, retry } = useApiResource(load);
+  const sourceTrace = data?.trace;
+  const currentTrace = liveTrace?.id === sourceTrace?.id ? liveTrace : sourceTrace;
+
+  useEffect(() => {
+    if (
+      !traceOpen ||
+      !currentTrace ||
+      normalizeTraceStatus(currentTrace.status) !== "running"
+    ) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void apiClient
+        .getIngestionTrace(currentTrace.id, controller.signal)
+        .then(setLiveTrace)
+        .catch(() => undefined);
+    }, globalThis.document.hidden ? 10_000 : 2_000);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [currentTrace, traceOpen]);
 
   async function reupload(file?: File) {
     if (!file || !data) return;
@@ -129,7 +153,8 @@ export function DocumentDetailView({ id }: { id: string }) {
     return <div className="app-container"><ErrorState {...(apiError?.code ? { code: apiError.code } : {})} {...(error instanceof Error ? { description: error.message } : {})} onRetry={retry} title="无法加载文档详情" /></div>;
   }
 
-  const { collection, document, trace } = data;
+  const { collection, document } = data;
+  const trace = currentTrace;
   const method = document.parser_engine ?? parsingMethod(document.filename);
   const parseWarnings = document.parse_warnings ?? [];
   const traceHref = document.last_task_id ? `/traces?type=ingestion&id=${document.last_task_id}` : document.last_query_id ? `/traces?type=query&id=${document.last_query_id}` : undefined;
@@ -142,8 +167,9 @@ export function DocumentDetailView({ id }: { id: string }) {
     {sourceMessage ? <p aria-live="polite" className="rounded-md border border-info/20 bg-info/5 px-4 py-3 text-sm text-muted-foreground">{sourceMessage}</p> : null}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(19rem,0.75fr)]"><section className="glass-surface rounded-xl p-5 sm:p-6" ref={previewRef}><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">原始文件预览</h2><p className="mt-1 text-sm text-muted-foreground">按原文件版式查看；检索分块不会用于重建这里的内容。</p></div>{document.page_count ? <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-medium">共 {document.page_count} 页</span> : <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-medium">保真预览</span>}</div><div className="mt-5"><OriginalFilePreview document={document} pdfPage={pdfPage} /></div></section>
       <div className="space-y-5"><section className="glass-surface rounded-xl p-5"><h2 className="text-lg font-semibold">处理信息</h2><dl className="mt-5 space-y-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">解析方式</dt><dd className="font-medium">{method}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">视觉处理</dt><dd className="font-medium">{document.vision_processed === true ? <span className="inline-flex items-center gap-1 text-accent"><Sparkles className="size-3.5" />已触发</span> : document.vision_processed === false ? "未触发（文本可用）" : "无可用记录"}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">表格识别</dt><dd className="font-medium">{document.table_count ?? 0} 个</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">图片处理</dt><dd className="font-medium">{document.image_count} 张</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">最近处理</dt><dd className="text-right font-medium">{date(document.updated_at)}</dd></div></dl></section>
-      <section className="glass-surface rounded-xl p-5"><div className="flex items-center gap-2"><Route className="size-4 text-primary" /><h2 className="text-lg font-semibold">处理流程</h2></div>{trace?.stages?.length ? <ol className="mt-5 space-y-4">{trace.stages.map((stage, index) => { const description = traceStageDescription(stage); const skipped = stage.details?.event === "skipped"; return <li className="flex gap-3" key={`${stage.name}-${index}`}><span className={`grid size-6 shrink-0 place-items-center rounded-full text-primary-foreground ${skipped ? "bg-muted-foreground" : "bg-primary"}`}><CheckCircle2 className="size-3.5" /></span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="text-sm font-semibold">{traceStageLabel(stage)}</p><p className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3" />{skipped ? "—" : duration(stage.duration_ms)}</p></div><p className="mt-0.5 text-xs text-muted-foreground">{description ?? date(stage.started_at)}</p></div></li>; })}</ol> : <p className="mt-4 text-sm text-muted-foreground">该文档没有可用的阶段 Trace。</p>}{traceHref ? <Link className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-primary" href={traceHref}>查看完整 Trace <span aria-hidden="true">→</span></Link> : null}</section></div></div>
+      <section className="glass-surface rounded-xl p-5"><div className="flex items-center gap-2"><Route className="size-4 text-primary" /><h2 className="text-lg font-semibold">处理流程</h2></div>{trace?.stages?.length ? <ol className="mt-5 space-y-4">{trace.stages.map((stage, index) => { const description = traceStageDescription(stage); const skipped = stage.details?.event === "skipped"; return <li className="flex gap-3" key={`${stage.name}-${index}`}><span className={`grid size-6 shrink-0 place-items-center rounded-full text-primary-foreground ${skipped ? "bg-muted-foreground" : "bg-primary"}`}><CheckCircle2 className="size-3.5" /></span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="text-sm font-semibold">{traceStageLabel(stage)}</p><p className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3" />{skipped ? "—" : duration(stage.duration_ms)}</p></div><p className="mt-0.5 text-xs text-muted-foreground">{description ?? date(stage.started_at)}</p></div></li>; })}</ol> : <p className="mt-4 text-sm text-muted-foreground">该文档没有可用的阶段 Trace。</p>}<div className="mt-5 flex flex-wrap gap-4">{trace ? <button className="inline-flex items-center gap-2 text-sm font-semibold text-primary" onClick={() => setTraceOpen(true)} type="button">查看处理时间线 <span aria-hidden="true">→</span></button> : null}{traceHref ? <Link className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground" href={traceHref}>打开全局 Trace <span aria-hidden="true">↗</span></Link> : null}</div></section></div></div>
     {parseWarnings.length ? <section className="flex items-start justify-between gap-4 rounded-xl border border-warning/30 bg-warning/5 p-4"><div className="flex gap-3"><AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" /><div><p className="font-semibold">检测到解析警告</p><ul className="mt-1 space-y-1 text-sm text-muted-foreground">{parseWarnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul><p className="mt-1 text-xs text-muted-foreground">警告不会隐藏已成功解析的内容，请结合预览进行核验。</p></div></div><span className="shrink-0 rounded-full border border-warning/30 px-2.5 py-1 text-xs text-warning">非阻断警告</span></section> : null}
     <DocumentChunksPanel documentId={document.id} onShowSource={(chunk: DocumentChunkDetail) => { const locator = chunk.source_locator; if (locator.kind === "pdf_page" && locator.page) { setPdfPage(locator.page); setSourceMessage(`已将原文件定位到第 ${locator.page} 页。`); } else if (locator.kind === "section") setSourceMessage(`已打开原文件预览；目标章节：${locator.heading || chunk.heading || "未命名章节"}。该格式暂不支持精确滚动。`); else if (locator.kind === "none") setSourceMessage("该格式暂无精确定位信息，已打开原文件预览。"); else setSourceMessage("已打开对应原文件预览。"); previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+    {trace ? <DocumentTraceDrawer onClose={() => setTraceOpen(false)} open={traceOpen} trace={trace} /> : null}
   </div>;
 }

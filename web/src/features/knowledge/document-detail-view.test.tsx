@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ids } from "@/test/mocks/fixtures";
 import { DocumentDetailView } from "./document-detail-view";
@@ -19,9 +19,14 @@ describe("DocumentDetailView", () => {
     expect((await screen.findAllByText("RAG 指南")).length).toBeGreaterThan(0);
     expect(screen.getByText("第 3 页存在低置信度文本")).toBeInTheDocument();
     expect(screen.queryByText("后端暂未提供")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /查看完整 Trace/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /打开全局 Trace/ })).toHaveAttribute(
       "href",
       `/traces?type=ingestion&id=${ids.task}`,
     );
+    fireEvent.click(screen.getByRole("button", { name: /查看处理时间线/ }));
+    expect(screen.getByRole("dialog", { name: "文档处理链路" })).toBeInTheDocument();
+    expect(screen.getByText("相对执行时间")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /索引写入/ }));
+    expect(screen.getByRole("tab", { name: "输入输出" })).toBeInTheDocument();
   });
 });
